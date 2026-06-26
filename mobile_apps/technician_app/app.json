@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "MyFixer Technician",
+    "slug": "myfixer-technician",
+    "version": "1.0.0",
+    "ios": {
+      "bundleIdentifier": "co.za.myfixer.technician",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "location",
+          "processing"
+        ]
+      }
+    },
+    "android": {
+      "package": "co.za.myfixer.technician",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysPermission": "Allow MyFixer to access your location to stream live updates to customers on active dispatches.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ]
+    ]
+  }
+}

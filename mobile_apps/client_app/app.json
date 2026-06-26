@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "MyFixer Client",
+    "slug": "myfixer-client",
+    "version": "1.0.0",
+    "ios": {
+      "bundleIdentifier": "co.za.myfixer.client"
+    },
+    "android": {
+      "package": "co.za.myfixer.client",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow MyFixer to show your position relative to the dispatch technician on the live map radar."
+        }
+      ]
+    ]
+  }
+}
