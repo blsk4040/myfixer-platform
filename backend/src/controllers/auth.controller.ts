@@ -22,9 +22,13 @@ const UserSchema = new mongoose.Schema({
 const User = mongoose.models.User || mongoose.model('User', UserSchema);
 
 // --- JWT Helper Generator ---
-const generateToken = (userId: string, role: string): string => {
-  const secret = process.env.JWT_SECRET || 'fallback_development_secret_key';
-  return jwt.sign({ id: userId, role }, secret, { expiresIn: '30d' });
+const generateToken = (userId: string, role: string, email: string): string => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET is not configured.');
+  }
+
+  return jwt.sign({ id: userId, _id: userId, role, email }, secret, { expiresIn: '30d' });
 };
 
 /**
@@ -68,7 +72,7 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
     });
 
     // 5. Auth Token Issuance Matrix
-    const token = generateToken(newUser._id.toString(), newUser.role);
+    const token = generateToken(newUser._id.toString(), newUser.role, newUser.email);
 
     res.status(201).json({
       status: 'success',
@@ -117,7 +121,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
     }
 
     // 4. Issue Valid Session Handshake Token
-    const token = generateToken(user._id.toString(), user.role);
+    const token = generateToken(user._id.toString(), user.role, user.email);
 
     res.status(200).json({
       status: 'success',

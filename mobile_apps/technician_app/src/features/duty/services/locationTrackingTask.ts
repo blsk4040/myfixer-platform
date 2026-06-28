@@ -38,7 +38,7 @@ export const clearBackgroundLocationUpdateEmitter = (): void => {
   locationUpdateEmitter = null;
 };
 
-TaskManager.defineTask(BACKGROUND_LOCATION_TASK, ({ data, error }) => {
+TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   if (error) {
     return;
   }
@@ -62,4 +62,3 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, ({ data, error }) => {
 
   void locationUpdateEmitter?.(payload);
 });
-

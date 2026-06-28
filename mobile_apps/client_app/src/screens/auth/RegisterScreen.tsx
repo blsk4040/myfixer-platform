@@ -66,7 +66,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
 
     setIsLoading(true);
     try {
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.3.3:5000/api/v1';
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.3.34:5000/api/v1';
       const response = await fetch(`${apiUrl}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

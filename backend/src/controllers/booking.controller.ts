@@ -174,6 +174,47 @@ export const createBooking = async (
 // ✅ FINALIZE INVOICE ENGINE WORKER
 // ==========================================
 
+export const getBookingById = async (
+  request: Request,
+  response: Response
+): Promise<void> => {
+  const { id } = request.params;
+
+  try {
+    const booking = await Booking.findById(id);
+    if (!booking) {
+      response.status(404).json({ message: 'Booking not found' });
+      return;
+    }
+
+    const [longitude, latitude] = booking.customerLocation.coordinates;
+
+    response.status(200).json({
+      id: booking.id,
+      status: booking.status,
+      customerId: booking.customerId,
+      customerName: booking.customerName,
+      applianceType: booking.applianceType,
+      faultDescription: booking.faultDescription,
+      fullAddress: booking.fullAddress,
+      complexDetails: booking.complexDetails,
+      generalArea: booking.generalArea,
+      price: booking.price,
+      currency: booking.currency,
+      customerLocation: {
+        latitude,
+        longitude,
+      },
+      technicianId: booking.technicianId,
+      createdAt: booking.createdAt,
+      updatedAt: booking.updatedAt,
+    });
+  } catch (error) {
+    console.error('Failed to fetch booking details:', error);
+    response.status(500).json({ message: 'Failed to fetch booking details' });
+  }
+};
+
 export const finalizeJobInvoice = async (
   request: Request,
   response: Response

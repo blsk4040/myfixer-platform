@@ -1,18 +1,20 @@
 // mobile_apps/client_app/src/screens/auth/LoginScreen.tsx
 import React, { useState } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  KeyboardAvoidingView, 
-  Platform, 
-  ScrollView,
+import {
   ActivityIndicator,
-  Alert 
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { LockKeyhole, Mail, ShieldCheck } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Colors, IconSizes, Radius, Shadows, Spacing, Typography } from '../../theme';
 
 export function LoginScreen({ navigation }: any): React.JSX.Element {
   const [email, setEmail] = useState('');
@@ -20,15 +22,14 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const handleLogin = async () => {
-    // Clean and validate variables safely
     const targetEmail = email ? email.trim() : '';
     const targetPassword = password ? password : '';
 
     if (!targetEmail || !targetPassword) {
-      Alert.alert("Authentication Failed", "Please populate all fields.");
+      Alert.alert('Authentication Failed', 'Please populate all fields.');
       return;
     }
-    
+
     setIsLoading(true);
     try {
       const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.3.34:5000/api/v1';
@@ -47,7 +48,6 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
         throw new Error(result.message || 'Invalid username or credentials.');
       }
 
-      // ✅ CHANGED: Redirect directly to Dashboard on successful authentication
       navigation?.replace('MainTabs');
     } catch (error: any) {
       Alert.alert('Access Denied', error.message || 'Network transport failure. Check host connection rules.');
@@ -58,62 +58,90 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoidingView}>
         <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-          
           <View style={styles.brandContainer}>
-            <Text style={styles.logoText}>MyFixer <Text style={styles.proAccent}>Pro</Text></Text>
-            <Text style={styles.tagline}>On-Demand Verified Field Specialists</Text>
+            <View style={styles.trustBadge} accessible accessibilityRole="text" accessibilityLabel="Secure MyFixer access">
+              <ShieldCheck color={Colors.primary} size={IconSizes.sm} />
+              <Text style={styles.trustBadgeText}>Secure client access</Text>
+            </View>
+
+            <Text style={styles.logoText}>
+              MyFixer <Text style={styles.proAccent}>Pro</Text>
+            </Text>
+            <Text style={styles.tagline}>On-demand verified field specialists</Text>
           </View>
 
           <View style={styles.formContainer}>
-            {/* Email Layer */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address</Text>
-              <TextInput 
-                style={styles.input}
-                placeholder="name@domain.com"
-                placeholderTextColor="#64748B"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                textContentType="username"
-                value={email}
-                onChangeText={setEmail}
-                onChange={(e) => setEmail(e.nativeEvent.text)} // ✅ FIX: Catches Autofill
-                editable={!isLoading}
-              />
+              <View style={styles.inputShell}>
+                <Mail color={Colors.textSubtle} size={IconSizes.md} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="name@domain.com"
+                  placeholderTextColor={Colors.textSubtle}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  textContentType="username"
+                  value={email}
+                  onChangeText={setEmail}
+                  onChange={(event) => setEmail(event.nativeEvent.text)}
+                  editable={!isLoading}
+                  accessibilityLabel="Email address"
+                  returnKeyType="next"
+                />
+              </View>
             </View>
 
-            {/* Password Layer */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Secure Password</Text>
-              <TextInput 
-                style={styles.input}
-                placeholder="••••••••••••"
-                placeholderTextColor="#64748B"
-                secureTextEntry
-                autoCapitalize="none"
-                textContentType="password"
-                value={password}
-                onChangeText={setPassword}
-                onChange={(e) => setPassword(e.nativeEvent.text)} // ✅ FIX: Catches Autofill
-                editable={!isLoading}
-              />
+              <View style={styles.inputShell}>
+                <LockKeyhole color={Colors.textSubtle} size={IconSizes.md} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your password"
+                  placeholderTextColor={Colors.textSubtle}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  autoComplete="password"
+                  textContentType="password"
+                  value={password}
+                  onChangeText={setPassword}
+                  onChange={(event) => setPassword(event.nativeEvent.text)}
+                  editable={!isLoading}
+                  accessibilityLabel="Password"
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                />
+              </View>
             </View>
 
-            {/* Forgot Password Link */}
-            <TouchableOpacity 
-              style={styles.forgotBtn} 
-              activeOpacity={0.7} 
+            <TouchableOpacity
+              style={styles.forgotBtn}
+              activeOpacity={0.7}
               onPress={() => navigation.navigate('ForgotPassword')}
               disabled={isLoading}
+              accessibilityRole="button"
+              accessibilityLabel="Forgot password"
             >
               <Text style={styles.forgotText}>Forgot Password?</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.loginBtn} activeOpacity={0.8} onPress={handleLogin} disabled={isLoading}>
+            <TouchableOpacity
+              style={[styles.loginBtn, isLoading && styles.loginBtnDisabled]}
+              activeOpacity={0.86}
+              onPress={handleLogin}
+              disabled={isLoading}
+              accessibilityRole="button"
+              accessibilityLabel={isLoading ? 'Signing in' : 'Secure sign in'}
+            >
               {isLoading ? (
-                <ActivityIndicator color="#090D14" />
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator color={Colors.background} />
+                  <Text style={styles.loginBtnText}>Signing In</Text>
+                </View>
               ) : (
                 <Text style={styles.loginBtnText}>Secure Sign In</Text>
               )}
@@ -122,11 +150,16 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
 
           <View style={styles.footerRow}>
             <Text style={styles.footerText}>New to the platform? </Text>
-            <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('Register')} disabled={isLoading}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('Register')}
+              disabled={isLoading}
+              accessibilityRole="button"
+              accessibilityLabel="Create account"
+            >
               <Text style={styles.registerText}>Create Account</Text>
             </TouchableOpacity>
           </View>
-
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -134,21 +167,100 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
-  scrollContainer: { flexGrow: 1, padding: 24, justifyContent: 'center' },
-  brandContainer: { alignItems: 'center', marginBottom: 40 },
-  logoText: { color: '#FFFFFF', fontSize: 32, fontWeight: '900', letterSpacing: -1 },
-  proAccent: { color: '#00FF87' },
-  tagline: { color: '#64748B', fontSize: 14, marginTop: 6, fontWeight: '500' },
-  formContainer: { width: '100%' },
-  inputGroup: { width: '100%', marginBottom: 16 },
-  inputLabel: { color: '#E2E8F0', fontSize: 13, fontWeight: '600', marginBottom: 8 },
-  input: { backgroundColor: '#111827', color: '#FFFFFF', padding: 15, borderRadius: 12, fontSize: 15, borderWidth: 1, borderColor: '#1E293B' },
-  forgotBtn: { alignSelf: 'flex-end', paddingVertical: 8 }, 
-  forgotText: { color: '#64748B', fontSize: 13, fontWeight: '500' },
-  loginBtn: { backgroundColor: '#00FF87', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 20 },
-  loginBtnText: { color: '#090D14', fontSize: 15, fontWeight: '700' },
-  footerRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 40 },
-  footerText: { color: '#64748B', fontSize: 14 },
-  registerText: { color: '#00FF87', fontSize: 14, fontWeight: '600' }
+  container: { flex: 1, backgroundColor: Colors.background },
+  keyboardAvoidingView: { flex: 1 },
+  scrollContainer: {
+    flexGrow: 1,
+    paddingHorizontal: Spacing.xxl,
+    paddingVertical: Spacing.xxxl,
+    justifyContent: 'center',
+  },
+  brandContainer: { alignItems: 'center', marginBottom: Spacing.huge },
+  trustBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.surface,
+    marginBottom: Spacing.lg,
+  },
+  trustBadgeText: {
+    color: Colors.textMuted,
+    fontSize: Typography.caption.fontSize,
+    fontWeight: Typography.caption.fontWeight,
+  },
+  logoText: {
+    color: Colors.white,
+    fontSize: Typography.hero.fontSize,
+    fontWeight: Typography.hero.fontWeight,
+  },
+  proAccent: { color: Colors.primary },
+  tagline: {
+    color: Colors.textSubtle,
+    fontSize: Typography.label.fontSize,
+    marginTop: Spacing.xs,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  formContainer: {
+    width: '100%',
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.card,
+    ...Shadows.card,
+  },
+  inputGroup: { width: '100%', marginBottom: Spacing.lg },
+  inputLabel: {
+    color: Colors.text,
+    fontSize: Typography.label.fontSize,
+    fontWeight: Typography.label.fontWeight,
+    marginBottom: Spacing.sm,
+  },
+  inputShell: {
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: Colors.background,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  input: {
+    flex: 1,
+    color: Colors.white,
+    fontSize: Typography.body.fontSize,
+    fontWeight: Typography.body.fontWeight,
+    paddingVertical: Platform.OS === 'ios' ? Spacing.lg : Spacing.md,
+  },
+  forgotBtn: { alignSelf: 'flex-end', paddingVertical: Spacing.sm },
+  forgotText: { color: Colors.textMuted, fontSize: Typography.label.fontSize, fontWeight: '600' },
+  loginBtn: {
+    minHeight: 54,
+    backgroundColor: Colors.primary,
+    padding: Spacing.lg,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.xl,
+  },
+  loginBtnDisabled: { backgroundColor: Colors.primaryPressed },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  loginBtnText: { color: Colors.background, fontSize: Typography.body.fontSize, fontWeight: '800' },
+  footerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: Spacing.xxxl,
+    flexWrap: 'wrap',
+  },
+  footerText: { color: Colors.textSubtle, fontSize: Typography.label.fontSize },
+  registerText: { color: Colors.primary, fontSize: Typography.label.fontSize, fontWeight: '700' },
 });

@@ -63,6 +63,7 @@ export default function BookingWizardScreen() {
   
   const [isSearchingProvider, setIsSearchingProvider] = useState(false);
   const [assignedProvider, setAssignedProvider] = useState<any>(null);
+  const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -111,18 +112,24 @@ export default function BookingWizardScreen() {
     try {
       const customerCoordinate = { latitude: Number(latitude), longitude: Number(longitude) };
       const formattedTimestamp = scheduleMode === 'NOW' ? 'Urgent / Right Now' : selectedDate.toLocaleString();
+      const pinnedAddress = `Pinned customer location (${customerCoordinate.latitude.toFixed(5)}, ${customerCoordinate.longitude.toFixed(5)})`;
 
       const response = await apiService.createBooking({
         customerId: CUSTOMER_ID,
+        customerName: 'Client',
         applianceType: `${subCategory} (${formattedTimestamp})`,
+        faultDescription: notes.trim() || 'No description provided.',
         latitude: customerCoordinate.latitude,
         longitude: customerCoordinate.longitude,
         price: basePrice,
         currency: 'ZAR',
+        fullAddress: pinnedAddress,
+        generalArea: category || 'Local Area',
       });
 
       const socket = socketService.initializeConnection();
       socketService.joinBookingRoom(response.bookingId);
+      setCreatedBookingId(response.bookingId);
 
       socket.emit('request_technician', {
         bookingId: response.bookingId,
@@ -184,7 +191,13 @@ export default function BookingWizardScreen() {
               <View style={styles.providerActions}>
                 <TouchableOpacity style={styles.actionIconBtn}><Phone color="#00FF87" size={18} /></TouchableOpacity>
                 <TouchableOpacity style={styles.actionIconBtn}><MessageSquare color="#38BDF8" size={18} /></TouchableOpacity>
-                <TouchableOpacity style={styles.trackBtn} onPress={() => navigation.navigate('TrackingScreen', { bookingId: 'mock-id' })}><Text style={styles.trackBtnText}>Track On Map</Text></TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.trackBtn}
+                  onPress={() => navigation.navigate('TrackingMain', { bookingId: createdBookingId })}
+                  disabled={!createdBookingId}
+                >
+                  <Text style={styles.trackBtnText}>Track On Map</Text>
+                </TouchableOpacity>
               </View>
             </View>
           )}

@@ -134,9 +134,11 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
     };
 
     socketService.joinBookingRoom(resolvedBookingId);
+    socket.on('job_location_changed', handleTechnicianLocationUpdated);
     socket.on('technician_location_updated', handleTechnicianLocationUpdated);
 
     return () => {
+      socket.off('job_location_changed', handleTechnicianLocationUpdated);
       socket.off('technician_location_updated', handleTechnicianLocationUpdated);
     };
   }, [resolvedBookingId]);

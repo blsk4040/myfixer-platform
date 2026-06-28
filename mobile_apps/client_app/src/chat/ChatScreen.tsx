@@ -12,7 +12,7 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { io, Socket } from 'socket.io-client';
+import socketService from '../services/socket.service';
 
 interface ChatMessage {
   id: string;
@@ -23,30 +23,34 @@ interface ChatMessage {
 
 export function ChatScreen({ route }: any): React.JSX.Element {
   // Pull parameters passed from the active job allocation context safely
-  const { jobId, techName } = route?.params || { jobId: 'JOB-9921', techName: 'Andrew Murray' };
+  const { bookingId, jobId, techName } = route?.params || { bookingId: 'JOB-9921', jobId: 'JOB-9921', techName: 'Andrew Murray' };
+  const chatId = bookingId ?? jobId;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isConnected, setIsConnected] = useState<boolean>(false);
   
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<ReturnType<typeof socketService.initializeConnection> | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
     // Connect to your unified platform socket engine instance 
-    socketRef.current = io('https://api.myfixer.co.za', {
-      transports: ['websocket']
-    });
+    socketRef.current = socketService.initializeConnection();
 
     const socket = socketRef.current;
 
     socket.on('connect', () => {
       setIsConnected(true);
-      console.log(`[ChatSocket] Linked. Joining chat room for: ${jobId}`);
+      console.log(`[ChatSocket] Linked. Joining chat room for: ${chatId}`);
       
       // Request server to place this socket socket line inside the correct chat room
-      socket.emit('join_chat_room', { jobId, role: 'client' });
+      socket.emit('join_chat_room', { bookingId: chatId });
     });
+
+    if (socket.connected) {
+      setIsConnected(true);
+      socket.emit('join_chat_room', { bookingId: chatId });
+    }
 
     // Handle incoming messages dispatched from the technician app
     socket.on('incoming_chat_msg', (msg: ChatMessage) => {
@@ -71,9 +75,8 @@ export function ChatScreen({ route }: any): React.JSX.Element {
       socket.off('incoming_chat_msg');
       socket.off('connect');
       socket.off('connect_error');
-      socket.disconnect();
     };
-  }, [jobId, techName]);
+  }, [chatId, techName]);
 
   const handleSendMessage = () => {
     if (!inputText.trim() || !socketRef.current) return;
@@ -86,7 +89,7 @@ export function ChatScreen({ route }: any): React.JSX.Element {
     };
 
     // Emit out message payload to the server room conduit matrix immediately
-    socketRef.current.emit('send_chat_msg', { jobId, message: newMessage });
+    socketRef.current.emit('send_chat_msg', { bookingId: chatId, message: newMessage });
 
     // Append localized status state directly to screen view for instant confirmation
     setMessages((prev) => [...prev, newMessage]);
@@ -112,7 +115,7 @@ export function ChatScreen({ route }: any): React.JSX.Element {
       <View style={styles.chatHeader}>
         <View>
           <Text style={styles.techTitle}>{techName}</Text>
-          <Text style={styles.jobRef}>Ticket Reference: {jobId}</Text>
+          <Text style={styles.jobRef}>Ticket Reference: {chatId}</Text>
         </View>
         <View style={styles.statusRow}>
           <View style={[styles.statusIndicator, { backgroundColor: isConnected ? '#00FF87' : '#EF4444' }]} />

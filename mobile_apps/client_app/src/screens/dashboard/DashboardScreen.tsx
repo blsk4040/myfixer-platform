@@ -13,10 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
-  History as LucideHistory, 
   User as LucideUser, 
-  CreditCard as LucideCreditCard, 
-  ChevronRight as LucideChevronRight,
   Zap as LucideZap,
   Droplet as LucideDroplet,
   X as LucideX,
@@ -26,10 +23,7 @@ import {
   Hammer as LucideHammer
 } from 'lucide-react-native';
 
-const History = LucideHistory as any;
 const User = LucideUser as any;
-const CreditCard = LucideCreditCard as any;
-const ChevronRight = LucideChevronRight as any;
 const Zap = LucideZap as any;
 const Droplet = LucideDroplet as any;
 const X = LucideX as any;
@@ -94,7 +88,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
       subtitle: 'Deep home & office sanitizing',
       icon: Droplet,
       imageSource: CleaningIcon,
-      isCustomImage: true, // ✅ Fixed
+      isCustomImage: true,
       color: '#10B981',
       subCategories: [
         { name: 'Regular House Cleaning', basePrice: 250 },
@@ -110,7 +104,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
       subtitle: 'Tripping boards & wiring',
       icon: Zap,
       imageSource: ElectricalIcon,
-      isCustomImage: true, // ✅ Fixed
+      isCustomImage: true,
       color: '#FBBF24',
       subCategories: [
         { name: 'Fault Finding / Tripping', basePrice: 450 },
@@ -125,7 +119,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
       subtitle: 'Leaks, drains & burst geysers',
       icon: Wrench,
       imageSource: PlumberIcon,
-      isCustomImage: true, // ✅ Fixed
+      isCustomImage: true,
       color: '#3B82F6',
       subCategories: [
         { name: 'Burst Geyser Emergency', basePrice: 750 },
@@ -140,7 +134,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
       subtitle: 'Interior & exterior walls',
       icon: Paintbrush,
       imageSource: PainterIcon,
-      isCustomImage: true, // ✅ Fixed
+      isCustomImage: true,
       color: '#EC4899',
       subCategories: [
         { name: 'Interior Wall Painting', basePrice: 650 },
@@ -155,7 +149,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
       subtitle: 'Lawn trimming & yard cleanups',
       icon: Sprout,
       imageSource: GardeningIcon,
-      isCustomImage: true, // ✅ Fixed
+      isCustomImage: true,
       color: '#84CC16',
       subCategories: [
         { name: 'Once-off Yard Cleanup', basePrice: 350 },
@@ -170,7 +164,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
       subtitle: 'Handyman tasks & structural fixes',
       icon: Hammer,
       imageSource: MaintenanceIcon,
-      isCustomImage: true, // ✅ Fixed
+      isCustomImage: true,
       color: '#64748B',
       subCategories: [
         { name: 'TV Bracket Mounting', basePrice: 250 },
@@ -204,7 +198,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
             <Text style={styles.welcomeText}>Good Day 👋</Text>
             <Text style={styles.brandText}>Find a <Text style={styles.proAccent}>Fixer</Text></Text>
           </View>
-          <TouchableOpacity style={styles.profileAvatar} onPress={() => navigation.navigate('Profile')}>
+          <TouchableOpacity style={styles.profileAvatar} onPress={() => navigation.navigate('Account')}>
             <User color="#090D14" size={20} strokeWidth={2.5} />
           </TouchableOpacity>
         </View>
@@ -249,19 +243,6 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
             </TouchableOpacity>
           ))}
         </View>
-
-        <Text style={styles.sectionTitle}>Account & Management</Text>
-        <View style={styles.actionMenu}>
-          <TouchableOpacity style={styles.menuRow} onPress={() => navigation.navigate('BookingHistory')}>
-            <View style={styles.menuLeft}><History color="#64748B" size={18} /><Text style={styles.menuText}>My Active Requests</Text></View>
-            <ChevronRight color="#334155" size={16} />
-          </TouchableOpacity>
-          <View style={styles.menuDivider} />
-          <TouchableOpacity style={styles.menuRow} onPress={() => navigation.navigate('Payment')}>
-            <View style={styles.menuLeft}><CreditCard color="#64748B" size={18} /><Text style={styles.menuText}>Wallet & Payments</Text></View>
-            <ChevronRight color="#334155" size={16} />
-          </TouchableOpacity>
-        </View>
       </ScrollView>
 
       <Modal visible={modalVisible} animationType="slide" transparent={true} onRequestClose={() => setModalVisible(false)}>
@@ -298,7 +279,10 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#090D14' },
-  scrollContainer: { padding: 20 },
+  scrollContainer: { 
+    padding: 20,
+    paddingBottom: 90
+  },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   welcomeText: { color: '#64748B', fontSize: 14, fontWeight: '500' },
   brandText: { color: '#FFFFFF', fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
@@ -312,7 +296,6 @@ const styles = StyleSheet.create({
   heroBadgeText: { color: '#00FF87', fontSize: 9, fontWeight: '700', textTransform: 'uppercase' },
   sectionTitle: { color: '#E2E8F0', fontSize: 15, fontWeight: '700', marginBottom: 16, letterSpacing: 0.3 },
   gridContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 28 },
-  
   gridTile: { 
     width: GRID_SIZE, 
     height: GRID_SIZE + 50, 
@@ -344,12 +327,6 @@ const styles = StyleSheet.create({
   },
   tileTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   tileSubtitle: { color: '#64748B', fontSize: 11, marginTop: 3, lineHeight: 15 },
-  
-  actionMenu: { backgroundColor: '#111827', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', paddingVertical: 4 },
-  menuRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14 },
-  menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  menuText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  menuDivider: { height: 1, backgroundColor: '#1E293B', marginHorizontal: 16 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#111827', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderTopWidth: 1, borderColor: '#1E293B', maxHeight: height * 0.6 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },

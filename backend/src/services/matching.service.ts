@@ -1,5 +1,3 @@
-import Booking from '../models/booking.model';
-
 class MatchingService {
   /**
    * Finds nearby technicians using MongoDB's native 2dsphere geospatial indexing.
@@ -21,8 +19,8 @@ class MatchingService {
       
       console.info(`🔍 Spatial lookup triggered in MongoDB for coordinates: [Lat: ${latitude}, Lng: ${longitude}]`);
       
-      // Returning mock active technician IDs to keep your booking submission flow fully functional
-      return ['tech_01_johannesburg', 'tech_02_east_rand'];
+      // Local testing IDs. Replace with the real geo-query above before production launch.
+      return ['tech_drew_001', 'tech_01_johannesburg', 'tech_02_east_rand'];
     } catch (error) {
       console.error('Failed to query nearby technicians from MongoDB:', error);
       return [];

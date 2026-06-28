@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://192.168.3.34:5000/api';
+const API_BASE_URL = 'http://192.168.3.34:5000/api/v1';
 
 export interface Coordinate {
   latitude: number;
@@ -26,11 +26,16 @@ export type CurrencyCode = 'ZAR' | 'GHS';
 
 export interface CreateBookingRequest {
   customerId: string;
+  customerName?: string;
   applianceType: string;
+  faultDescription?: string;
   latitude: number;
   longitude: number;
   price: number;
   currency: CurrencyCode;
+  fullAddress?: string;
+  complexDetails?: string;
+  generalArea?: string;
 }
 
 export interface CreateBookingResponse {
@@ -67,11 +72,16 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({
         customer_id: payload.customerId,
+        customer_name: payload.customerName,
         appliance_type: payload.applianceType,
+        fault_description: payload.faultDescription,
         latitude: payload.latitude,
         longitude: payload.longitude,
-        price: payload.price,
+        call_out_fee: payload.price,
         currency: payload.currency,
+        full_address: payload.fullAddress,
+        complex_details: payload.complexDetails,
+        general_area: payload.generalArea,
       }),
     });
   }

@@ -7,13 +7,13 @@ import {
   TouchableOpacity, 
   ActivityIndicator, 
   Alert,
-  Platform
+  Platform,
+  ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { io, Socket } from 'socket.io-client'; 
-import { initiateNativeCall } from '../../utils/communications'; // Native call helper
+import { initiateNativeCall } from '../../utils/communications'; 
+import socketService from '../../services/socket.service';
 
-// Type structure matching incoming real-time backend updates
 interface TechnicianLocation {
   latitude: number;
   longitude: number;
@@ -23,67 +23,66 @@ interface TechnicianLocation {
 }
 
 export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
-  // Extract route parameters safely with production fallbacks
-  const { jobId, techName, techPhone } = route?.params || { 
-    jobId: 'JOB-9921', 
+  const { bookingId, jobId, techName, techPhone } = route?.params || { 
+    bookingId: 'JOB-9921',
+    jobId: 'JOB-9921',
     techName: 'Andrew Murray',
-    techPhone: '+27821234567' // Fallback number for the specialist
+    techPhone: '+27821234567' 
   };
+  const trackingId = bookingId ?? jobId;
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [techLocation, setTechLocation] = useState<TechnicianLocation | null>(null);
-  const [eta, setEta] = useState<number>(14); // Estimated time in minutes
+  const [eta, setEta] = useState<number>(14); 
 
   useEffect(() => {
-    // 1. Establish production websocket link to backend engine
-    const socket: Socket = io('https://api.myfixer.co.za', {
-      transports: ['websocket'], // Forces fast websocket transport protocol layer
-    });
+    const socket = socketService.initializeConnection();
 
     socket.on('connect', () => {
-      console.log(`[Socket] Connected to backend grid pipeline. Socket ID: ${socket.id}`);
+      console.log(`[Socket] Connected. ID: ${socket.id}`);
       setIsLoading(false);
-
-      // 2. Instantly bind this client session into the dedicated job tracking channel room
-      socket.emit('join_job_room', { jobId, role: 'client' });
+      socketService.joinBookingRoom(trackingId);
     });
 
-    // 3. Listen for live spatial updates emitted from the assigned technician app
-    socket.on('job_location_changed', (data: TechnicianLocation) => {
-      console.log('⚡ Real-time technician telemetry frame received:', data);
-      setTechLocation(data);
+    if (socket.connected) {
+      setIsLoading(false);
+      socketService.joinBookingRoom(trackingId);
+    }
 
-      // Dynamic calculation: If technician is moving, progressively decrement estimated arrival time
+    socket.on('job_location_changed', (data: TechnicianLocation) => {
+      console.log('⚡ Telemetry received:', data);
+      setTechLocation(data);
       if (data.speed > 5) {
         setEta((currentEta) => (currentEta > 2 ? currentEta - 1 : 2));
       }
     });
 
     socket.on('connect_error', (error) => {
-      console.error('[Socket] Connection handshake failed:', error);
-      setIsLoading(false); // Fails gracefully to let the UI map layout overlay stack render
+      console.error('[Socket] Connection failed:', error);
+      setIsLoading(false); 
     });
 
-    // 4. Complete cleanup handling sequence to prevent memory leaks on screen exit
     return () => {
-      console.log(`[Socket] Tearing down active stream conduit for job context: ${jobId}`);
+      console.log(`[Socket] Tearing down stream for: ${trackingId}`);
       socket.off('job_location_changed');
       socket.off('connect');
       socket.off('connect_error');
-      socket.disconnect();
     };
-  }, [jobId]);
+  }, [trackingId]);
 
   const handleCallSpecialist = () => {
-    // Direct trigger connection straight to the OS dialer tray
     initiateNativeCall(techPhone);
+  };
+
+  const handleChatSpecialist = () => {
+    Alert.alert('In-App Chat', 'Chat pipeline initialization coming soon.');
   };
 
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#00FF87" />
-        <Text style={styles.loadingText}>Connecting to Real-Time Dispatch Grid...</Text>
+        <Text style={styles.loadingText}>Connecting to Live Dispatch Grid...</Text>
       </View>
     );
   }
@@ -91,8 +90,8 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       
-      {/* 🗺️ MAP SURFACE CONTAINER PLACEHOLDER */}
-      <View style={styles.mapViewportMock}>
+      {/* 🗺️ MAP SURFACE - Restricted to 45% screen height */}
+      <View style={styles.mapViewport}>
         <View style={styles.mapGridLinesSim}>
           <Text style={styles.mapWatermark}>MapTiler Vector Layer Active</Text>
           {techLocation ? (
@@ -104,43 +103,77 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
               </Text>
             </View>
           ) : (
-            <Text style={styles.searchingText}>Awaiting active GPS beacon signals...</Text>
+            <Text style={styles.searchingText}>Awaiting GPS beacon signal...</Text>
           )}
         </View>
       </View>
 
-      {/* 🎛️ FLOATING REAL-TIME TELEMETRY PANEL HUD */}
-      <View style={styles.hudPanel}>
-        <View style={styles.hudHeaderRow}>
-          <View>
-            <Text style={styles.techNameText}>{techName}</Text>
-            <Text style={styles.techMetaText}>MyFixer Dispatched Specialist</Text>
+      {/* 🎛️ SCROLLABLE HUD DELIVERY PANEL */}
+      <View style={styles.hudWrapper}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false} 
+          contentContainerStyle={styles.hudScrollBody}
+        >
+          {/* Identity Block */}
+          <View style={styles.identityContainer}>
+            <View style={styles.metaLeft}>
+              <Text style={styles.techNameText} numberOfLines={1}>👤 {techName}</Text>
+              <Text style={styles.techMetaText}>★ 4.9 Verified Specialist</Text>
+            </View>
+            <View style={styles.etaBadgeSmall}>
+              <Text style={styles.etaNumberSmall}>{eta}</Text>
+              <Text style={styles.etaUnitSmall}>MINS</Text>
+            </View>
           </View>
-          <View style={styles.etaBadge}>
-            <Text style={styles.etaNumber}>{eta}</Text>
-            <Text style={styles.etaUnit}>MINS</Text>
-          </View>
-        </View>
 
-        <View style={styles.telemetryMetricsRow}>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricLabel}>STATUS</Text>
-            <Text style={styles.metricValueText}>
-              {techLocation ? '🟢 En Route' : '🟡 Connecting...'}
-            </Text>
+          {/* Metric Grid Layer */}
+          <View style={styles.metricGrid}>
+            <View style={styles.gridItem}>
+              <Text style={styles.metricLabel}>STATUS</Text>
+              <Text style={styles.metricValueText}>
+                {techLocation ? '🟢 En Route' : '🟡 Dispatched'}
+              </Text>
+            </View>
+            <View style={styles.gridItem}>
+              <Text style={styles.metricLabel}>LAST GPS</Text>
+              <Text style={styles.metricValueText}>
+                {techLocation ? 'Just now' : 'Connecting...'}
+              </Text>
+            </View>
           </View>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricLabel}>TELEMETRY UPDATES</Text>
-            <Text style={styles.metricValueText}>
-              {techLocation ? 'Active Live Stream' : 'Awaiting Pipeline'}
-            </Text>
-          </View>
-        </View>
 
-        {/* Call Communications Button */}
-        <TouchableOpacity style={styles.actionButton} activeOpacity={0.8} onPress={handleCallSpecialist}>
-          <Text style={styles.actionButtonText}>📞 Call Dispatched Provider</Text>
-        </TouchableOpacity>
+          <View style={styles.metricGrid}>
+            <View style={styles.gridItem}>
+              <Text style={styles.metricLabel}>SPEED</Text>
+              <Text style={styles.metricValueText}>
+                {techLocation && techLocation.speed > 0 ? `${Math.round(techLocation.speed)} km/h` : '0 km/h'}
+              </Text>
+            </View>
+            <View style={styles.gridItem}>
+              <Text style={styles.metricLabel}>TRACKING ID</Text>
+              <Text style={styles.metricValueText} numberOfLines={1}>{trackingId}</Text>
+            </View>
+          </View>
+
+          {/* Double Action Row */}
+          <View style={styles.actionRow}>
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.callButton]} 
+              activeOpacity={0.8} 
+              onPress={handleCallSpecialist}
+            >
+              <Text style={styles.actionButtonText}>📞 Call</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.chatButton]} 
+              activeOpacity={0.8} 
+              onPress={handleChatSpecialist}
+            >
+              <Text style={styles.actionButtonText}>💬 Chat</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </View>
 
     </SafeAreaView>
@@ -151,25 +184,42 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#090D14' },
   loadingContainer: { flex: 1, backgroundColor: '#090D14', justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#64748B', fontSize: 14, marginTop: 12, fontWeight: '600' },
-  mapViewportMock: { flex: 1, backgroundColor: '#111827', marginHorizontal: 16, marginTop: 10, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: '#1E293B' },
+  
+  // Map sizing configuration
+  mapViewport: { height: '45%', backgroundColor: '#111827', marginHorizontal: 16, marginTop: 10, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: '#1E293B' },
   mapGridLinesSim: { flex: 1, justifyContent: 'center', alignItems: 'center', position: 'relative' },
-  mapWatermark: { color: '#1E293B', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 2, position: 'absolute', bottom: 16 },
+  mapWatermark: { color: '#1E293B', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 2, position: 'absolute', bottom: 16 },
   techMarkerPulse: { alignItems: 'center', position: 'absolute' },
   markerIcon: { fontSize: 32 },
   markerBadgeText: { color: '#00FF87', fontSize: 11, fontWeight: '700', backgroundColor: '#090D14', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#1E293B', marginTop: 4, overflow: 'hidden' },
   telemetryMiniText: { color: '#64748B', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', marginTop: 2 },
   searchingText: { color: '#475569', fontSize: 13, fontWeight: '500' },
-  hudPanel: { backgroundColor: '#111827', margin: 16, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#1E293B', shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 10 },
-  hudHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  techNameText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
-  techMetaText: { color: '#64748B', fontSize: 12, marginTop: 2 },
-  etaBadge: { backgroundColor: '#00FF8710', borderWidth: 1, borderColor: '#00FF87', borderRadius: 12, width: 64, height: 64, justifyContent: 'center', alignItems: 'center' },
-  etaNumber: { color: '#00FF87', fontSize: 22, fontWeight: '800', lineHeight: 24 },
-  etaUnit: { color: '#00FF87', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
-  telemetryMetricsRow: { flexDirection: 'row', gap: 20, marginTop: 16, borderTopWidth: 1, borderTopColor: '#1E293B', paddingTop: 16, marginBottom: 20 },
-  metricItem: { flex: 1 },
+  
+  // Safe layout containers
+  hudWrapper: { flex: 1, backgroundColor: '#111827', margin: 16, marginTop: 8, borderRadius: 20, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden' },
+  hudScrollBody: { padding: 20, paddingBottom: 40 },
+  
+  // Identity elements
+  identityContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1E293B', paddingBottom: 16, marginBottom: 16 },
+  metaLeft: { flex: 1, paddingRight: 12 },
+  techNameText: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
+  techMetaText: { color: '#00FF87', fontSize: 12, fontWeight: '600', marginTop: 4 },
+  
+  // Optimized space-conscious ETA badge
+  etaBadgeSmall: { backgroundColor: '#00FF8710', borderWidth: 1, borderColor: '#00FF87', borderRadius: 10, width: 52, height: 52, justifyContent: 'center', alignItems: 'center' },
+  etaNumberSmall: { color: '#00FF87', fontSize: 18, fontWeight: '800', lineHeight: 20 },
+  etaUnitSmall: { color: '#00FF87', fontSize: 8, fontWeight: '700', marginTop: 1 },
+  
+  // Anti-wrapping grid systems
+  metricGrid: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  gridItem: { flex: 1, backgroundColor: '#090D14', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#1E293B' },
   metricLabel: { color: '#64748B', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
   metricValueText: { color: '#E2E8F0', fontSize: 13, fontWeight: '600', marginTop: 4 },
-  actionButton: { backgroundColor: '#1E293B', padding: 15, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
+  
+  // Composed actions bar
+  actionRow: { flexDirection: 'row', gap: 12, marginTop: 12 },
+  actionButton: { flex: 1, padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  callButton: { backgroundColor: '#1E293B', borderColor: '#334155' },
+  chatButton: { backgroundColor: '#090D14', borderColor: '#1E293B' },
   actionButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' }
 });

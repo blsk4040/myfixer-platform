@@ -19,16 +19,81 @@ interface ProfileOption {
 
 export function ProfileScreen({ navigation }: any): React.JSX.Element {
   const accountOptions: ProfileOption[] = [
-    { title: 'Payment Instruments', subtitle: 'Manage active cards & billing addresses', icon: '💳', actionKey: 'Payments' },
-    { title: 'Service Addresses', subtitle: 'Saved home, business, and secondary drop locations', icon: '📍', actionKey: 'Addresses' },
-    { title: 'Security & Verification', subtitle: 'Biometrics, passkeys & multi-factor options', icon: '🔒', actionKey: 'Security' },
+    {
+      title: 'Booking History',
+      subtitle: 'View all completed service requests',
+      icon: '🕒',
+      actionKey: 'History',
+    },
+    {
+      title: 'Active Requests',
+      subtitle: 'Track jobs currently in progress',
+      icon: '🚚',
+      actionKey: 'Activity',
+    },
+    {
+      title: 'Wallet & Payments',
+      subtitle: 'Manage cards and payment methods',
+      icon: '💳',
+      actionKey: 'Payments',
+    },
+    {
+      title: 'Saved Addresses',
+      subtitle: 'Manage your service locations',
+      icon: '📍',
+      actionKey: 'Addresses',
+    },
+    {
+      title: 'Security',
+      subtitle: 'Password and account protection',
+      icon: '🔒',
+      actionKey: 'Security',
+    },
+    {
+      title: 'Help & Support',
+      subtitle: 'Get assistance with your account',
+      icon: '❓',
+      actionKey: 'Support',
+    },
   ];
 
   const handleAction = (key: string) => {
-    if (key === 'Payments') {
-      Alert.alert("Secure Element Access", "Directing to encrypted vault repository configuration.");
-    } else {
-      console.log(`Executing option route step: ${key}`);
+    switch (key) {
+      case 'History':
+        navigation.navigate('History');
+        break;
+
+      case 'Activity':
+        navigation.navigate('Activity');
+        break;
+
+      case 'Payments':
+        Alert.alert(
+          'Wallet & Payments',
+          'This feature will be available soon.'
+        );
+        break;
+
+      case 'Addresses':
+        Alert.alert(
+          'Saved Addresses',
+          'Address management is coming soon.'
+        );
+        break;
+
+      case 'Security':
+        Alert.alert(
+          'Security',
+          'Security settings will be available soon.'
+        );
+        break;
+
+      case 'Support':
+        Alert.alert(
+          'Support',
+          'Support Centre coming soon.'
+        );
+        break;
     }
   };
 
@@ -48,15 +113,54 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
           <View style={styles.avatarMock}>
             <Text style={styles.avatarText}>JD</Text>
           </View>
+          
           <Text style={styles.userName}>John Doe</Text>
           <Text style={styles.userEmail}>johndoe@myfixer.co.za</Text>
+
+          {/* User Engagement Metrics */}
+          <View
+            style={{
+              flexDirection: 'row',
+              marginTop: 18,
+              justifyContent: 'space-around',
+              width: '100%',
+            }}
+          >
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '700' }}>
+                12
+              </Text>
+              <Text style={{ color: '#64748B', fontSize: 11 }}>
+                Bookings
+              </Text>
+            </View>
+
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '700' }}>
+                4.9★
+              </Text>
+              <Text style={{ color: '#64748B', fontSize: 11 }}>
+                Rating
+              </Text>
+            </View>
+
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '700' }}>
+                3
+              </Text>
+              <Text style={{ color: '#64748B', fontSize: 11 }}>
+                Active
+              </Text>
+            </View>
+          </View>
+
           <View style={styles.verificationBadge}>
             <Text style={styles.badgeText}>🛡️ Verified Customer Profile</Text>
           </View>
         </View>
 
         {/* Configuration Menus Options Selection Stack */}
-        <Text style={styles.sectionTitle}>Account Profiles & Assets</Text>
+        <Text style={styles.sectionTitle}>My Account</Text>
         <View style={styles.menuStack}>
           {accountOptions.map((opt, idx) => (
             <TouchableOpacity 
@@ -67,7 +171,7 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
             >
               <View style={styles.menuLeft}>
                 <Text style={styles.menuIcon}>{opt.icon}</Text>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={styles.menuTitle}>{opt.title}</Text>
                   <Text style={styles.menuSubtitle}>{opt.subtitle}</Text>
                 </View>
@@ -79,7 +183,7 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
 
         {/* System Session Signout Button */}
         <TouchableOpacity style={styles.signOutBtn} activeOpacity={0.8} onPress={handleSignOut}>
-          <Text style={styles.signOutText}>Terminate Active Session</Text>
+          <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
 
       </ScrollView>
@@ -89,7 +193,7 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#090D14' },
-  scrollContainer: { padding: 20 },
+  scrollContainer: { padding: 20, paddingBottom: 110 },
   profileHeroCard: { backgroundColor: '#111827', borderRadius: 20, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: '#1E293B', marginBottom: 28 },
   avatarMock: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#00FF8720', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#00FF87', marginBottom: 14 },
   avatarText: { color: '#00FF87', fontSize: 24, fontWeight: '700' },
