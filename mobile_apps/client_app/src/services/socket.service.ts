@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client';
+import { assertConfiguredUrl, getSocketUrl } from '../config/runtime.config';
 
-const BACKEND_ENGINE_URL = 'http://192.168.3.34:5000';
+const BACKEND_ENGINE_URL = getSocketUrl();
 const CUSTOMER_ROLE_HEADER = 'CUSTOMER';
 
 class SocketService {
@@ -10,6 +11,8 @@ class SocketService {
     if (this.socket) {
       return this.socket;
     }
+
+    assertConfiguredUrl(BACKEND_ENGINE_URL, 'EXPO_PUBLIC_SOCKET_URL');
 
     this.socket = io(BACKEND_ENGINE_URL, {
       transports: ['websocket'],

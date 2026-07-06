@@ -1,74 +1,140 @@
 // src/screens/profile/AddressesScreen.tsx
-import React, { useState } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  ScrollView, 
-  TouchableOpacity, 
-  Alert 
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Location from 'expo-location';
+import apiService from '../../services/api.service';
+import authService from '../../services/auth.service';
 
-interface SavedAddress {
-  id: string;
-  label: string;
-  address: string;
-  icon: string;
-}
+export function AddressesScreen(): React.JSX.Element {
+  const [streetAddress, setStreetAddress] = useState('');
+  const [suburb, setSuburb] = useState('');
+  const [city, setCity] = useState('');
+  const [postalCode, setPostalCode] = useState('');
+  const [latitude, setLatitude] = useState<number | undefined>(undefined);
+  const [longitude, setLongitude] = useState<number | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-export function AddressesScreen({ navigation }: any): React.JSX.Element {
-  // Mock data setup mirroring future database collections
-  const [addresses, setAddresses] = useState<SavedAddress[]>([
-    { id: '1', label: 'Home', address: '42 Beach Road, Sea Point, Cape Town, 8005', icon: '🏠' },
-    { id: '2', label: 'Office', address: '102 Rivonia Road, Sandton, Johannesburg, 2196', icon: '💼' },
-  ]);
+  useEffect(() => {
+    apiService.getMyProfile()
+      .then((response) => {
+        const address = response.profile.defaultServiceAddress;
+        setStreetAddress(address?.streetAddress || '');
+        setSuburb(address?.suburb || '');
+        setCity(address?.city || response.profile.location?.city || '');
+        setPostalCode(address?.postalCode || '');
+        const coordinates = address?.coordinates?.coordinates;
+        if (coordinates?.length === 2) {
+          setLongitude(coordinates[0]);
+          setLatitude(coordinates[1]);
+        }
+      })
+      .catch((error: Error) => Alert.alert('Saved Address', error.message))
+      .finally(() => setLoading(false));
+  }, []);
 
-  const handleAddAddress = () => {
-    Alert.alert('Add Address', 'Address lookup via Google Places / MapTiler API pipeline coming soon.');
-  };
-
-  const handleDeleteAddress = (id: string, label: string) => {
-    Alert.alert('Remove Address', `Are you sure you want to delete "${label}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Delete', 
-        style: 'destructive', 
-        onPress: () => setAddresses(prev => prev.filter(item => item.id !== id)) 
+  const useCurrentLocation = async () => {
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== Location.PermissionStatus.GRANTED) {
+        Alert.alert('Location Permission', 'Location permission is required to attach GPS coordinates.');
+        return;
       }
-    ]);
+
+      const current = await Location.getCurrentPositionAsync({});
+      setLatitude(current.coords.latitude);
+      setLongitude(current.coords.longitude);
+    } catch {
+      Alert.alert('Location Error', 'Could not read your current GPS location.');
+    }
   };
+
+  const saveAddress = async () => {
+    if (!streetAddress.trim() || !suburb.trim() || !city.trim() || !postalCode.trim()) {
+      Alert.alert('Address Required', 'Please enter street address, suburb, city, and postal code.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const session = authService.getSession();
+      const response = await apiService.updateDefaultAddress({
+        streetAddress: streetAddress.trim(),
+        suburb: suburb.trim(),
+        city: city.trim(),
+        postalCode: postalCode.trim(),
+        countryCode: session?.user.countryCode,
+        latitude,
+        longitude,
+      });
+      if (session) {
+        authService.setSession({
+          ...session,
+          user: {
+            ...session.user,
+            ...response.profile,
+          },
+        });
+      }
+      Alert.alert('Saved Address', 'Your default service address has been updated.');
+    } catch (error: any) {
+      Alert.alert('Saved Address', error.message || 'Could not save your address.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator color="#00FF87" />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-        
-        <Text style={styles.sectionTitle}>Saved Service Locations</Text>
-        
-        <View style={styles.listStack}>
-          {addresses.map((item) => (
-            <View key={item.id} style={styles.addressRow}>
-              <View style={styles.addressLeft}>
-                <Text style={styles.addressIcon}>{item.icon}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.addressLabel}>{item.label}</Text>
-                  <Text style={styles.addressText}>{item.address}</Text>
-                </View>
-              </View>
-              <TouchableOpacity 
-                style={styles.deleteBtn}
-                onPress={() => handleDeleteAddress(item.id, item.label)}
-              >
-                <Text style={styles.deleteBtnText}>🗑️</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
+        <Text style={styles.sectionTitle}>Default Service Address</Text>
+
+        <View style={styles.formCard}>
+          <Text style={styles.label}>Street Address</Text>
+          <TextInput style={styles.input} value={streetAddress} onChangeText={setStreetAddress} placeholder="Street address" placeholderTextColor="#64748B" />
+
+          <Text style={styles.label}>Suburb</Text>
+          <TextInput style={styles.input} value={suburb} onChangeText={setSuburb} placeholder="Suburb" placeholderTextColor="#64748B" />
+
+          <Text style={styles.label}>City</Text>
+          <TextInput style={styles.input} value={city} onChangeText={setCity} placeholder="City" placeholderTextColor="#64748B" />
+
+          <Text style={styles.label}>Postal Code</Text>
+          <TextInput style={styles.input} value={postalCode} onChangeText={setPostalCode} placeholder="Postal code" placeholderTextColor="#64748B" />
+
+          <View style={styles.gpsBox}>
+            <Text style={styles.gpsText}>
+              {typeof latitude === 'number' && typeof longitude === 'number'
+                ? `GPS saved: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
+                : 'No GPS coordinates saved yet.'}
+            </Text>
+            <TouchableOpacity onPress={useCurrentLocation}>
+              <Text style={styles.gpsAction}>Use current GPS</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <TouchableOpacity style={styles.actionBtn} activeOpacity={0.8} onPress={handleAddAddress}>
-          <Text style={styles.actionBtnText}>＋ Add New Address</Text>
+        <TouchableOpacity style={styles.actionBtn} activeOpacity={0.8} onPress={saveAddress} disabled={saving}>
+          {saving ? <ActivityIndicator color="#090D14" /> : <Text style={styles.actionBtnText}>Save Default Address</Text>}
         </TouchableOpacity>
-
       </ScrollView>
     </SafeAreaView>
   );
@@ -76,16 +142,15 @@ export function AddressesScreen({ navigation }: any): React.JSX.Element {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#090D14' },
+  loadingContainer: { flex: 1, backgroundColor: '#090D14', alignItems: 'center', justifyContent: 'center' },
   scrollContainer: { padding: 20 },
   sectionTitle: { color: '#64748B', fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 },
-  listStack: { backgroundColor: '#111827', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden' },
-  addressRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#1E293B' },
-  addressLeft: { flexDirection: 'row', alignItems: 'center', gap: 14, flex: 1 },
-  addressIcon: { fontSize: 20 },
-  addressLabel: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  addressText: { color: '#64748B', fontSize: 12, marginTop: 4, lineHeight: 16 },
-  deleteBtn: { padding: 8 },
-  deleteBtnText: { fontSize: 16 },
-  actionBtn: { padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 24, borderWidth: 1, borderColor: '#1E293B', backgroundColor: '#111827' },
-  actionBtnText: { color: '#00FF87', fontSize: 14, fontWeight: '700' }
+  formCard: { backgroundColor: '#111827', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16 },
+  label: { color: '#E2E8F0', fontSize: 12, fontWeight: '700', marginBottom: 8, marginTop: 12 },
+  input: { backgroundColor: '#090D14', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 14, color: '#FFFFFF', fontSize: 14 },
+  gpsBox: { backgroundColor: '#090D14', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 16, gap: 8 },
+  gpsText: { color: '#CBD5E1', fontSize: 12 },
+  gpsAction: { color: '#00FF87', fontSize: 12, fontWeight: '700' },
+  actionBtn: { padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 24, backgroundColor: '#00FF87' },
+  actionBtnText: { color: '#090D14', fontSize: 14, fontWeight: '800' },
 });

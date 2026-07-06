@@ -12,6 +12,7 @@ dns_2.promises.setServers(['8.8.8.8', '1.1.1.1']);
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
 dotenv_1.default.config({ path: path_1.default.resolve(process.cwd(), '.env') });
+require('../../config/load-platform-config').loadPlatformConfig({ override: true });
 const express_1 = __importDefault(require("express"));
 const http_1 = __importDefault(require("http"));
 const cors_1 = __importDefault(require("cors"));
@@ -24,13 +25,7 @@ const socket_server_1 = require("./sockets/socket.server");
 const parseAllowedOrigins = () => {
     const configuredOrigins = process.env.CORS_ORIGIN ?? process.env.CORS_ORIGINS;
     if (!configuredOrigins) {
-        return [
-            'http://localhost:19006',
-            'http://localhost:3000',
-            'http://192.168.3.34:8081',
-            'http://192.168.3.34:8082',
-            'http://192.168.3.34:8083',
-        ];
+        return [process.env.ADMIN_PORTAL_URL].filter((origin) => Boolean(origin));
     }
     return configuredOrigins.split(',').map((o) => o.trim()).filter(Boolean);
 };
@@ -73,9 +68,34 @@ if (!mongoUri) {
     process.exit(1);
 }
 mongoose_1.default.set('strictQuery', true);
+let isShuttingDown = false;
+const shutdown = async (signal) => {
+    if (isShuttingDown)
+        return;
+    isShuttingDown = true;
+    console.info(`${signal} received. Shutting down MyFixer backend...`);
+    exports.httpServer.close(async () => {
+        try {
+            await mongoose_1.default.disconnect();
+            console.info('HTTP server closed and MongoDB disconnected.');
+            process.exit(0);
+        }
+        catch (error) {
+            console.error('Error while disconnecting MongoDB:', error);
+            process.exit(1);
+        }
+    });
+    setTimeout(() => {
+        console.error('Forced shutdown after timeout.');
+        process.exit(1);
+    }, 5000);
+};
 const startServer = async () => {
     try {
-        await mongoose_1.default.connect(mongoUri, { serverSelectionTimeoutMS: 10000, autoIndex: true });
+        await mongoose_1.default.connect(mongoUri, {
+            serverSelectionTimeoutMS: 10000,
+            autoIndex: true,
+        });
         console.info('💾 MongoDB Atlas connected successfully');
         exports.httpServer.listen(port, '0.0.0.0', () => {
             console.info(`🚀 MyFixer backend running on port ${port}`);
@@ -86,7 +106,13 @@ const startServer = async () => {
         process.exit(1);
     }
 };
+process.on('SIGINT', () => {
+    void shutdown('SIGINT');
+});
+process.on('SIGTERM', () => {
+    void shutdown('SIGTERM');
+});
 if (require.main === module) {
-    startServer();
+    void startServer();
 }
 //# sourceMappingURL=server.js.map

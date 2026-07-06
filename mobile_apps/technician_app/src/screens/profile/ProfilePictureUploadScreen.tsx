@@ -7,13 +7,18 @@ import {
   TouchableOpacity, 
   ActivityIndicator, 
   Alert,
+  Image,
   ScrollView // 👈 FIXED: Pulled natively from standard react-native layout group
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
 
 export function ProfilePictureUploadScreen({ navigation }: any): React.JSX.Element {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [hasPhoto, setHasPhoto] = useState(false);
+  const technicianIdentity = getTechnicianIdentity();
+  const hasStoredProfilePhoto = Boolean(technicianIdentity.profilePhotoUrl);
+  const shouldShowProfilePhoto = hasStoredProfilePhoto || hasPhoto;
 
   // Simulating the AI Biometric Vision Shield payload we discussed
   const handlePhotoSelectionSimulated = () => {
@@ -54,10 +59,14 @@ export function ProfilePictureUploadScreen({ navigation }: any): React.JSX.Eleme
               <ActivityIndicator size="large" color="#00FF87" />
               <Text style={styles.statusText}>Analyzing Face Token with AI Vision...</Text>
             </View>
-          ) : hasPhoto ? (
+          ) : shouldShowProfilePhoto ? (
             <View style={styles.imageContainer}>
               <View style={styles.avatarPlaceholderFilled}>
-                <Text style={styles.avatarTxtMed}>AM</Text>
+                {technicianIdentity.profilePhotoUrl ? (
+                  <Image source={{ uri: technicianIdentity.profilePhotoUrl }} style={styles.avatarImageLarge} />
+                ) : (
+                  <Text style={styles.avatarTxtMed}>{technicianIdentity.initials}</Text>
+                )}
               </View>
               <View style={styles.successBadge}>
                 <Text style={styles.successBadgeText}>✓ BIOMETRICS PASSED</Text>
@@ -113,7 +122,8 @@ const styles = StyleSheet.create({
   emptyText: { color: '#E2E8F0', fontSize: 15, fontWeight: '600' },
   subEmptyText: { color: '#64748B', fontSize: 12, marginTop: 4, textAlign: 'center' },
   imageContainer: { alignItems: 'center', justifyContent: 'center' },
-  avatarPlaceholderFilled: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#00FF87' },
+  avatarPlaceholderFilled: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#00FF87', overflow: 'hidden' },
+  avatarImageLarge: { width: '100%', height: '100%' },
   avatarTxtMed: { color: '#00FF87', fontSize: 36, fontWeight: '700' },
   successBadge: { backgroundColor: '#00FF8715', borderWidth: 1, borderColor: '#00FF8740', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, marginTop: 16 },
   successBadgeText: { color: '#00FF87', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },

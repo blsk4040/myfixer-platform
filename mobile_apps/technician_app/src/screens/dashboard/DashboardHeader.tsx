@@ -12,19 +12,19 @@ interface DashboardHeaderProps {
   isOnline: boolean;
   isLoading: boolean;
   onStatusChange: () => void;
+  technicianName?: string;
 }
 
 export function DashboardHeader({
   isOnline,
   isLoading,
   onStatusChange,
+  technicianName = 'Technician',
 }: DashboardHeaderProps): React.JSX.Element {
   return (
     <View style={styles.container}>
       <View>
-        <Text style={styles.greeting}>
-          Good Morning 👋
-        </Text>
+        <Text style={styles.greeting}>Good Morning, {technicianName}</Text>
         <Text style={styles.subtitle}>
           Workspace Overview
         </Text>
@@ -32,7 +32,7 @@ export function DashboardHeader({
 
       <Pressable
         onPress={onStatusChange}
-        disabled={isLoading} // Prevent duplicate backend hits while loading
+        disabled={isLoading}
         style={[
           styles.statusButton,
           isOnline ? styles.online : styles.offline,
@@ -86,10 +86,10 @@ const styles = StyleSheet.create({
     minWidth: 100,
   },
   online: {
-    backgroundColor: '#103529', // Premium deep forest green background
+    backgroundColor: '#103529',
   },
   offline: {
-    backgroundColor: '#1E293B', // Slate gray background matching your cards
+    backgroundColor: '#1E293B',
   },
   dot: {
     width: 8,

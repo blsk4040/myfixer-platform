@@ -9,7 +9,6 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import socketService from '../services/socket.service';
@@ -23,7 +22,7 @@ interface ChatMessage {
 
 export function ChatScreen({ route }: any): React.JSX.Element {
   // Pull parameters passed from the active job allocation context safely
-  const { bookingId, jobId, techName } = route?.params || { bookingId: 'JOB-9921', jobId: 'JOB-9921', techName: 'Andrew Murray' };
+  const { bookingId, jobId, techName = 'Assigned technician' } = route?.params || {};
   const chatId = bookingId ?? jobId;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -34,6 +33,8 @@ export function ChatScreen({ route }: any): React.JSX.Element {
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
+    if (!chatId) return undefined;
+
     // Connect to your unified platform socket engine instance 
     socketRef.current = socketService.initializeConnection();
 
@@ -61,16 +62,6 @@ export function ChatScreen({ route }: any): React.JSX.Element {
       setIsConnected(false);
     });
 
-    // Seed mock initial greeting structure to replicate real historical state context
-    setMessages([
-      {
-        id: 'init-1',
-        senderRole: 'technician',
-        text: `Hi there, this is ${techName}. I am gathering tools and heading out to your location shortly.`,
-        timestamp: new Date(Date.now() - 600000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }
-    ]);
-
     return () => {
       socket.off('incoming_chat_msg');
       socket.off('connect');
@@ -79,7 +70,7 @@ export function ChatScreen({ route }: any): React.JSX.Element {
   }, [chatId, techName]);
 
   const handleSendMessage = () => {
-    if (!inputText.trim() || !socketRef.current) return;
+    if (!chatId || !inputText.trim() || !socketRef.current) return;
 
     const newMessage: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -115,7 +106,7 @@ export function ChatScreen({ route }: any): React.JSX.Element {
       <View style={styles.chatHeader}>
         <View>
           <Text style={styles.techTitle}>{techName}</Text>
-          <Text style={styles.jobRef}>Ticket Reference: {chatId}</Text>
+          <Text style={styles.jobRef}>Ticket Reference: {chatId || 'No active booking'}</Text>
         </View>
         <View style={styles.statusRow}>
           <View style={[styles.statusIndicator, { backgroundColor: isConnected ? '#00FF87' : '#EF4444' }]} />
@@ -147,11 +138,12 @@ export function ChatScreen({ route }: any): React.JSX.Element {
             value={inputText}
             onChangeText={setInputText}
             multiline
+            editable={!!chatId}
           />
           <TouchableOpacity 
             style={[styles.sendButton, { opacity: inputText.trim() ? 1 : 0.6 }]} 
             onPress={handleSendMessage}
-            disabled={!inputText.trim()}
+            disabled={!chatId || !inputText.trim()}
           >
             <Text style={styles.sendIcon}>➔</Text>
           </TouchableOpacity>

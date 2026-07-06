@@ -1,178 +1,398 @@
 // backend/src/models/booking.model.ts
-import { Schema, model, Document } from 'mongoose';
+
+import mongoose, { Schema, Document } from 'mongoose';
+import { CountryCode, CurrencyCode } from '../config/market.config';
 
 export enum BookingStatus {
   PENDING = 'PENDING',
   ACCEPTED = 'ACCEPTED',
   IN_ROUTE = 'IN_ROUTE',
-  ARRIVED = 'ARRIVED',                 // Added to support field tracking status
-  DIAGNOSTIC_DONE = 'DIAGNOSTIC_DONE', // Added to support input sheet intercept status
+  ARRIVED = 'ARRIVED',
+  DIAGNOSTIC_DONE = 'DIAGNOSTIC_DONE',
   COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED'
+  CANCELLED = 'CANCELLED',
 }
 
-export enum CurrencyCode {
-  ZAR = 'ZAR',
-  GHS = 'GHS'
+export enum BookingCancellationBy {
+  CUSTOMER = 'CUSTOMER',
+  TECHNICIAN = 'TECHNICIAN',
+  ADMIN = 'ADMIN',
+  SYSTEM = 'SYSTEM',
 }
 
-// Sub-interface matching our tax invoice parameters schema matrix
+export enum BookingDispatchStatus {
+  BROADCASTING = 'BROADCASTING',
+  STANDBY = 'STANDBY',
+  SCHEDULED = 'SCHEDULED',
+  ACCEPTED = 'ACCEPTED',
+  EXPIRED = 'EXPIRED',
+  CANCELLED = 'CANCELLED',
+}
+
 interface IFinalBilling {
-  baseAmount: number;
-  additionalLabor: number;
-  partsAmount: number;
-  totalAmount: number;
+  baseAmountMinor: number;
+  additionalLaborMinor: number;
+  partsAmountMinor: number;
+  totalAmountMinor: number;
   proofPhoto?: string;
+  notes?: string;
 }
 
 export interface IBooking extends Document {
-  customerId: string;
-  customerName: string;         // Added to store readable reference profiles
-  customerEmail: string;        // Added to control Resend dynamic recipients
-  technicianId: string | null;
+  customerId: mongoose.Types.ObjectId;
+  customerName: string;
+  customerEmail: string;
 
+  technicianId?: mongoose.Types.ObjectId | null;
+  technicianName?: string;
+
+  serviceKey?: string;
   applianceType: string;
-  faultDescription: string;     // Added for diagnostic logs context
-  
+  faultDescription: string;
+
   customerLocation: {
     type: 'Point';
-    coordinates: [number, number]; // [longitude, latitude]
+    coordinates: [number, number];
   };
-  
-  fullAddress: string;          // Added for map/routing accuracy
-  complexDetails?: string;      // Added for complex/estate security instructions
-  generalArea: string;          // Added for masked visual display maps
 
-  price: number;
+  fullAddress: string;
+  complexDetails?: string;
+  generalArea: string;
+
+  priceMinor: number;
+  countryCode: CountryCode;
   currency: CurrencyCode;
 
   status: BookingStatus;
-  
-  finalBilling?: IFinalBilling; // Added to log itemized invoice calculations safely
 
-  acceptedAt: Date | null;
-  completedAt: Date | null;
+  finalBilling?: IFinalBilling;
+
+  acceptedAt?: Date | null;
+  inRouteAt?: Date | null;
+  arrivedAt?: Date | null;
+  diagnosticDoneAt?: Date | null;
+  completedAt?: Date | null;
+  cancelledAt?: Date | null;
+
+  cancellation?: {
+    cancelledBy: BookingCancellationBy;
+    reason: string;
+    note?: string;
+  };
+
+  dispatch?: {
+    status: BookingDispatchStatus;
+    expiresAt?: Date | null;
+    sentToTechnicians: mongoose.Types.ObjectId[];
+    declinedByTechnicians: mongoose.Types.ObjectId[];
+    acceptedByTechnician?: mongoose.Types.ObjectId | null;
+  };
+
+  metadata: Record<string, unknown>;
 
   createdAt: Date;
   updatedAt: Date;
 }
 
+const FinalBillingSchema = new Schema(
+  {
+    baseAmountMinor: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    additionalLaborMinor: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    partsAmountMinor: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    totalAmountMinor: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    proofPhoto: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    notes: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+  },
+  { _id: false }
+);
+
+const CancellationSchema = new Schema(
+  {
+    cancelledBy: {
+      type: String,
+      enum: Object.values(BookingCancellationBy),
+      required: true,
+    },
+    reason: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    note: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+  },
+  { _id: false }
+);
+
+const DispatchSchema = new Schema(
+  {
+    status: {
+      type: String,
+      enum: Object.values(BookingDispatchStatus),
+      default: BookingDispatchStatus.BROADCASTING,
+      index: true,
+    },
+    expiresAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    sentToTechnicians: {
+      type: [Schema.Types.ObjectId],
+      ref: 'User',
+      default: [],
+    },
+    declinedByTechnicians: {
+      type: [Schema.Types.ObjectId],
+      ref: 'User',
+      default: [],
+    },
+    acceptedByTechnician: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
 const BookingSchema = new Schema<IBooking>(
   {
     customerId: {
-      type: String,
+      type: Schema.Types.ObjectId,
+      ref: 'User',
       required: true,
-      trim: true
+      index: true,
     },
 
     customerName: {
       type: String,
       default: 'Client',
-      trim: true
+      trim: true,
     },
 
     customerEmail: {
       type: String,
       required: true,
-      default: 'client@myfixer.co.za', // Fallback context matching default rules
-      trim: true
+      trim: true,
+      lowercase: true,
+      index: true,
     },
 
     technicianId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true,
+    },
+
+    technicianName: {
       type: String,
-      default: null
+      default: '',
+      trim: true,
+    },
+
+    serviceKey: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      index: true,
     },
 
     applianceType: {
       type: String,
       required: true,
-      trim: true
+      trim: true,
+      index: true,
     },
 
     faultDescription: {
       type: String,
       default: 'No description provided.',
-      trim: true
+      trim: true,
     },
 
     customerLocation: {
       type: {
         type: String,
         enum: ['Point'],
-        required: true
+        default: 'Point',
+        required: true,
       },
       coordinates: {
         type: [Number],
         required: true,
         validate: {
-          validator: (value: number[]) => value.length === 2,
-          message: 'Coordinates must contain [longitude, latitude]'
-        }
-      }
+          validator(value: number[]) {
+            return Array.isArray(value) && value.length === 2;
+          },
+          message: 'Coordinates must contain [longitude, latitude]',
+        },
+      },
     },
 
     fullAddress: {
       type: String,
       required: true,
-      trim: true
+      trim: true,
     },
 
     complexDetails: {
       type: String,
       default: '',
-      trim: true
+      trim: true,
     },
 
     generalArea: {
       type: String,
       default: 'Local Area',
-      trim: true
+      trim: true,
+      index: true,
     },
 
-    price: {
+    priceMinor: {
       type: Number,
       required: true,
-      min: 0
+      min: 0,
+      default: 0,
+    },
+
+    countryCode: {
+      type: String,
+      enum: Object.values(CountryCode),
+      default: CountryCode.ZA,
+      index: true,
     },
 
     currency: {
       type: String,
       enum: Object.values(CurrencyCode),
-      default: CurrencyCode.ZAR
+      default: CurrencyCode.ZAR,
+      index: true,
     },
 
     status: {
       type: String,
       enum: Object.values(BookingStatus),
-      default: BookingStatus.PENDING
+      default: BookingStatus.PENDING,
+      index: true,
     },
 
     finalBilling: {
-      baseAmount: { type: Number, default: 450 },
-      additionalLabor: { type: Number, default: 0 },
-      partsAmount: { type: Number, default: 0 },
-      totalAmount: { type: Number, default: 450 },
-      proofPhoto: { type: String, default: '' }
+      type: FinalBillingSchema,
+      default: undefined,
     },
 
     acceptedAt: {
       type: Date,
-      default: null
+      default: null,
+    },
+
+    inRouteAt: {
+      type: Date,
+      default: null,
+    },
+
+    arrivedAt: {
+      type: Date,
+      default: null,
+    },
+
+    diagnosticDoneAt: {
+      type: Date,
+      default: null,
     },
 
     completedAt: {
       type: Date,
-      default: null
-    }
+      default: null,
+    },
+
+    cancelledAt: {
+      type: Date,
+      default: null,
+    },
+
+    cancellation: {
+      type: CancellationSchema,
+      default: undefined,
+    },
+
+    dispatch: {
+      type: DispatchSchema,
+      default: undefined,
+    },
+
+    metadata: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
   },
   {
-    timestamps: true
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
 
-BookingSchema.index({
-  customerLocation: '2dsphere'
+// --- Virtuals ---
+
+BookingSchema.virtual('price').get(function () {
+  return this.priceMinor / 100;
 });
 
-export const Booking = model<IBooking>('Booking', BookingSchema);
+BookingSchema.virtual('finalBillingAmounts').get(function () {
+  if (!this.finalBilling) return null;
+
+  return {
+    baseAmount: this.finalBilling.baseAmountMinor / 100,
+    additionalLabor: this.finalBilling.additionalLaborMinor / 100,
+    partsAmount: this.finalBilling.partsAmountMinor / 100,
+    totalAmount: this.finalBilling.totalAmountMinor / 100,
+  };
+});
+
+// --- Indexes ---
+
+BookingSchema.index({ customerLocation: '2dsphere' });
+BookingSchema.index({ status: 1, createdAt: -1 });
+BookingSchema.index({ customerId: 1, createdAt: -1 });
+BookingSchema.index({ technicianId: 1, status: 1 });
+BookingSchema.index({ countryCode: 1, status: 1 });
+BookingSchema.index({ countryCode: 1, serviceKey: 1, status: 1 });
+BookingSchema.index({ generalArea: 1, status: 1 });
+BookingSchema.index({ status: 1, 'dispatch.expiresAt': 1 });
+BookingSchema.index({ 'dispatch.declinedByTechnicians': 1 });
+
+export const Booking =
+  (mongoose.models.Booking as mongoose.Model<IBooking> | undefined) ??
+  mongoose.model<IBooking>('Booking', BookingSchema);
+
 export default Booking;

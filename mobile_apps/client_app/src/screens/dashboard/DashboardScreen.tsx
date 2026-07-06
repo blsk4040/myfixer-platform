@@ -1,6 +1,8 @@
 // mobile_apps/client_app/src/screens/dashboard/DashboardScreen.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
+  ActivityIndicator,
+  Alert,
   StyleSheet, 
   View, 
   Text, 
@@ -22,6 +24,8 @@ import {
   Sprout as LucideSprout,
   Hammer as LucideHammer
 } from 'lucide-react-native';
+import apiService, { ServiceAvailabilityItem } from '../../services/api.service';
+import authService from '../../services/auth.service';
 
 const User = LucideUser as any;
 const Zap = LucideZap as any;
@@ -48,10 +52,13 @@ const GRID_SIZE = (width - 52) / 2;
 export function DashboardScreen({ navigation }: any): React.JSX.Element {
   const [selectedCategory, setSelectedCategory] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [availability, setAvailability] = useState<ServiceAvailabilityItem[]>([]);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState('');
 
-  const mainServices = [
-    {
-      id: 'appliances',
+  const serviceCatalog: Record<string, any> = {
+    appliance_repair: {
+      id: 'appliance_repair',
       title: 'Appliance Repair',
       subtitle: 'Fridges, washers & ovens',
       imageSource: FridgeIcon, 
@@ -67,8 +74,8 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         { name: 'Dishwasher Repair', basePrice: 450 }
       ]
     },
-    {
-      id: 'mechanic',
+    automotive: {
+      id: 'automotive',
       title: 'Mechanic Callout',
       subtitle: 'Engines, brakes & diagnostics',
       imageSource: MechanicIcon,
@@ -82,7 +89,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         { name: 'Emergency Breakdown Assist', basePrice: 500 }
       ]
     },
-    {
+    cleaning: {
       id: 'cleaning',
       title: 'Cleaning Services',
       subtitle: 'Deep home & office sanitizing',
@@ -98,7 +105,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         { name: 'Post-Renovation / Move-in', basePrice: 750 }
       ]
     },
-    {
+    electrical: {
       id: 'electrical',
       title: 'Electrical Works',
       subtitle: 'Tripping boards & wiring',
@@ -113,7 +120,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         { name: 'Light & Plug Installations', basePrice: 350 }
       ]
     },
-    {
+    plumbing: {
       id: 'plumbing',
       title: 'Plumber Service',
       subtitle: 'Leaks, drains & burst geysers',
@@ -128,8 +135,8 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         { name: 'Tap, Valve & Toilet Fixes', basePrice: 300 }
       ]
     },
-    {
-      id: 'painter',
+    painting: {
+      id: 'painting',
       title: 'Painter',
       subtitle: 'Interior & exterior walls',
       icon: Paintbrush,
@@ -143,7 +150,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         { name: 'Gate & Fence Coating', basePrice: 350 }
       ]
     },
-    {
+    gardening: {
       id: 'gardening',
       title: 'Gardening & Landscaping',
       subtitle: 'Lawn trimming & yard cleanups',
@@ -158,7 +165,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         { name: 'Irrigation Repairs', basePrice: 400 }
       ]
     },
-    {
+    maintenance: {
       id: 'maintenance',
       title: 'Maintenance',
       subtitle: 'Handyman tasks & structural fixes',
@@ -172,18 +179,110 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         { name: 'Blind & Curtain Hanging', basePrice: 200 },
         { name: 'Minor Plaster & Drywall Fix', basePrice: 400 }
       ]
-    }
-  ];
+    },
+    managed_collection: {
+      id: 'managed_collection',
+      title: 'Managed Collection Services',
+      subtitle: 'General waste collection setup',
+      icon: Hammer,
+      imageSource: MaintenanceIcon,
+      isCustomImage: true,
+      color: '#38BDF8',
+      subCategories: [
+        { name: 'GENERAL_WASTE', basePrice: 0 },
+      ],
+    },
+  };
+
+  useEffect(() => {
+    const session = authService.getSession();
+    const countryCode = session?.user.countryCode || 'ZA';
+    const city = session?.user.location?.city || '';
+    const area = session?.user.location?.area || '';
+
+    setAvailabilityLoading(true);
+    setAvailabilityError('');
+    apiService.getMarketAvailability({ countryCode, city, area })
+      .then((result) => setAvailability(result.availability.services || []))
+      .catch((error: Error) => setAvailabilityError(error.message || 'Unable to load service availability.'))
+      .finally(() => setAvailabilityLoading(false));
+  }, []);
+
+  const mainServices = useMemo(() => {
+    return availability
+      .filter((service) => service.status !== 'DISABLED')
+      .map((service) => {
+        const card = serviceCatalog[service.serviceKey] || {
+          id: service.serviceKey,
+          title: service.label,
+          subtitle: 'Service configured for your market',
+          icon: Hammer,
+          imageSource: MaintenanceIcon,
+          isCustomImage: true,
+          color: '#64748B',
+          subCategories: [{ name: service.label, basePrice: 450 }],
+        };
+
+        return {
+          ...card,
+          id: service.serviceKey,
+          serviceKey: service.serviceKey,
+          title: service.label || card.title,
+          availabilityStatus: service.status,
+          canBook: service.canBook,
+          availabilityMessage: service.message,
+        };
+      });
+  }, [availability]);
 
   const handleCategoryPress = (category: any) => {
+    if (!category.canBook) {
+      if (category.availabilityStatus === 'COMING_SOON') {
+        handleJoinWaitlist(category);
+        return;
+      }
+
+      Alert.alert('Service Unavailable', category.availabilityMessage || 'This service is not available in your area yet.');
+      return;
+    }
+
+    if (category.serviceKey === 'managed_collection') {
+      navigation.navigate('ManagedCollection');
+      return;
+    }
+
     setSelectedCategory(category);
     setModalVisible(true);
+  };
+
+  const handleJoinWaitlist = async (category: any) => {
+    const session = authService.getSession();
+    const city = session?.user.location?.city || '';
+    if (!session?.user.email || !session?.user.countryCode || !city) {
+      Alert.alert('Location Required', 'Please complete your account location before joining a service waitlist.');
+      return;
+    }
+
+    try {
+      const result = await apiService.joinServiceWaitlist({
+        email: session.user.email,
+        phone: session.user.phone,
+        countryCode: session.user.countryCode,
+        city,
+        area: session.user.location?.area,
+        serviceKey: category.serviceKey,
+      });
+      Alert.alert('Waitlist Joined', result.message);
+    } catch (error: any) {
+      Alert.alert('Waitlist Error', error.message || 'Unable to join the waitlist right now.');
+    }
   };
 
   const handleSubCategorySelect = (subName: string, price: number) => {
     setModalVisible(false);
     navigation.navigate('BookingWizard', {
       category: selectedCategory.id,
+      serviceKey: selectedCategory.serviceKey,
       subCategory: subName,
       basePrice: price,
     });
@@ -214,6 +313,17 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         </View>
 
         <Text style={styles.sectionTitle}>Select a Core Service</Text>
+        {availabilityLoading && (
+          <View style={styles.availabilityNotice}>
+            <ActivityIndicator size="small" color="#00FF87" />
+            <Text style={styles.availabilityNoticeText}>Loading services for your area...</Text>
+          </View>
+        )}
+        {!!availabilityError && (
+          <View style={styles.availabilityNotice}>
+            <Text style={styles.availabilityNoticeText}>{availabilityError}</Text>
+          </View>
+        )}
 
         <View style={styles.gridContainer}>
           {mainServices.map((item) => (
@@ -237,6 +347,11 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
               
               {/* TEXT PANEL */}
               <View style={styles.tileMetaContainer}>
+                {item.availabilityStatus && item.availabilityStatus !== 'ACTIVE' && (
+                  <Text style={[styles.serviceStatusBadge, item.availabilityStatus === 'COMING_SOON' ? styles.statusSoon : styles.statusPaused]}>
+                    {item.availabilityStatus === 'COMING_SOON' ? 'COMING SOON' : 'UNAVAILABLE'}
+                  </Text>
+                )}
                 <Text style={styles.tileTitle} numberOfLines={1}>{item.title}</Text>
                 <Text style={styles.tileSubtitle} numberOfLines={2}>{item.subtitle}</Text>
               </View>
@@ -295,6 +410,8 @@ const styles = StyleSheet.create({
   heroBadge: { position: 'absolute', right: -15, top: 10, backgroundColor: '#1E293B', paddingHorizontal: 18, paddingVertical: 4, transform: [{ rotate: '12deg' }] },
   heroBadgeText: { color: '#00FF87', fontSize: 9, fontWeight: '700', textTransform: 'uppercase' },
   sectionTitle: { color: '#E2E8F0', fontSize: 15, fontWeight: '700', marginBottom: 16, letterSpacing: 0.3 },
+  availabilityNotice: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, padding: 12, marginBottom: 12 },
+  availabilityNoticeText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
   gridContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 28 },
   gridTile: { 
     width: GRID_SIZE, 
@@ -327,6 +444,9 @@ const styles = StyleSheet.create({
   },
   tileTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   tileSubtitle: { color: '#64748B', fontSize: 11, marginTop: 3, lineHeight: 15 },
+  serviceStatusBadge: { alignSelf: 'flex-start', fontSize: 9, fontWeight: '800', borderRadius: 999, paddingHorizontal: 7, paddingVertical: 3, marginBottom: 5, overflow: 'hidden' },
+  statusSoon: { color: '#FBBF24', backgroundColor: '#FBBF2420' },
+  statusPaused: { color: '#F87171', backgroundColor: '#EF444420' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#111827', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderTopWidth: 1, borderColor: '#1E293B', maxHeight: height * 0.6 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },

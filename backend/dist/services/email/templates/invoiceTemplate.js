@@ -2,7 +2,12 @@
 // src/services/email/templates/invoiceTemplate.ts
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateInvoiceHtml = generateInvoiceHtml;
-function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLabor, partsAmount, totalAmount, }) {
+const formatMoney = (amount, currency) => new Intl.NumberFormat('en', {
+    style: 'currency',
+    currency,
+    currencyDisplay: 'narrowSymbol',
+}).format(amount);
+function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLabor, partsAmount, totalAmount, currency, }) {
     return `
     <!DOCTYPE html>
     <html>
@@ -52,21 +57,21 @@ function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLa
               <tbody>
                 <tr>
                   <td>Base Diagnostic & Call-Out Fee</td>
-                  <td style="text-align: right;">R ${baseAmount.toFixed(2)}</td>
+                  <td style="text-align: right;">${formatMoney(baseAmount, currency)}</td>
                 </tr>
                 ${additionalLabor > 0 ? `
                 <tr>
                   <td>Extended Repair Labor Charges</td>
-                  <td style="text-align: right;">R ${additionalLabor.toFixed(2)}</td>
+                  <td style="text-align: right;">${formatMoney(additionalLabor, currency)}</td>
                 </tr>` : ''}
                 ${partsAmount > 0 ? `
                 <tr>
                   <td>Acquired Materials & Component Parts</td>
-                  <td style="text-align: right;">R ${partsAmount.toFixed(2)}</td>
+                  <td style="text-align: right;">${formatMoney(partsAmount, currency)}</td>
                 </tr>` : ''}
                 <tr class="total-row">
                   <td>Total Settled Balance</td>
-                  <td style="text-align: right; color: #00B961;">R ${totalAmount.toFixed(2)}</td>
+                  <td style="text-align: right; color: #00B961;">${formatMoney(totalAmount, currency)}</td>
                 </tr>
               </tbody>
             </table>

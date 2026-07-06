@@ -5,7 +5,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Home, Activity, Clock, User } from 'lucide-react-native';
+import { Home, Activity, Clock, User, Bell, CreditCard } from 'lucide-react-native';
 
 // Custom Components
 import CustomTabBar from '../components/CustomTabBar';
@@ -22,6 +22,10 @@ import { ProfileScreen } from '../screens/profile/ProfileScreen';
 import { BookingHistoryScreen } from '../screens/history/BookingHistoryScreen';
 import { ActivityScreen } from '../screens/activity/ActivityScreen';
 import { ChatScreen } from '../chat/ChatScreen';
+import ManagedCollectionScreen from '../screens/managed_collection/ManagedCollectionScreen';
+import NotificationInboxScreen from '../screens/notifications/NotificationInboxScreen';
+import SubscriptionDashboardScreen from '../screens/subscriptions/SubscriptionDashboardScreen';
+import { AddressesScreen } from '../screens/profile/AddressesScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -30,9 +34,11 @@ export type RootStackParamList = {
   MainTabs: undefined;
   BookingWizard: {
     category: string;
+    serviceKey?: string;
     subCategory?: string;
     basePrice?: number;
   };
+  ManagedCollection: undefined;
   TrackingMain: {
     bookingId: string;
   };
@@ -45,11 +51,14 @@ export type RootStackParamList = {
     bookingId: string;
     techName: string;
   };
+  Addresses: undefined;
 };
 
 export type TabParamList = {
   Home: undefined;
   Activity: undefined;
+  Notifications: undefined;
+  Subscriptions: undefined;
   History: undefined;
   Account: undefined;
 };
@@ -83,6 +92,28 @@ function MainTabNavigator() {
           tabBarLabel: 'Activity',
           tabBarIcon: ({ color, size }) => (
             <Activity color={color} size={size} />
+          ),
+        }}
+      />
+
+      <Tab.Screen
+        name="Notifications"
+        component={NotificationInboxScreen}
+        options={{
+          tabBarLabel: 'Inbox',
+          tabBarIcon: ({ color, size }) => (
+            <Bell color={color} size={size} />
+          ),
+        }}
+      />
+
+      <Tab.Screen
+        name="Subscriptions"
+        component={SubscriptionDashboardScreen}
+        options={{
+          tabBarLabel: 'Plans',
+          tabBarIcon: ({ color, size }) => (
+            <CreditCard color={color} size={size} />
           ),
         }}
       />
@@ -169,6 +200,14 @@ export function AppNavigator(): React.JSX.Element {
           />
 
           <Stack.Screen
+            name="ManagedCollection"
+            component={ManagedCollectionScreen}
+            options={{
+              title: 'Managed Collection',
+            }}
+          />
+
+          <Stack.Screen
             name="TrackingMain"
             component={TrackingScreen}
             options={{
@@ -189,6 +228,14 @@ export function AppNavigator(): React.JSX.Element {
             component={ChatScreen}
             options={{
               title: 'Direct Specialist Comms',
+            }}
+          />
+
+          <Stack.Screen
+            name="Addresses"
+            component={AddressesScreen}
+            options={{
+              title: 'Saved Address',
             }}
           />
         </Stack.Navigator>

@@ -4,11 +4,11 @@
   "private": true,
   "main": "expo/AppEntry",
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "start": "node ../../config/run-with-platform-env.js expo start",
+    "android": "node ../../config/run-with-platform-env.js expo start --android",
+    "ios": "node ../../config/run-with-platform-env.js expo start --ios",
+    "web": "node ../../config/run-with-platform-env.js expo start --web",
+    "typecheck": "node ../../config/run-with-platform-env.js tsc --noEmit"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

@@ -1,10 +1,12 @@
 // src/screens/profile/ProfileScreen.tsx
 import React from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Alert, Switch } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Alert, Switch, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, NavigationProp, ParamListBase } from '@react-navigation/native'; // 🟢 Added React Navigation hooks & types
 import { useSocketConnection } from '../../context/SocketContext'; 
 import { useJobStore } from '../../store/useJobStore';     
+import authService from '../../services/auth.service';
+import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
 
 // 🟢 Correctly typed props interface
 interface ProfileScreenProps {
@@ -16,9 +18,13 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
   const navigation = useNavigation<NavigationProp<ParamListBase>>(); 
   const { isConnected, disconnectSocket } = useSocketConnection(); 
   const completedJobs = useJobStore((state) => state.completedJobs);
+  const technicianIdentity = getTechnicianIdentity();
 
-  const totalCompletedCount = completedJobs.length + 142; 
-  const currentRating = "4.92";
+  const totalCompletedCount = completedJobs.length; 
+  const currentRating = "5.00";
+  const serviceCategories = technicianIdentity.serviceCategories.length
+    ? technicianIdentity.serviceCategories
+    : ['No service categories set'];
 
   const handleToggleDuty = () => {
     if (isConnected) {
@@ -52,6 +58,7 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
           style: "destructive",
           onPress: () => {
             disconnectSocket(); 
+            authService.clearSession();
             setIsAuthenticated(false); 
           }
         }
@@ -70,14 +77,20 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
           onPress={() => navigation.navigate('ProfilePictureUpload')}
         >
           <View style={styles.avatarPlaceholder}>
-            <Text style={styles.avatarText}>AM</Text>
+            {technicianIdentity.profilePhotoUrl ? (
+              <Image source={{ uri: technicianIdentity.profilePhotoUrl }} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.avatarText}>{technicianIdentity.initials}</Text>
+            )}
             <View style={styles.avatarEditBadge}>
               <Text style={styles.avatarEditBadgeText}>+</Text>
             </View>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.techName}>Andrew Murray</Text>
-            <Text style={styles.techMeta}>MyFixer Certified Specialist (Tap to Verify Photo)</Text>
+            <Text style={styles.techName}>{technicianIdentity.displayName}</Text>
+            <Text style={styles.techMeta}>{technicianIdentity.email}</Text>
+            <Text style={styles.techMeta}>{technicianIdentity.phone}</Text>
+            <Text style={styles.techMeta}>{technicianIdentity.city} - {technicianIdentity.approvalStatus}</Text>
           </View>
         </TouchableOpacity>
 
@@ -112,7 +125,7 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
         {/* Operating Specialties Badges Container */}
         <Text style={styles.sectionTitle}>Service Focus Areas</Text>
         <View style={styles.badgeWrapper}>
-          {['Refrigeration', 'Washing Machines', 'Dishwashers', 'Ovens & Stoves'].map((spec) => (
+          {serviceCategories.map((spec) => (
             <View key={spec} style={styles.badge}>
               <Text style={styles.badgeText}>{spec}</Text>
             </View>
@@ -122,8 +135,8 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
         {/* Settings Action Blocks Grid */}
         <Text style={styles.sectionTitle}>Account Configurations</Text>
         <View style={styles.menuGroup}>
-          <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert("Operating Zones", "Your core operational coverage zone is locked to Pretoria, Centurion, and immediate surroundings.")}>
-            <Text style={styles.menuItemText}>Operating Zones (Pretoria/Centurion)</Text>
+          <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert("Operating Zone", `Your current operating city is ${technicianIdentity.city}.`)}>
+            <Text style={styles.menuItemText}>Operating Zone ({technicianIdentity.city})</Text>
           </TouchableOpacity>
           
           {/* 🏦 Dynamic Global Payouts & Invoicing Entry Point */}
@@ -152,7 +165,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#090D14' },
   scrollContainer: { padding: 20, paddingBottom: 80 },
   avatarRow: { flexDirection: 'row', alignItems: 'center', gap: 15, marginBottom: 20 },
-  avatarPlaceholder: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#00FF87', position: 'relative' },
+  avatarPlaceholder: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#00FF87', position: 'relative', overflow: 'hidden' },
+  avatarImage: { width: '100%', height: '100%' },
   avatarText: { color: '#00FF87', fontSize: 20, fontWeight: '700' },
   avatarEditBadge: { position: 'absolute', bottom: -2, right: -2, backgroundColor: '#00FF87', width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   avatarEditBadgeText: { color: '#090D14', fontSize: 12, fontWeight: '900', lineHeight: 14 },

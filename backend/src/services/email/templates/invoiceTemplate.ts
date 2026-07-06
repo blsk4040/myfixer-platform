@@ -1,5 +1,7 @@
 // src/services/email/templates/invoiceTemplate.ts
 
+import { CurrencyCode } from '../../../config/market.config';
+
 interface InvoiceEmailProps {
   customerName: string;
   bookingId: string;
@@ -7,7 +9,15 @@ interface InvoiceEmailProps {
   additionalLabor: number;
   partsAmount: number;
   totalAmount: number;
+  currency: CurrencyCode;
 }
+
+const formatMoney = (amount: number, currency: CurrencyCode): string =>
+  new Intl.NumberFormat('en', {
+    style: 'currency',
+    currency,
+    currencyDisplay: 'narrowSymbol',
+  }).format(amount);
 
 export function generateInvoiceHtml({
   customerName,
@@ -16,6 +26,7 @@ export function generateInvoiceHtml({
   additionalLabor,
   partsAmount,
   totalAmount,
+  currency,
 }: InvoiceEmailProps): string {
   return `
     <!DOCTYPE html>
@@ -66,21 +77,21 @@ export function generateInvoiceHtml({
               <tbody>
                 <tr>
                   <td>Base Diagnostic & Call-Out Fee</td>
-                  <td style="text-align: right;">R ${baseAmount.toFixed(2)}</td>
+                  <td style="text-align: right;">${formatMoney(baseAmount, currency)}</td>
                 </tr>
                 ${additionalLabor > 0 ? `
                 <tr>
                   <td>Extended Repair Labor Charges</td>
-                  <td style="text-align: right;">R ${additionalLabor.toFixed(2)}</td>
+                  <td style="text-align: right;">${formatMoney(additionalLabor, currency)}</td>
                 </tr>` : ''}
                 ${partsAmount > 0 ? `
                 <tr>
                   <td>Acquired Materials & Component Parts</td>
-                  <td style="text-align: right;">R ${partsAmount.toFixed(2)}</td>
+                  <td style="text-align: right;">${formatMoney(partsAmount, currency)}</td>
                 </tr>` : ''}
                 <tr class="total-row">
                   <td>Total Settled Balance</td>
-                  <td style="text-align: right; color: #00B961;">R ${totalAmount.toFixed(2)}</td>
+                  <td style="text-align: right; color: #00B961;">${formatMoney(totalAmount, currency)}</td>
                 </tr>
               </tbody>
             </table>

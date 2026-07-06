@@ -1,74 +1,41 @@
 // src/screens/history/BookingHistoryScreen.tsx
-import React, { useState, useEffect } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  FlatList, 
-  TouchableOpacity, 
-  StatusBar,
+import React, { useEffect, useState } from 'react';
+import {
   ActivityIndicator,
+  Alert,
+  FlatList,
   Modal,
-  Alert 
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FileText as LucideFileText, X as LucideX, CheckCircle2 as LucideCheckCircle } from 'lucide-react-native';
+import apiService, { BookingHistoryItem } from '../../services/api.service';
 
 const FileText = LucideFileText as any;
 const X = LucideX as any;
 const CheckCircle = LucideCheckCircle as any;
 
-export function BookingHistoryScreen({ navigation }: any): React.JSX.Element {
+const money = (currency: string, amountMinor = 0) => `${currency} ${(amountMinor / 100).toFixed(2)}`;
+
+export function BookingHistoryScreen(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
-  const [bookings, setBookings] = useState<any[]>([]);
-  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+  const [bookings, setBookings] = useState<BookingHistoryItem[]>([]);
+  const [selectedBooking, setSelectedBooking] = useState<BookingHistoryItem | null>(null);
   const [invoiceModalVisible, setInvoiceModalVisible] = useState(false);
-  const [fetchingInvoice, setFetchingInvoice] = useState(false);
 
   useEffect(() => {
     const fetchHistoryData = async () => {
       try {
         setLoading(true);
-        // In production: const res = await axios.get('/api/v1/invoices');
-        
-        setTimeout(() => {
-          // 💡 FILTERED OUT 'En Route' ACTIVE TEMPLATE ITEMS FOR SEPARATE ACTIVITY HUB CLEANING
-          setBookings([
-            {
-              _id: 'JOB-8741',
-              category: 'Appliance Repair',
-              icon: '🔌',
-              serviceItem: 'Samsung Double-Door Fridge — Compressor Swap',
-              date: '18 May 2026',
-              cost: 'R 2,800.00',
-              status: 'Completed',
-              statusColor: '#00FF87',
-              invoiceId: 'inv_abc123',
-              invoiceNumber: 'INV-000104',
-              baseAmount: 450,
-              additionalLabor: 1500,
-              partsAmount: 850
-            },
-            {
-              _id: 'JOB-7611',
-              category: 'Electrician',
-              icon: '⚡',
-              serviceItem: 'DB Board Fault Finding & Breaker Replacement',
-              date: '02 April 2026',
-              cost: 'R 950.00',
-              status: 'Completed',
-              statusColor: '#00FF87',
-              invoiceId: 'inv_xyz789',
-              invoiceNumber: 'INV-000092',
-              baseAmount: 450,
-              additionalLabor: 500,
-              partsAmount: 0
-            }
-          ]);
-          setLoading(false);
-        }, 800);
+        const response = await apiService.getMyBookingHistory();
+        setBookings(response.bookings || []);
       } catch (err) {
-        Alert.alert("Error", "Could not synchronize account history logs.");
+        Alert.alert('Error', 'Could not synchronize account history logs.');
+      } finally {
         setLoading(false);
       }
     };
@@ -76,52 +43,51 @@ export function BookingHistoryScreen({ navigation }: any): React.JSX.Element {
     fetchHistoryData();
   }, []);
 
-  const handleViewInvoice = async (item: any) => {
-    if (!item.invoiceId) return;
-    try {
-      setFetchingInvoice(true);
-      setTimeout(() => {
-        setSelectedInvoice(item);
-        setInvoiceModalVisible(true);
-        setFetchingInvoice(false);
-      }, 300);
-    } catch (err) {
-      setFetchingInvoice(false);
-      Alert.alert("Error", "Failed to retrieve tax invoice data layout.");
-    }
+  const handleViewInvoice = (item: BookingHistoryItem) => {
+    if (!item.invoice) return;
+    setSelectedBooking(item);
+    setInvoiceModalVisible(true);
   };
 
-  const renderBookingItem = ({ item }: { item: any }) => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={styles.categoryRow}>
-          <Text style={styles.icon}>{item.icon}</Text>
-          <View>
-            <Text style={styles.categoryText}>{item.category}</Text>
-            <Text style={styles.jobId}>{item._id}</Text>
+  const renderBookingItem = ({ item }: { item: BookingHistoryItem }) => {
+    const statusColor = item.status === 'COMPLETED' ? '#00FF87' : '#F87171';
+    const completedDate = new Date(item.completedAt || item.cancelledAt || item.updatedAt).toLocaleDateString();
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <View style={styles.categoryRow}>
+            <Text style={styles.icon}>•</Text>
+            <View>
+              <Text style={styles.categoryText}>{item.applianceType}</Text>
+              <Text style={styles.jobId}>{item.generalArea || item.fullAddress || 'Service address'}</Text>
+            </View>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: `${statusColor}10`, borderColor: statusColor }]}>
+            <Text style={[styles.statusText, { color: statusColor }]}>{item.status}</Text>
           </View>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: `${item.statusColor}10`, borderColor: item.statusColor }]}>
-          <Text style={[styles.statusText, { color: item.statusColor }]}>{item.status}</Text>
+
+        <Text style={styles.serviceDetails}>{item.faultDescription || 'Service booking'}</Text>
+
+        <View style={styles.cardFooter}>
+          <Text style={styles.dateText}>{item.status === 'COMPLETED' ? 'Completed' : 'Updated'}: {completedDate}</Text>
+
+          <TouchableOpacity
+            style={styles.invoiceButton}
+            onPress={() => handleViewInvoice(item)}
+            disabled={!item.invoice}
+          >
+            <FileText color={item.invoice ? '#00FF87' : '#64748B'} size={14} style={{ marginRight: 6 }} />
+            <Text style={[styles.invoiceButtonText, !item.invoice && { color: '#64748B' }]}>Invoice</Text>
+          </TouchableOpacity>
         </View>
       </View>
+    );
+  };
 
-      <Text style={styles.serviceDetails}>{item.serviceItem}</Text>
-
-      <View style={styles.cardFooter}>
-        <Text style={styles.dateText}>Completed: {item.date}</Text>
-        
-        <TouchableOpacity 
-          style={styles.invoiceButton}
-          onPress={() => handleViewInvoice(item)}
-          disabled={fetchingInvoice}
-        >
-          <FileText color="#00FF87" size={14} style={{ marginRight: 6 }} />
-          <Text style={styles.invoiceButtonText}>Invoice</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+  const invoice = selectedBooking?.invoice;
+  const currency = selectedBooking?.currency || 'ZAR';
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
@@ -134,31 +100,21 @@ export function BookingHistoryScreen({ navigation }: any): React.JSX.Element {
       ) : (
         <FlatList
           data={bookings}
-          keyExtractor={(item) => item._id}
+          keyExtractor={(item) => item.id}
           renderItem={renderBookingItem}
           contentContainerStyle={styles.listContainer}
           showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No historical booking items found.</Text>
-            </View>
-          }
+          ListEmptyComponent={<View style={styles.emptyContainer}><Text style={styles.emptyText}>No historical booking items found.</Text></View>}
         />
       )}
 
-      {/* TAX INVOICE OVERLAY MODAL */}
-      <Modal
-        visible={invoiceModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setInvoiceModalVisible(false)}
-      >
+      <Modal visible={invoiceModalVisible} animationType="slide" transparent onRequestClose={() => setInvoiceModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.taxTitle}>TAX INVOICE</Text>
-                <Text style={styles.invoiceNum}>{selectedInvoice?.invoiceNumber}</Text>
+                <Text style={styles.invoiceNum}>{invoice?.invoiceNumber}</Text>
               </View>
               <TouchableOpacity style={styles.closeButton} onPress={() => setInvoiceModalVisible(false)}>
                 <X color="#FFFFFF" size={20} />
@@ -166,29 +122,15 @@ export function BookingHistoryScreen({ navigation }: any): React.JSX.Element {
             </View>
 
             <View style={styles.invoiceBody}>
-              <View style={styles.invoiceRow}>
-                <Text style={styles.billingLabel}>Base Diagnostic Callout</Text>
-                <Text style={styles.billingValue}>R {selectedInvoice?.baseAmount.toFixed(2)}</Text>
-              </View>
-              <View style={styles.invoiceRow}>
-                <Text style={styles.billingLabel}>Extended Labour Charges</Text>
-                <Text style={styles.billingValue}>R {selectedInvoice?.additionalLabor.toFixed(2)}</Text>
-              </View>
-              <View style={styles.invoiceRow}>
-                <Text style={styles.billingLabel}>Acquired Materials & Parts</Text>
-                <Text style={styles.billingValue}>R {selectedInvoice?.partsAmount.toFixed(2)}</Text>
-              </View>
+              <View style={styles.invoiceRow}><Text style={styles.billingLabel}>Base Diagnostic Callout</Text><Text style={styles.billingValue}>{money(currency, invoice?.baseAmountMinor)}</Text></View>
+              <View style={styles.invoiceRow}><Text style={styles.billingLabel}>Extended Labour Charges</Text><Text style={styles.billingValue}>{money(currency, invoice?.additionalLaborMinor)}</Text></View>
+              <View style={styles.invoiceRow}><Text style={styles.billingLabel}>Materials & Parts</Text><Text style={styles.billingValue}>{money(currency, invoice?.partsAmountMinor)}</Text></View>
               <View style={styles.totalDivider} />
-              <View style={styles.invoiceRow}>
-                <Text style={styles.totalLabel}>Total Paid Balance</Text>
-                <Text style={styles.totalValue}>{selectedInvoice?.cost}</Text>
-              </View>
+              <View style={styles.invoiceRow}><Text style={styles.totalLabel}>Total Paid Balance</Text><Text style={styles.totalValue}>{money(currency, invoice?.totalAmountMinor)}</Text></View>
 
               <View style={styles.complianceBox}>
                 <CheckCircle color="#00FF87" size={16} style={{ marginRight: 8 }} />
-                <Text style={styles.complianceText}>
-                  Paid via Secure Tokenized Clearing Gateway. A copy of this tax summary has been auto-dispatched to your email profile.
-                </Text>
+                <Text style={styles.complianceText}>A copy of this invoice has been sent to your registered email profile.</Text>
               </View>
             </View>
 
@@ -208,8 +150,8 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   card: { backgroundColor: '#111827', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#1E293B', marginBottom: 14 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  icon: { fontSize: 22, backgroundColor: '#1E293B', padding: 8, borderRadius: 10, overflow: 'hidden' },
+  categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  icon: { color: '#00FF87', fontSize: 22, backgroundColor: '#1E293B', padding: 8, borderRadius: 10, overflow: 'hidden' },
   categoryText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   jobId: { color: '#64748B', fontSize: 11, fontWeight: '600', marginTop: 1 },
   statusBadge: { borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
@@ -237,5 +179,5 @@ const styles = StyleSheet.create({
   complianceBox: { flexDirection: 'row', backgroundColor: '#090D14', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#1E293B', marginTop: 12 },
   complianceText: { flex: 1, color: '#64748B', fontSize: 11, lineHeight: 16, fontWeight: '500' },
   dismissBtn: { backgroundColor: '#FFFFFF', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 28 },
-  dismissBtnText: { color: '#090D14', fontSize: 15, fontWeight: '700' }
+  dismissBtnText: { color: '#090D14', fontSize: 15, fontWeight: '700' },
 });

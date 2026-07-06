@@ -5,31 +5,29 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
 
+import { useJobStore } from '../store/useJobStore';
+import { NotificationService } from '../services/notification.service';
+import techSocketService from '../services/tech_socket.service';
+import { normalizeJobPayload, refreshAvailableJobs } from '../services/jobWorkflow.service';
 import {
   clearBackgroundLocationUpdateEmitter,
   registerBackgroundLocationUpdateEmitter,
 } from '../features/duty/services/locationTrackingTask';
+import { getSocketUrl, isSocketDebugEnabled } from '../config/runtime.config';
 
-declare const process: {
-  env?: {
-    EXPO_PUBLIC_API_URL?: string;
-    EXPO_PUBLIC_AUTH_TOKEN?: string;
-    EXPO_PUBLIC_TECHNICIAN_ID?: string;
-  };
-};
-
-const DEFAULT_API_URL = 'http://localhost:5000';
-const DEFAULT_TEST_TECHNICIAN_ID = 'test-technician-user';
+type ConnectionStatus = 'CONNECTED' | 'RECONNECTING' | 'DISCONNECTED';
 
 interface SocketContextValue {
   socket: Socket | null;
   isConnected: boolean;
-  isOnDuty: boolean; // 👈 Expose state to the workspace layout grid
-  toggleDutyStatus: () => void; // 👈 Handler to sync tracking tasks automatically
+  connectionStatus: ConnectionStatus;
+  isOnDuty: boolean;
+  toggleDutyStatus: () => void;
   disconnectSocket: () => void;
 }
 
@@ -40,9 +38,9 @@ interface SocketProviderProps extends PropsWithChildren {
 
 const SocketContext = createContext<SocketContextValue | undefined>(undefined);
 
-const getExpoPublicEnv = (key: keyof NonNullable<typeof process.env>): string | undefined => {
-  const value = process.env?.[key];
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+const logSocketDebug = (message: string, metadata?: Record<string, unknown>): void => {
+  if (!isSocketDebugEnabled()) return;
+  console.info(`[tech-socket-debug] ${message}`, metadata ?? '');
 };
 
 export function SocketProvider({
@@ -52,62 +50,175 @@ export function SocketProvider({
 }: SocketProviderProps): React.JSX.Element {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [isOnDuty, setIsOnDuty] = useState(false); // 👈 Added global duty flag
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('DISCONNECTED');
+  const [isOnDuty, setIsOnDuty] = useState(false);
+  const isOnDutyRef = useRef(isOnDuty);
 
-  const connectionConfig = useMemo(() => {
-    const resolvedServerUrl = getExpoPublicEnv('EXPO_PUBLIC_API_URL') ?? DEFAULT_API_URL;
-    const resolvedTechnicianId =
-      technicianId?.trim() ||
-      getExpoPublicEnv('EXPO_PUBLIC_TECHNICIAN_ID') ||
-      DEFAULT_TEST_TECHNICIAN_ID;
-    const resolvedAuthToken = authToken?.trim() || getExpoPublicEnv('EXPO_PUBLIC_AUTH_TOKEN');
+  const connectionConfig = useMemo(() => ({
+    authToken: authToken?.trim() || '',
+    serverUrl: getSocketUrl(),
+    technicianId: technicianId?.trim() || '',
+  }), [authToken, technicianId]);
 
-    return {
-      authToken: resolvedAuthToken,
-      serverUrl: resolvedServerUrl,
-      technicianId: resolvedTechnicianId,
-    };
-  }, [authToken, technicianId]);
-
-  // Handle Socket Lifecycle Events
   useEffect(() => {
-    const nextSocket = io(connectionConfig.serverUrl, {
-      autoConnect: true,
-      transports: ['websocket'],
-      auth: {
-        role: 'TECHNICIAN',
-        technicianId: connectionConfig.technicianId,
-        token: connectionConfig.authToken,
-      },
-      query: { technicianId: connectionConfig.technicianId },
-      extraHeaders: {
-        authorization: connectionConfig.authToken
-          ? `Bearer ${connectionConfig.authToken}`
-          : `TestUser ${connectionConfig.technicianId}`,
-        'x-myfixer-role': 'TECHNICIAN',
-      },
+    isOnDutyRef.current = isOnDuty;
+    useJobStore.getState().setOnlineStatus(isOnDuty);
+  }, [isOnDuty]);
+
+  useEffect(() => {
+    const hasAuthenticationInput = Boolean(connectionConfig.authToken || connectionConfig.technicianId);
+
+    if (!connectionConfig.serverUrl || !connectionConfig.technicianId) {
+      if (hasAuthenticationInput) {
+        console.warn('Technician socket not initialized. Missing socket URL or technician id.');
+      } else {
+        logSocketDebug('socket initialization waiting for authenticated technician session', {
+          socketUrl: connectionConfig.serverUrl || '(missing)',
+          technicianId: connectionConfig.technicianId || '(missing)',
+        });
+      }
+      setSocket(null);
+      setIsConnected(false);
+      return undefined;
+    }
+
+    logSocketDebug('initializing SocketContext connection', {
+      socketUrl: connectionConfig.serverUrl,
+      technicianId: connectionConfig.technicianId,
     });
 
-    nextSocket.on('connect', () => setIsConnected(true));
-    nextSocket.on('disconnect', () => setIsConnected(false));
+    const nextSocket = techSocketService.initializeConnection(connectionConfig.technicianId);
+
+    const emitOnlineAndRefresh = () => {
+      if (!isOnDutyRef.current) return;
+      nextSocket.emit('technician_status_change', {
+        status: 'ONLINE',
+        technicianId: connectionConfig.technicianId,
+      });
+      void refreshAvailableJobs().catch((error) => {
+        console.warn('Failed to refresh available jobs after reconnect:', error);
+      });
+    };
+
+    const handleConnect = () => {
+      logSocketDebug('SocketContext connected', {
+        socketId: nextSocket.id,
+        technicianId: connectionConfig.technicianId,
+      });
+      setIsConnected(true);
+      setConnectionStatus('CONNECTED');
+      emitOnlineAndRefresh();
+    };
+
+    const handleDisconnect = (reason: string) => {
+      logSocketDebug('SocketContext disconnected', {
+        reason,
+        technicianId: connectionConfig.technicianId,
+      });
+      setIsConnected(false);
+      setConnectionStatus('DISCONNECTED');
+    };
+
+    const handleIncomingRequest = async (payload: any) => {
+      logSocketDebug('SocketContext incoming request received', payload as Record<string, unknown>);
+      const job = normalizeJobPayload(payload);
+      if (!job.id) return;
+      const inserted = useJobStore.getState().upsertIncomingJob(job);
+      if (inserted) {
+        await NotificationService.handleIncomingJob(job.id, {
+          body: `${job.applianceType} in ${job.generalArea || 'your area'}`,
+        });
+      }
+    };
+
+    const handleAvailableJobs = async (payload: any) => {
+      const jobs = Array.isArray(payload) ? payload.map(normalizeJobPayload) : [];
+      const existingJobIds = new Set(useJobStore.getState().incomingJobs.map((job) => job.id));
+      useJobStore.getState().replaceIncomingJobs(jobs);
+
+      const newJob = jobs.find((job) => job.id && !existingJobIds.has(job.id));
+      if (newJob) {
+        await NotificationService.handleIncomingJob(newJob.id, {
+          body: `${newJob.applianceType} in ${newJob.generalArea || 'your area'}`,
+        });
+      }
+    };
+
+    const handleUnavailable = (payload: any) => {
+      const bookingId = String(payload?.bookingId || '');
+      if (!bookingId) return;
+      useJobStore.getState().removeIncomingJob(bookingId);
+      if (payload?.reason !== 'declined') void NotificationService.handleJobCancelled(bookingId);
+    };
+
+    const handleChatMessage = (message: any) => {
+      void NotificationService.handleMessage(String(message?.id || message?.timestamp || Date.now()));
+    };
+
+    const handlePayment = (payload: any) => {
+      void NotificationService.handlePayment(String(payload?.bookingId || payload?.invoiceId || Date.now()));
+    };
+
+    const handleStatusChanged = (payload: any) => {
+      if (payload?.status === 'CANCELLED') {
+        void NotificationService.handleJobCancelled(String(payload.bookingId || 'cancelled'));
+      }
+    };
+
+    nextSocket.on('connect', handleConnect);
+    nextSocket.on('disconnect', handleDisconnect);
+    nextSocket.on('connect_error', (error) => {
+      logSocketDebug('SocketContext connect error', {
+        message: error.message,
+        technicianId: connectionConfig.technicianId,
+      });
+      setConnectionStatus('RECONNECTING');
+    });
+    nextSocket.io.on('reconnect_attempt', () => setConnectionStatus('RECONNECTING'));
+    nextSocket.io.on('reconnect', emitOnlineAndRefresh);
+    nextSocket.on('technician_status_ack', (payload) => {
+      logSocketDebug('SocketContext technician registration acknowledged', payload as Record<string, unknown>);
+    });
+    nextSocket.on('incoming_request', handleIncomingRequest);
+    nextSocket.on('available_jobs', handleAvailableJobs);
+    nextSocket.on('job_taken', handleUnavailable);
+    nextSocket.on('job_unavailable', handleUnavailable);
+    nextSocket.on('incoming_chat_msg', handleChatMessage);
+    nextSocket.on('payment_confirmed', handlePayment);
+    nextSocket.on('booking_status_changed', handleStatusChanged);
+
     setSocket(nextSocket);
+    if (nextSocket.connected) handleConnect();
 
     return () => {
-      nextSocket.disconnect();
+      nextSocket.off('connect', handleConnect);
+      nextSocket.off('disconnect', handleDisconnect);
+      nextSocket.off('incoming_request', handleIncomingRequest);
+      nextSocket.off('available_jobs', handleAvailableJobs);
+      nextSocket.off('job_taken', handleUnavailable);
+      nextSocket.off('job_unavailable', handleUnavailable);
+      nextSocket.off('incoming_chat_msg', handleChatMessage);
+      nextSocket.off('payment_confirmed', handlePayment);
+      nextSocket.off('booking_status_changed', handleStatusChanged);
+      techSocketService.disconnect();
       setSocket(null);
       setIsConnected(false);
     };
   }, [connectionConfig]);
 
-  // ✅ Telemetry Management: Hardware GPS tracking spins up dynamically *ONLY* while On-Duty
   useEffect(() => {
     if (!socket || !isOnDuty) {
-      clearBackgroundLocationUpdateEmitter(); // Battery preservation guardrail
+      clearBackgroundLocationUpdateEmitter();
       return undefined;
     }
 
-    // Tell server clustering engine we are active
+    logSocketDebug('registering technician online status', {
+      technicianId: connectionConfig.technicianId,
+    });
     socket.emit('technician_status_change', { status: 'ONLINE', technicianId: connectionConfig.technicianId });
+    void refreshAvailableJobs().catch((error) => {
+      console.warn('Failed to refresh available jobs after duty change:', error);
+    });
 
     registerBackgroundLocationUpdateEmitter((payload) => {
       socket.emit('technician_location_update', {
@@ -133,18 +244,19 @@ export function SocketProvider({
   const disconnectSocket = (): void => {
     setIsOnDuty(false);
     clearBackgroundLocationUpdateEmitter();
-    if (socket) socket.disconnect();
+    techSocketService.disconnect();
   };
 
   const value = useMemo<SocketContextValue>(
     () => ({
       socket,
       isConnected,
+      connectionStatus,
       isOnDuty,
       toggleDutyStatus,
       disconnectSocket,
     }),
-    [isConnected, isOnDuty, socket]
+    [connectionStatus, isConnected, isOnDuty, socket]
   );
 
   return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;

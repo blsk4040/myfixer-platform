@@ -23,7 +23,7 @@ export function IncomingRequestCard({
         </Text>
         {/* FIX: Use job.callOutFee instead of job.price */}
         <Text style={styles.price}>
-          R {job.callOutFee}
+          {job.currency || 'ZAR'} {job.callOutFee}
         </Text>
       </View>
 

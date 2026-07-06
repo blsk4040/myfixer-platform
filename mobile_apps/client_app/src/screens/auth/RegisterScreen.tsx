@@ -13,6 +13,14 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { assertConfiguredUrl, getApiBaseUrl } from '../../config/runtime.config';
+
+const MARKET_OPTIONS = [
+  { countryCode: 'ZA', country: 'South Africa', currency: 'ZAR' },
+  { countryCode: 'GH', country: 'Ghana', currency: 'GHS' },
+  { countryCode: 'NG', country: 'Nigeria', currency: 'NGN' },
+  { countryCode: 'KE', country: 'Kenya', currency: 'KES' },
+];
 
 export function RegisterScreen({ navigation }: any): React.JSX.Element {
   const [currentStep, setCurrentStep] = useState<number>(1);
@@ -23,7 +31,9 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
     email: '',
     phone: '',
     country: 'South Africa',
+    countryCode: 'ZA',
     city: '',
+    area: '',
     password: '',
     confirmPassword: '',
   });
@@ -66,7 +76,8 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
 
     setIsLoading(true);
     try {
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.3.34:5000/api/v1';
+      const apiUrl = getApiBaseUrl();
+      assertConfiguredUrl(apiUrl, 'EXPO_PUBLIC_API_BASE_URL');
       const response = await fetch(`${apiUrl}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -77,9 +88,11 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
           location: {
             country: formData.country,
             city: formData.city.trim(),
+            area: formData.area.trim(),
           },
+          countryCode: formData.countryCode,
           password: formData.password,
-          role: 'client'
+          role: 'CUSTOMER'
         }),
       });
 
@@ -153,7 +166,26 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
           {currentStep === 2 && (
             <View style={styles.stepFormWrapper}>
               <Text style={styles.inputLabel}>COUNTRY</Text>
-              <TextInput style={[styles.inputField, styles.disabledInputField]} editable={false} value={formData.country} />
+              <View style={styles.marketGrid}>
+                {MARKET_OPTIONS.map((market) => {
+                  const isSelected = formData.countryCode === market.countryCode;
+                  return (
+                    <TouchableOpacity
+                      key={market.countryCode}
+                      style={[styles.marketChip, isSelected && styles.marketChipActive]}
+                      onPress={() => {
+                        updateField('country', market.country);
+                        updateField('countryCode', market.countryCode);
+                      }}
+                    >
+                      <Text style={[styles.marketText, isSelected && styles.marketTextActive]}>
+                        {market.country}
+                      </Text>
+                      <Text style={styles.marketCurrency}>{market.currency}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
               <Text style={styles.inputLabel}>CITY / AREA</Text>
               <TextInput
@@ -162,6 +194,15 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
                 placeholderTextColor="#475569"
                 value={formData.city}
                 onChangeText={(val) => updateField('city', val)}
+              />
+
+              <Text style={styles.inputLabel}>AREA / NEIGHBOURHOOD OPTIONAL</Text>
+              <TextInput
+                style={styles.inputField}
+                placeholder="e.g. East Legon, Osu, Bryanston"
+                placeholderTextColor="#475569"
+                value={formData.area}
+                onChangeText={(val) => updateField('area', val)}
               />
 
               <View style={styles.navigationRow}>
@@ -232,6 +273,12 @@ const styles = StyleSheet.create({
   inputLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 1 },
   inputField: { backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, padding: 16, color: '#FFFFFF', fontSize: 15 },
   disabledInputField: { color: '#475569', backgroundColor: '#0f172a' },
+  marketGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  marketChip: { width: '48%', backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, padding: 12 },
+  marketChipActive: { borderColor: '#00FF87', backgroundColor: '#00FF8710' },
+  marketText: { color: '#E2E8F0', fontSize: 13, fontWeight: '700' },
+  marketTextActive: { color: '#00FF87' },
+  marketCurrency: { color: '#64748B', fontSize: 11, marginTop: 4, fontWeight: '700' },
   navigationRow: { flexDirection: 'row', gap: 12, alignItems: 'center', marginTop: 12 },
   primaryButton: { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 12 },
   primaryButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },

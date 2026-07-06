@@ -1,14 +1,15 @@
 // src/screens/jobs/IncomingJobsTab.tsx
 import React from 'react';
-import { StyleSheet, View, Text, ScrollView } from 'react-native';
+import { Alert, StyleSheet, View, Text, ScrollView } from 'react-native';
 import { useJobStore } from '../../store/useJobStore';
 import { IncomingRequestCard } from '.././dashboard/IncomingRequestCard';
+import { acceptBookingWorkflow, declineBookingWorkflow } from '../../services/jobWorkflow.service';
+import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
 
 export function IncomingJobsTab(): React.JSX.Element {
   // Pull live data and actions from the unified store
-  const incomingJobs = useJobStore((state) => state.incomingJobs);
-  const acceptJob = useJobStore((state) => state.acceptJob);
-  const declineJob = useJobStore((state) => state.declineJob);
+  const incomingJobs = useJobStore((state) => state.incomingJobs || []);
+  const technicianIdentity = getTechnicianIdentity();
 
   if (incomingJobs.length === 0) {
     return (
@@ -23,11 +24,29 @@ export function IncomingJobsTab(): React.JSX.Element {
       {incomingJobs.map((job) => (
         <IncomingRequestCard
           key={job.id}
-          // 🚀 Bypasses the strict 'IncomingJob' type constraint cleanly
-          job={job as any}   
+          // 🚀 Bypasses type constraint and explicit sanity sanitizes location types
+          job={{
+            ...job,
+            latitude: Number(job.latitude),
+            longitude: Number(job.longitude),
+          } as any}   
           // 🔌 Ensures the action handlers extract the primitive ID payload smoothly
-          onAccept={(jobPayload: any) => acceptJob(jobPayload.id || jobPayload)} 
-          onDecline={(jobPayload: any) => declineJob(jobPayload.id || jobPayload)} 
+          onAccept={async (job: any) => {
+            try {
+              await acceptBookingWorkflow(job, technicianIdentity.userId);
+            } catch (error: any) {
+              console.error('Accept booking failed:', error);
+              Alert.alert('Accept Failed', error.message || 'Could not accept this booking.');
+            }
+          }}
+          onDecline={async (job: any) => {
+            try {
+              await declineBookingWorkflow(job.id);
+            } catch (error: any) {
+              console.error('Decline booking failed:', error);
+              Alert.alert('Decline Failed', error.message || 'Could not decline this booking.');
+            }
+          }}
         />
       ))}
     </ScrollView>
@@ -40,7 +59,7 @@ const styles = StyleSheet.create({
   },
   centerContainer: {
     flex: 1,
-    justifyContent: 'center', // 🎯 Fixed the 'justify Soy' syntax error here
+    justifyContent: 'center', // Fixed the 'justify Soy' syntax error here
     alignItems: 'center',
     padding: 40,
   },

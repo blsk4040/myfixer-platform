@@ -1,8 +1,9 @@
 // src/screens/map/MapScreen.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Linking, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import * as Location from 'expo-location';
 import { EyeOff } from 'lucide-react-native';
 import { useJobStore } from '../store/useJobStore';
 import { useSocketConnection } from '../context/SocketContext'; // 👈 IMPORT CONNECTEE
@@ -18,10 +19,42 @@ const DEFAULT_REGION = {
 
 export function MapScreen(): React.JSX.Element {
   const { isOnDuty, toggleDutyStatus } = useSocketConnection(); // 👈 READ SHIFT TRACKER
-  const incomingJobs = useJobStore((state) => state.incomingJobs);
-  const activeJobs = useJobStore((state) => state.activeJobs);
+  const incomingJobs = useJobStore((state) => state.incomingJobs || []);
+  const activeJobs = useJobStore((state) => state.activeJobs || []);
   
   const [selectedJob, setSelectedJob] = useState<any | null>(activeJobs[0] || null);
+  const [technicianLocation, setTechnicianLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+
+  useEffect(() => {
+    let subscription: Location.LocationSubscription | null = null;
+    if (!isOnDuty) return undefined;
+
+    Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
+      (location) => {
+        setTechnicianLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+      }
+    ).then((nextSubscription) => {
+      subscription = nextSubscription;
+    }).catch(() => undefined);
+
+    return () => {
+      subscription?.remove();
+    };
+  }, [isOnDuty]);
+
+  const routeCoordinates = useMemo(() => {
+    if (!technicianLocation || !selectedJob) return [];
+    const destination = {
+      latitude: Number(selectedJob.latitude),
+      longitude: Number(selectedJob.longitude),
+    };
+    if (!Number.isFinite(destination.latitude) || !Number.isFinite(destination.longitude)) return [];
+    return [technicianLocation, destination];
+  }, [selectedJob, technicianLocation]);
 
   const openNativeMaps = (lat: number, lng: number, label: string) => {
     const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=' });
@@ -43,24 +76,48 @@ export function MapScreen(): React.JSX.Element {
         showsUserLocation={isOnDuty} // Only show pin hardware position while active
         showsMyLocationButton={isOnDuty}
       >
-        {/* Render job parameters conditionally depending on operational mode */}
-        {isOnDuty && incomingJobs.map((job) => (
-          <Marker
-            key={job.id}
-            coordinate={{ latitude: job.latitude, longitude: job.longitude }}
-            pinColor="#00FF87"
-            onPress={() => setSelectedJob(job)}
-          />
-        ))}
+        {routeCoordinates.length === 2 && (
+          <Polyline coordinates={routeCoordinates} strokeColor="#00FF87" strokeWidth={4} />
+        )}
 
-        {isOnDuty && activeJobs.map((job) => (
-          <Marker
-            key={job.id}
-            coordinate={{ latitude: job.latitude, longitude: job.longitude }}
-            pinColor="#38BDF8"
-            onPress={() => setSelectedJob(job)}
-          />
-        ))}
+        {technicianLocation && (
+          <Marker coordinate={technicianLocation} title="Your location" pinColor="#FFFFFF" />
+        )}
+
+        {/* Render job parameters conditionally depending on operational mode */}
+        {isOnDuty && incomingJobs
+          .filter((job: any) =>
+            Number.isFinite(Number(job.latitude)) &&
+            Number.isFinite(Number(job.longitude))
+          )
+          .map((job: any) => (
+            <Marker
+              key={job.id}
+              coordinate={{
+                latitude: Number(job.latitude),
+                longitude: Number(job.longitude),
+              }}
+              pinColor="#00FF87"
+              onPress={() => setSelectedJob(job)}
+            />
+          ))}
+
+        {isOnDuty && activeJobs
+          .filter((job: any) =>
+            Number.isFinite(Number(job.latitude)) &&
+            Number.isFinite(Number(job.longitude))
+          )
+          .map((job: any) => (
+            <Marker
+              key={job.id}
+              coordinate={{
+                latitude: Number(job.latitude),
+                longitude: Number(job.longitude),
+              }}
+              pinColor="#38BDF8"
+              onPress={() => setSelectedJob(job)}
+            />
+          ))}
       </MapView>
 
       {/* 🛑 Security Intercept Overlay Screen Panel: Shows if Off-Duty */}
@@ -84,9 +141,9 @@ export function MapScreen(): React.JSX.Element {
                 <Text style={styles.hudTitle}>
                   {selectedJob.applianceType} ({selectedJob.jobStatus || 'INCOMING'})
                 </Text>
-                <div style={styles.etaBadge}>
+                <View style={styles.etaBadge}>
                   <Text style={styles.etaText}>{selectedJob.distance || '— km'}</Text>
-                </div>
+                </View>
               </View>
               
               <Text style={styles.addressText}>{selectedJob.fullAddress || 'Unit 12, Stone Arch Estate'}</Text>
@@ -101,12 +158,11 @@ export function MapScreen(): React.JSX.Element {
                 >
                   <Text style={styles.btnSecondaryText}>Call Client</Text>
                 </TouchableOpacity>
-                
                 <TouchableOpacity 
                   style={styles.btnPrimary}
-                  onPress={() => openNativeMaps(selectedJob.latitude, selectedJob.longitude, selectedJob.applianceType)}
+                  onPress={() => openNativeMaps(Number(selectedJob.latitude), Number(selectedJob.longitude), selectedJob.applianceType)}
                 >
-                  <Text style={styles.btnPrimaryText}>Open Native Maps</Text>
+                  <Text style={styles.btnPrimaryText}>Navigate</Text>
                 </TouchableOpacity>
               </View>
             </View>

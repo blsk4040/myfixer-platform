@@ -14,21 +14,29 @@ const paystackClient = axios_1.default.create({
         'Content-Type': 'application/json',
     },
 });
+const assertPaystackConfigured = () => {
+    if (!PAYSTACK_SECRET_KEY) {
+        throw new Error('PAYSTACK_SECRET_KEY is not configured.');
+    }
+};
 class PaystackService {
     /**
      * Validates reference transaction state on Paystack's nodes
      */
     static async verifyTransaction(reference) {
+        assertPaystackConfigured();
         const response = await paystackClient.get(`/transaction/verify/${reference}`);
         return response.data;
     }
     /**
      * Executes a headless recurring debit charge on an authorized token string
      */
-    static async chargeToken(email, amountInCents, authCode, reference) {
+    static async chargeToken(email, amountMinor, authCode, reference, currency) {
+        assertPaystackConfigured();
         const response = await paystackClient.post('/transaction/charge_authorization', {
             email,
-            amount: amountInCents, // Amount must be passed in minor units (cents / kobo)
+            amount: amountMinor,
+            currency,
             authorization_code: authCode,
             reference,
         });

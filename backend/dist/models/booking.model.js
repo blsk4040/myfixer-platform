@@ -1,8 +1,42 @@
 "use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.Booking = exports.CurrencyCode = exports.BookingStatus = void 0;
 // backend/src/models/booking.model.ts
-const mongoose_1 = require("mongoose");
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.Booking = exports.BookingDispatchStatus = exports.BookingCancellationBy = exports.BookingStatus = void 0;
+const mongoose_1 = __importStar(require("mongoose"));
+const market_config_1 = require("../config/market.config");
 var BookingStatus;
 (function (BookingStatus) {
     BookingStatus["PENDING"] = "PENDING";
@@ -13,108 +47,274 @@ var BookingStatus;
     BookingStatus["COMPLETED"] = "COMPLETED";
     BookingStatus["CANCELLED"] = "CANCELLED";
 })(BookingStatus || (exports.BookingStatus = BookingStatus = {}));
-var CurrencyCode;
-(function (CurrencyCode) {
-    CurrencyCode["ZAR"] = "ZAR";
-    CurrencyCode["GHS"] = "GHS";
-})(CurrencyCode || (exports.CurrencyCode = CurrencyCode = {}));
-const BookingSchema = new mongoose_1.Schema({
-    customerId: {
+var BookingCancellationBy;
+(function (BookingCancellationBy) {
+    BookingCancellationBy["CUSTOMER"] = "CUSTOMER";
+    BookingCancellationBy["TECHNICIAN"] = "TECHNICIAN";
+    BookingCancellationBy["ADMIN"] = "ADMIN";
+    BookingCancellationBy["SYSTEM"] = "SYSTEM";
+})(BookingCancellationBy || (exports.BookingCancellationBy = BookingCancellationBy = {}));
+var BookingDispatchStatus;
+(function (BookingDispatchStatus) {
+    BookingDispatchStatus["BROADCASTING"] = "BROADCASTING";
+    BookingDispatchStatus["STANDBY"] = "STANDBY";
+    BookingDispatchStatus["SCHEDULED"] = "SCHEDULED";
+    BookingDispatchStatus["ACCEPTED"] = "ACCEPTED";
+    BookingDispatchStatus["EXPIRED"] = "EXPIRED";
+    BookingDispatchStatus["CANCELLED"] = "CANCELLED";
+})(BookingDispatchStatus || (exports.BookingDispatchStatus = BookingDispatchStatus = {}));
+const FinalBillingSchema = new mongoose_1.Schema({
+    baseAmountMinor: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    additionalLaborMinor: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    partsAmountMinor: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    totalAmountMinor: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    proofPhoto: {
+        type: String,
+        default: '',
+        trim: true,
+    },
+    notes: {
+        type: String,
+        default: '',
+        trim: true,
+    },
+}, { _id: false });
+const CancellationSchema = new mongoose_1.Schema({
+    cancelledBy: {
+        type: String,
+        enum: Object.values(BookingCancellationBy),
+        required: true,
+    },
+    reason: {
         type: String,
         required: true,
-        trim: true
+        trim: true,
+    },
+    note: {
+        type: String,
+        default: '',
+        trim: true,
+    },
+}, { _id: false });
+const DispatchSchema = new mongoose_1.Schema({
+    status: {
+        type: String,
+        enum: Object.values(BookingDispatchStatus),
+        default: BookingDispatchStatus.BROADCASTING,
+        index: true,
+    },
+    expiresAt: {
+        type: Date,
+        default: null,
+        index: true,
+    },
+    sentToTechnicians: {
+        type: [mongoose_1.Schema.Types.ObjectId],
+        ref: 'User',
+        default: [],
+    },
+    declinedByTechnicians: {
+        type: [mongoose_1.Schema.Types.ObjectId],
+        ref: 'User',
+        default: [],
+    },
+    acceptedByTechnician: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+    },
+}, { _id: false });
+const BookingSchema = new mongoose_1.Schema({
+    customerId: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+        index: true,
     },
     customerName: {
         type: String,
         default: 'Client',
-        trim: true
+        trim: true,
     },
     customerEmail: {
         type: String,
         required: true,
-        default: 'client@myfixer.co.za', // Fallback context matching default rules
-        trim: true
+        trim: true,
+        lowercase: true,
+        index: true,
     },
     technicianId: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+        index: true,
+    },
+    technicianName: {
         type: String,
-        default: null
+        default: '',
+        trim: true,
+    },
+    serviceKey: {
+        type: String,
+        trim: true,
+        lowercase: true,
+        index: true,
     },
     applianceType: {
         type: String,
         required: true,
-        trim: true
+        trim: true,
+        index: true,
     },
     faultDescription: {
         type: String,
         default: 'No description provided.',
-        trim: true
+        trim: true,
     },
     customerLocation: {
         type: {
             type: String,
             enum: ['Point'],
-            required: true
+            default: 'Point',
+            required: true,
         },
         coordinates: {
             type: [Number],
             required: true,
             validate: {
-                validator: (value) => value.length === 2,
-                message: 'Coordinates must contain [longitude, latitude]'
-            }
-        }
+                validator(value) {
+                    return Array.isArray(value) && value.length === 2;
+                },
+                message: 'Coordinates must contain [longitude, latitude]',
+            },
+        },
     },
     fullAddress: {
         type: String,
         required: true,
-        trim: true
+        trim: true,
     },
     complexDetails: {
         type: String,
         default: '',
-        trim: true
+        trim: true,
     },
     generalArea: {
         type: String,
         default: 'Local Area',
-        trim: true
+        trim: true,
+        index: true,
     },
-    price: {
+    priceMinor: {
         type: Number,
         required: true,
-        min: 0
+        min: 0,
+        default: 0,
+    },
+    countryCode: {
+        type: String,
+        enum: Object.values(market_config_1.CountryCode),
+        default: market_config_1.CountryCode.ZA,
+        index: true,
     },
     currency: {
         type: String,
-        enum: Object.values(CurrencyCode),
-        default: CurrencyCode.ZAR
+        enum: Object.values(market_config_1.CurrencyCode),
+        default: market_config_1.CurrencyCode.ZAR,
+        index: true,
     },
     status: {
         type: String,
         enum: Object.values(BookingStatus),
-        default: BookingStatus.PENDING
+        default: BookingStatus.PENDING,
+        index: true,
     },
     finalBilling: {
-        baseAmount: { type: Number, default: 450 },
-        additionalLabor: { type: Number, default: 0 },
-        partsAmount: { type: Number, default: 0 },
-        totalAmount: { type: Number, default: 450 },
-        proofPhoto: { type: String, default: '' }
+        type: FinalBillingSchema,
+        default: undefined,
     },
     acceptedAt: {
         type: Date,
-        default: null
+        default: null,
+    },
+    inRouteAt: {
+        type: Date,
+        default: null,
+    },
+    arrivedAt: {
+        type: Date,
+        default: null,
+    },
+    diagnosticDoneAt: {
+        type: Date,
+        default: null,
     },
     completedAt: {
         type: Date,
-        default: null
-    }
+        default: null,
+    },
+    cancelledAt: {
+        type: Date,
+        default: null,
+    },
+    cancellation: {
+        type: CancellationSchema,
+        default: undefined,
+    },
+    dispatch: {
+        type: DispatchSchema,
+        default: undefined,
+    },
+    metadata: {
+        type: mongoose_1.Schema.Types.Mixed,
+        default: {},
+    },
 }, {
-    timestamps: true
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
 });
-BookingSchema.index({
-    customerLocation: '2dsphere'
+// --- Virtuals ---
+BookingSchema.virtual('price').get(function () {
+    return this.priceMinor / 100;
 });
-exports.Booking = (0, mongoose_1.model)('Booking', BookingSchema);
+BookingSchema.virtual('finalBillingAmounts').get(function () {
+    if (!this.finalBilling)
+        return null;
+    return {
+        baseAmount: this.finalBilling.baseAmountMinor / 100,
+        additionalLabor: this.finalBilling.additionalLaborMinor / 100,
+        partsAmount: this.finalBilling.partsAmountMinor / 100,
+        totalAmount: this.finalBilling.totalAmountMinor / 100,
+    };
+});
+// --- Indexes ---
+BookingSchema.index({ customerLocation: '2dsphere' });
+BookingSchema.index({ status: 1, createdAt: -1 });
+BookingSchema.index({ customerId: 1, createdAt: -1 });
+BookingSchema.index({ technicianId: 1, status: 1 });
+BookingSchema.index({ countryCode: 1, status: 1 });
+BookingSchema.index({ countryCode: 1, serviceKey: 1, status: 1 });
+BookingSchema.index({ generalArea: 1, status: 1 });
+BookingSchema.index({ status: 1, 'dispatch.expiresAt': 1 });
+BookingSchema.index({ 'dispatch.declinedByTechnicians': 1 });
+exports.Booking = mongoose_1.default.models.Booking ??
+    mongoose_1.default.model('Booking', BookingSchema);
 exports.default = exports.Booking;
 //# sourceMappingURL=booking.model.js.map

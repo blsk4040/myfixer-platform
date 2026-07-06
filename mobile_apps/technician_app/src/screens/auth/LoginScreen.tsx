@@ -9,16 +9,46 @@ import {
   SafeAreaView, 
   KeyboardAvoidingView, 
   Platform,
-  Image 
+  Image,
+  Alert,
+  ActivityIndicator
 } from 'react-native';
+import apiService from '../../services/api.service';
+import authService, { AuthSession } from '../../services/auth.service';
 
 interface LoginScreenProps {
-  onLoginSuccess: () => void;
+  onLoginSuccess: (session: AuthSession) => void;
+  onRegisterPress: () => void;
 }
 
-export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
+export function LoginScreen({ onLoginSuccess, onRegisterPress }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert('Missing Fields', 'Please enter your technician email and password.');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const session = await apiService.login(email, password);
+      const role = session.user.role.toUpperCase();
+
+      if (role !== 'TECHNICIAN' && role !== 'ADMIN') {
+        throw new Error('This account is not registered as a technician.');
+      }
+
+      authService.setSession(session);
+      onLoginSuccess(session);
+    } catch (error: any) {
+      Alert.alert('Sign In Failed', error.message || 'Unable to sign in.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -30,7 +60,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         {/* 1. Brand Logo & Header Segment */}
         <View style={styles.headerContainer}>
           <Image 
-            source={{ uri: 'https://res.cloudinary.com/dz7dr3wku/image/upload/v1782316410/favicon-96x96_ymy1mu.png' }} // 👈 Point this to your asset destination file
+            source={{ uri: 'https://res.cloudinary.com/dz7dr3wku/image/upload/v1782316410/favicon-96x96_ymy1mu.png' }} 
             style={styles.logoImage}
             resizeMode="contain"
           />
@@ -49,6 +79,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
+            editable={!isLoading}
           />
 
           <Text style={styles.inputLabel}>Password</Text>
@@ -60,6 +91,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             onChangeText={setPassword}
             secureTextEntry
             autoCapitalize="none"
+            editable={!isLoading}
           />
         </View>
 
@@ -67,9 +99,18 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <TouchableOpacity 
           style={styles.loginButton} 
           activeOpacity={0.8} 
-          onPress={onLoginSuccess}
+          onPress={handleLogin}
+          disabled={isLoading}
         >
-          <Text style={styles.loginButtonText}>Sign In</Text>
+          {isLoading ? (
+            <ActivityIndicator color="#090D14" />
+          ) : (
+            <Text style={styles.loginButtonText}>Sign In</Text>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.registerLink} onPress={onRegisterPress} disabled={isLoading}>
+          <Text style={styles.registerText}>New provider? Apply to join MyFixer Pro</Text>
         </TouchableOpacity>
 
       </KeyboardAvoidingView>
@@ -144,5 +185,7 @@ const styles = StyleSheet.create({
     color: '#090D14', // High-contrast text core execution 
     fontSize: 16, 
     fontWeight: '700' 
-  }
+  },
+  registerLink: { alignItems: 'center', paddingVertical: 18 },
+  registerText: { color: '#94A3B8', fontSize: 13, fontWeight: '700' }
 });

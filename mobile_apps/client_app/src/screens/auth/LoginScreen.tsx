@@ -15,6 +15,8 @@ import {
 import { LockKeyhole, Mail, ShieldCheck } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, IconSizes, Radius, Shadows, Spacing, Typography } from '../../theme';
+import authService, { AuthSession } from '../../services/auth.service';
+import { assertConfiguredUrl, getApiBaseUrl } from '../../config/runtime.config';
 
 export function LoginScreen({ navigation }: any): React.JSX.Element {
   const [email, setEmail] = useState('');
@@ -32,7 +34,8 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
 
     setIsLoading(true);
     try {
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.3.34:5000/api/v1';
+      const apiUrl = getApiBaseUrl();
+      assertConfiguredUrl(apiUrl, 'EXPO_PUBLIC_API_BASE_URL');
       const response = await fetch(`${apiUrl}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -42,12 +45,17 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
         }),
       });
 
-      const result = await response.json();
+      const result = await response.json() as Partial<AuthSession> & { message?: string };
 
       if (!response.ok) {
         throw new Error(result.message || 'Invalid username or credentials.');
       }
 
+      if (!result.token || !result.user) {
+        throw new Error('Login response was missing session details.');
+      }
+
+      authService.setSession({ token: result.token, user: result.user });
       navigation?.replace('MainTabs');
     } catch (error: any) {
       Alert.alert('Access Denied', error.message || 'Network transport failure. Check host connection rules.');

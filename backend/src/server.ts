@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+require('../../config/load-platform-config').loadPlatformConfig({ override: true });
 
 import express, { Application, Request, Response } from 'express';
 import http, { Server as HttpServer } from 'http';
@@ -24,13 +25,7 @@ import { registerSocketServer } from './sockets/socket.server';
 const parseAllowedOrigins = (): string[] => {
   const configuredOrigins = process.env.CORS_ORIGIN ?? process.env.CORS_ORIGINS;
   if (!configuredOrigins) {
-    return [
-      'http://localhost:19006',
-      'http://localhost:3000',
-      'http://192.168.3.34:8081',
-      'http://192.168.3.34:8082',
-      'http://192.168.3.34:8083',
-    ];
+    return [process.env.ADMIN_PORTAL_URL].filter((origin): origin is string => Boolean(origin));
   }
   return configuredOrigins.split(',').map((o) => o.trim()).filter(Boolean);
 };
@@ -85,10 +80,40 @@ if (!mongoUri) {
 
 mongoose.set('strictQuery', true);
 
+let isShuttingDown = false;
+
+const shutdown = async (signal: string) => {
+  if (isShuttingDown) return;
+
+  isShuttingDown = true;
+  console.info(`${signal} received. Shutting down MyFixer backend...`);
+
+  httpServer.close(async () => {
+    try {
+      await mongoose.disconnect();
+      console.info('HTTP server closed and MongoDB disconnected.');
+      process.exit(0);
+    } catch (error) {
+      console.error('Error while disconnecting MongoDB:', error);
+      process.exit(1);
+    }
+  });
+
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout.');
+    process.exit(1);
+  }, 5000);
+};
+
 const startServer = async () => {
   try {
-    await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 10000, autoIndex: true });
+    await mongoose.connect(mongoUri, {
+      serverSelectionTimeoutMS: 10000,
+      autoIndex: true,
+    });
+
     console.info('💾 MongoDB Atlas connected successfully');
+
     httpServer.listen(port, '0.0.0.0', () => {
       console.info(`🚀 MyFixer backend running on port ${port}`);
     });
@@ -98,6 +123,14 @@ const startServer = async () => {
   }
 };
 
+process.on('SIGINT', () => {
+  void shutdown('SIGINT');
+});
+
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM');
+});
+
 if (require.main === module) {
-  startServer();
+  void startServer();
 }

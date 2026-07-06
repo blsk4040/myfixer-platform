@@ -1,6 +1,7 @@
 // c:/myfixer-platform/backend/src/controllers/invoice.controller.ts
 import { Request, Response } from 'express';
 import { Invoice } from '../models/billing.model';
+import { fromMinorUnits } from '../config/market.config';
 
 export const getInvoicesByUser = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -49,13 +50,19 @@ export const downloadInvoicePDF = async (req: Request, res: Response): Promise<v
       meta: {
         document_type: "TAX INVOICE",
         invoice_number: invoice.invoiceNumber,
-        date: invoice.createdAt
+        date: invoice.createdAt,
+        country_code: invoice.countryCode,
+        currency: invoice.currency
       },
       breakdown: {
-        base_diagnostic_callout: invoice.baseAmount,
-        additional_labor: invoice.additionalLabor,
-        parts_and_materials: invoice.partsAmount,
-        total_due: invoice.totalAmount
+        base_diagnostic_callout: fromMinorUnits(invoice.baseAmountMinor, invoice.currency),
+        base_diagnostic_callout_minor: invoice.baseAmountMinor,
+        additional_labor: fromMinorUnits(invoice.additionalLaborMinor, invoice.currency),
+        additional_labor_minor: invoice.additionalLaborMinor,
+        parts_and_materials: fromMinorUnits(invoice.partsAmountMinor, invoice.currency),
+        parts_and_materials_minor: invoice.partsAmountMinor,
+        total_due: fromMinorUnits(invoice.totalAmountMinor, invoice.currency),
+        total_due_minor: invoice.totalAmountMinor
       }
     });
   } catch (error) {

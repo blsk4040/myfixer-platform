@@ -4,10 +4,16 @@
   "description": "MyFixer on-demand appliance repair backend API",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
-    "typecheck": "tsc --noEmit"
+    "dev": "node ../config/run-with-platform-env.js tsx watch src/server.ts",
+    "build": "node ../config/run-with-platform-env.js tsc",
+    "start": "node ../config/run-with-platform-env.js node dist/server.js",
+    "test": "node ../config/run-with-platform-env.js node scripts/production-smoke-test.js",
+    "typecheck": "node ../config/run-with-platform-env.js tsc --noEmit",
+    "seed:staging": "node ../config/run-with-platform-env.js node scripts/seed-staging.js",
+    "seed:test-tech-capability": "node ../config/run-with-platform-env.js node scripts/seed-tech-capability.js",
+    "cleanup:staging": "node ../config/run-with-platform-env.js node scripts/cleanup-staging.js",
+    "create:super-admin": "node scripts/create-super-admin.js",
+    "reset-admin-password": "node scripts/reset-admin-password.js"
   },
   "keywords": [
     "myfixer",
@@ -43,7 +49,7 @@
     "@types/morgan": "^1.9.10",
     "@types/node": "^22.20.0",
     "@types/pg": "^8.20.0",
-    "ts-node-dev": "^2.0.0",
+    "tsx": "^4.22.5",
     "typescript": "^5.9.3"
   },
   "engines": {

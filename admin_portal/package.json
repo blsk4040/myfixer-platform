@@ -1,0 +1,9 @@
+{
+  "name": "myfixer-admin-portal",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "node ../config/run-with-platform-env.js node server.js",
+    "check": "node ../config/run-with-platform-env.js node --check src/app.js"
+  }
+}

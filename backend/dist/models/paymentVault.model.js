@@ -1,4 +1,5 @@
 "use strict";
+// src/models/paymentVault.model.ts
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -33,34 +34,139 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-// src/models/paymentVault.model.ts
+exports.PaymentMethodStatus = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
+var PaymentMethodStatus;
+(function (PaymentMethodStatus) {
+    PaymentMethodStatus["ACTIVE"] = "ACTIVE";
+    PaymentMethodStatus["DISABLED"] = "DISABLED";
+    PaymentMethodStatus["EXPIRED"] = "EXPIRED";
+    PaymentMethodStatus["REMOVED"] = "REMOVED";
+})(PaymentMethodStatus || (exports.PaymentMethodStatus = PaymentMethodStatus = {}));
 const PaymentMethodSchema = new mongoose_1.Schema({
-    methodId: { type: String, required: true },
-    authorizationCode: { type: String, required: true },
-    signature: { type: String, required: true },
-    reusable: { type: Boolean, default: true },
-    brand: { type: String },
-    bank: { type: String },
-    countryCode: { type: String },
-    last4: { type: String, required: true },
-    expiryMonth: { type: String, required: true },
-    expiryYear: { type: String, required: true },
-    cardType: { type: String },
-    isDefault: { type: Boolean, default: false },
-    createdAt: { type: Date, default: Date.now },
-});
+    methodId: {
+        type: String,
+        required: true,
+        trim: true,
+        index: true,
+    },
+    authorizationCode: {
+        type: String,
+        required: true,
+        trim: true,
+        select: false,
+    },
+    signature: {
+        type: String,
+        required: true,
+        trim: true,
+        select: false,
+    },
+    reusable: {
+        type: Boolean,
+        default: true,
+    },
+    brand: {
+        type: String,
+        default: '',
+        trim: true,
+        lowercase: true,
+    },
+    bank: {
+        type: String,
+        default: '',
+        trim: true,
+    },
+    countryCode: {
+        type: String,
+        default: '',
+        trim: true,
+        uppercase: true,
+    },
+    last4: {
+        type: String,
+        required: true,
+        trim: true,
+        minlength: 4,
+        maxlength: 4,
+    },
+    expiryMonth: {
+        type: String,
+        required: true,
+        trim: true,
+    },
+    expiryYear: {
+        type: String,
+        required: true,
+        trim: true,
+    },
+    cardType: {
+        type: String,
+        default: '',
+        trim: true,
+        lowercase: true,
+    },
+    isDefault: {
+        type: Boolean,
+        default: false,
+    },
+    status: {
+        type: String,
+        enum: Object.values(PaymentMethodStatus),
+        default: PaymentMethodStatus.ACTIVE,
+        index: true,
+    },
+    disabledAt: {
+        type: Date,
+        default: null,
+    },
+    metadata: {
+        type: mongoose_1.Schema.Types.Mixed,
+        default: {},
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now,
+    },
+}, { _id: false });
 const PaymentVaultSchema = new mongoose_1.Schema({
     userId: {
         type: mongoose_1.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
         unique: true,
+        index: true,
     },
-    gateway: { type: String, default: 'paystack' },
-    gatewayCustomerId: { type: String },
-    defaultMethodId: { type: String },
-    paymentMethods: [PaymentMethodSchema],
+    gateway: {
+        type: String,
+        default: 'paystack',
+        trim: true,
+        lowercase: true,
+        index: true,
+    },
+    gatewayCustomerId: {
+        type: String,
+        default: '',
+        trim: true,
+        index: true,
+    },
+    defaultMethodId: {
+        type: String,
+        default: '',
+        trim: true,
+    },
+    paymentMethods: {
+        type: [PaymentMethodSchema],
+        default: [],
+    },
+    metadata: {
+        type: mongoose_1.Schema.Types.Mixed,
+        default: {},
+    },
 }, { timestamps: true });
-exports.default = mongoose_1.default.model('PaymentVault', PaymentVaultSchema);
+PaymentVaultSchema.index({ userId: 1, gateway: 1 }, { unique: true });
+PaymentVaultSchema.index({ gateway: 1, gatewayCustomerId: 1 });
+const PaymentVault = mongoose_1.default.models.PaymentVault ??
+    mongoose_1.default.model('PaymentVault', PaymentVaultSchema);
+exports.default = PaymentVault;
 //# sourceMappingURL=paymentVault.model.js.map

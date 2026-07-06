@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.downloadInvoicePDF = exports.getInvoicesByUser = void 0;
 const billing_model_1 = require("../models/billing.model");
+const market_config_1 = require("../config/market.config");
 const getInvoicesByUser = async (req, res) => {
     try {
         const userId = req.user?.id;
@@ -43,13 +44,19 @@ const downloadInvoicePDF = async (req, res) => {
             meta: {
                 document_type: "TAX INVOICE",
                 invoice_number: invoice.invoiceNumber,
-                date: invoice.createdAt
+                date: invoice.createdAt,
+                country_code: invoice.countryCode,
+                currency: invoice.currency
             },
             breakdown: {
-                base_diagnostic_callout: invoice.baseAmount,
-                additional_labor: invoice.additionalLabor,
-                parts_and_materials: invoice.partsAmount,
-                total_due: invoice.totalAmount
+                base_diagnostic_callout: (0, market_config_1.fromMinorUnits)(invoice.baseAmountMinor, invoice.currency),
+                base_diagnostic_callout_minor: invoice.baseAmountMinor,
+                additional_labor: (0, market_config_1.fromMinorUnits)(invoice.additionalLaborMinor, invoice.currency),
+                additional_labor_minor: invoice.additionalLaborMinor,
+                parts_and_materials: (0, market_config_1.fromMinorUnits)(invoice.partsAmountMinor, invoice.currency),
+                parts_and_materials_minor: invoice.partsAmountMinor,
+                total_due: (0, market_config_1.fromMinorUnits)(invoice.totalAmountMinor, invoice.currency),
+                total_due_minor: invoice.totalAmountMinor
             }
         });
     }

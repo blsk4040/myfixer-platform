@@ -11,23 +11,19 @@ export function EarningsScreen(): React.JSX.Element {
   const storePayoutTotal = completedJobs.reduce((sum, job) => sum + (Number(job.price) || 0), 0);
   
   // Base baseline platform statistics combined with newly cleared dynamic session settlements
-  const baseWeeklyEarnings = 4850;
+  const baseWeeklyEarnings = 0;
   const currentWeeklyTotal = baseWeeklyEarnings + storePayoutTotal;
   
-  const baseTodayEarnings = 900;
+  const baseTodayEarnings = 0;
   const currentTodayTotal = baseTodayEarnings + storePayoutTotal;
 
-  const currentMonthTotal = 18400 + storePayoutTotal;
+  const currentMonthTotal = storePayoutTotal;
 
   const weeklyGoal = 7500;
   const progressPercent = Math.min(Math.round((currentWeeklyTotal / weeklyGoal) * 100), 100);
 
   // Core structured settlement loop mapping platform payment providers (Yoco, PayFast)
-  const basePayouts = [
-    { id: 'b1', appliance: 'Defy Double Door Fridge', method: 'Card (Yoco)', amount: 450, date: 'Today, 14:20' },
-    { id: 'b2', appliance: 'Samsung EcoBubble Washer', method: 'Cash', amount: 450, date: 'Today, 09:15' },
-    { id: 'b3', appliance: 'Whirlpool Dishwasher', method: 'In-App (PayFast)', amount: 450, date: 'Yesterday' },
-  ];
+  const basePayouts: Array<{ id: string; appliance: string; method: string; amount: number; date: string }> = [];
 
   // Dynamic cashout batch initialization logic
   const handleCashoutRequest = () => {

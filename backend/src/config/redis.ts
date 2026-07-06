@@ -1,34 +1,57 @@
 import Redis, { RedisOptions } from 'ioredis';
 
-const parsePort = (value: string | undefined, fallback: number): number => {
-  if (!value) {
-    return fallback;
-  }
-
-  const parsed = Number.parseInt(value, 10);
-  return Number.isNaN(parsed) ? fallback : parsed;
-};
+export const isRedisEnabled = (): boolean =>
+  process.env.REDIS_ENABLED === 'true' && Boolean(process.env.REDIS_URL);
 
 const redisOptions: RedisOptions = {
-  host: process.env.REDIS_HOST ?? '127.0.0.1',
-  port: parsePort(process.env.REDIS_PORT, 6379),
   lazyConnect: true,
-  maxRetriesPerRequest: 3,
+  enableOfflineQueue: false,
+  maxRetriesPerRequest: 0,
   enableReadyCheck: true,
+  retryStrategy: () => null,
 };
 
-export const redisClient = new Redis(redisOptions);
+let redisClient: Redis | null = null;
+let warningLogged = false;
 
-redisClient.on('error', (error: Error) => {
-  console.error('Redis connection error', error);
-});
+const warnOnce = (message: string): void => {
+  if (warningLogged) return;
+  warningLogged = true;
+  console.warn(message);
+};
 
-export const connectRedis = async (): Promise<void> => {
-  if (redisClient.status === 'ready' || redisClient.status === 'connect') {
-    return;
+export const getRedisClient = (): Redis | null => {
+  if (!isRedisEnabled()) {
+    if (process.env.REDIS_ENABLED === 'true' && !process.env.REDIS_URL) {
+      warnOnce('Redis is enabled but REDIS_URL is missing. Redis-backed features are disabled.');
+    }
+    return null;
   }
 
-  await redisClient.connect();
+  if (!redisClient) {
+    redisClient = new Redis(process.env.REDIS_URL as string, redisOptions);
+    redisClient.on('error', (error: Error) => {
+      warnOnce(`Redis connection failed. Redis-backed features are disabled. ${error.message}`);
+    });
+  }
+
+  return redisClient;
 };
 
-export default redisClient;
+export const connectRedis = async (): Promise<Redis | null> => {
+  const client = getRedisClient();
+  if (!client) return null;
+
+  if (client.status === 'ready') return client;
+  if (client.status === 'connect' || client.status === 'connecting') return client;
+
+  try {
+    await client.connect();
+    return client;
+  } catch (error) {
+    warnOnce(`Redis connection failed. Redis-backed features are disabled. ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+};
+
+export default getRedisClient;

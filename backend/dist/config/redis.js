@@ -3,32 +3,58 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.connectRedis = exports.redisClient = void 0;
+exports.connectRedis = exports.getRedisClient = exports.isRedisEnabled = void 0;
 const ioredis_1 = __importDefault(require("ioredis"));
-const parsePort = (value, fallback) => {
-    if (!value) {
-        return fallback;
-    }
-    const parsed = Number.parseInt(value, 10);
-    return Number.isNaN(parsed) ? fallback : parsed;
-};
+const isRedisEnabled = () => process.env.REDIS_ENABLED === 'true' && Boolean(process.env.REDIS_URL);
+exports.isRedisEnabled = isRedisEnabled;
 const redisOptions = {
-    host: process.env.REDIS_HOST ?? '127.0.0.1',
-    port: parsePort(process.env.REDIS_PORT, 6379),
     lazyConnect: true,
-    maxRetriesPerRequest: 3,
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 0,
     enableReadyCheck: true,
+    retryStrategy: () => null,
 };
-exports.redisClient = new ioredis_1.default(redisOptions);
-exports.redisClient.on('error', (error) => {
-    console.error('Redis connection error', error);
-});
-const connectRedis = async () => {
-    if (exports.redisClient.status === 'ready' || exports.redisClient.status === 'connect') {
+let redisClient = null;
+let warningLogged = false;
+const warnOnce = (message) => {
+    if (warningLogged)
         return;
+    warningLogged = true;
+    console.warn(message);
+};
+const getRedisClient = () => {
+    if (!(0, exports.isRedisEnabled)()) {
+        if (process.env.REDIS_ENABLED === 'true' && !process.env.REDIS_URL) {
+            warnOnce('Redis is enabled but REDIS_URL is missing. Redis-backed features are disabled.');
+        }
+        return null;
     }
-    await exports.redisClient.connect();
+    if (!redisClient) {
+        redisClient = new ioredis_1.default(process.env.REDIS_URL, redisOptions);
+        redisClient.on('error', (error) => {
+            warnOnce(`Redis connection failed. Redis-backed features are disabled. ${error.message}`);
+        });
+    }
+    return redisClient;
+};
+exports.getRedisClient = getRedisClient;
+const connectRedis = async () => {
+    const client = (0, exports.getRedisClient)();
+    if (!client)
+        return null;
+    if (client.status === 'ready')
+        return client;
+    if (client.status === 'connect' || client.status === 'connecting')
+        return client;
+    try {
+        await client.connect();
+        return client;
+    }
+    catch (error) {
+        warnOnce(`Redis connection failed. Redis-backed features are disabled. ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+    }
 };
 exports.connectRedis = connectRedis;
-exports.default = exports.redisClient;
+exports.default = exports.getRedisClient;
 //# sourceMappingURL=redis.js.map

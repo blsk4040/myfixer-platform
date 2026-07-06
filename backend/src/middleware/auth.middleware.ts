@@ -1,5 +1,52 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import User, { AdminPermission, AdminRole, normalizeUserRole, UserRole } from '../models/user.model';
+
+const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
+  [AdminRole.SUPER_ADMIN]: Object.values(AdminPermission),
+  [AdminRole.OPERATIONS_MANAGER]: [
+    AdminPermission.OVERVIEW_READ,
+    AdminPermission.BOOKINGS_READ,
+    AdminPermission.BOOKINGS_UPDATE,
+    AdminPermission.TECHNICIANS_READ,
+    AdminPermission.SETTINGS_READ,
+  ],
+  [AdminRole.DISPATCHER]: [
+    AdminPermission.OVERVIEW_READ,
+    AdminPermission.BOOKINGS_READ,
+    AdminPermission.BOOKINGS_UPDATE,
+  ],
+  [AdminRole.FINANCE_ADMIN]: [
+    AdminPermission.OVERVIEW_READ,
+    AdminPermission.FINANCE_READ,
+    AdminPermission.SETTINGS_READ,
+  ],
+  [AdminRole.SUPPORT_AGENT]: [
+    AdminPermission.OVERVIEW_READ,
+    AdminPermission.BOOKINGS_READ,
+    AdminPermission.TECHNICIANS_READ,
+  ],
+  [AdminRole.TECHNICIAN_REVIEWER]: [
+    AdminPermission.OVERVIEW_READ,
+    AdminPermission.TECHNICIANS_READ,
+    AdminPermission.TECHNICIANS_REVIEW,
+  ],
+  [AdminRole.MARKET_MANAGER]: [
+    AdminPermission.OVERVIEW_READ,
+    AdminPermission.MARKETS_READ,
+    AdminPermission.MARKETS_UPDATE,
+    AdminPermission.SETTINGS_READ,
+  ],
+  [AdminRole.READ_ONLY_ADMIN]: [
+    AdminPermission.OVERVIEW_READ,
+    AdminPermission.BOOKINGS_READ,
+    AdminPermission.TECHNICIANS_READ,
+    AdminPermission.FINANCE_READ,
+    AdminPermission.MARKETS_READ,
+    AdminPermission.ADMINS_READ,
+    AdminPermission.SETTINGS_READ,
+  ],
+};
 
 export const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
@@ -34,9 +81,54 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
       ...payload,
       id: userId,
       _id: userId,
+      role: normalizeUserRole(payload.role),
     };
     next();
   } catch (err) {
     return res.status(403).json({ message: 'Invalid token' });
   }
 };
+
+export const requireRole =
+  (allowedRoles: UserRole[]) =>
+  (req: Request, res: Response, next: NextFunction): void => {
+    const role = normalizeUserRole((req as any).user?.role);
+
+    if (!allowedRoles.includes(role)) {
+      res.status(403).json({ message: 'This account is not allowed to perform this action.' });
+      return;
+    }
+
+    next();
+  };
+
+export const requireAdminPermission =
+  (permission: AdminPermission) =>
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const authUser = (req as any).user as { id?: string; role?: UserRole } | undefined;
+    const role = normalizeUserRole(authUser?.role);
+
+    if (role !== UserRole.ADMIN || !authUser?.id) {
+      res.status(403).json({ message: 'This portal is only available to internal admin staff.' });
+      return;
+    }
+
+    const admin = await User.findById(authUser.id).select('role adminRole adminPermissions isActive accountStatus');
+    if (!admin || admin.role !== UserRole.ADMIN || admin.isActive === false) {
+      res.status(403).json({ message: 'This admin account is not active.' });
+      return;
+    }
+
+    const adminRole = admin.adminRole || AdminRole.READ_ONLY_ADMIN;
+    const allowed = new Set([
+      ...(ADMIN_ROLE_PERMISSIONS[adminRole] || []),
+      ...(admin.adminPermissions || []),
+    ]);
+
+    if (!allowed.has(permission)) {
+      res.status(403).json({ message: 'You do not have permission to perform this action.' });
+      return;
+    }
+
+    next();
+  };

@@ -13,6 +13,7 @@ import {
   Alert 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { assertConfiguredUrl, getApiBaseUrl } from '../../config/runtime.config';
 
 export function ForgotPasswordScreen({ navigation }: any): React.JSX.Element {
   const [email, setEmail] = useState('');
@@ -26,7 +27,8 @@ export function ForgotPasswordScreen({ navigation }: any): React.JSX.Element {
     
     setIsLoading(true);
     try {
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.3.3:5000/api/v1';
+      const apiUrl = getApiBaseUrl();
+      assertConfiguredUrl(apiUrl, 'EXPO_PUBLIC_API_BASE_URL');
       const response = await fetch(`${apiUrl}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

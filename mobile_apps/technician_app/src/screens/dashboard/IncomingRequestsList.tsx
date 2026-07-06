@@ -10,6 +10,7 @@ interface IncomingRequestsListProps {
   isOnline: boolean;
   onAccept: (job: IncomingJob) => void;
   onDecline: (id: string) => void;
+  connectionMessage?: string;
 }
 
 export function IncomingRequestsList({
@@ -17,12 +18,17 @@ export function IncomingRequestsList({
   isOnline,
   onAccept,
   onDecline,
+  connectionMessage = '',
 }: IncomingRequestsListProps): React.JSX.Element {
   return (
     <View style={styles.container}>
       <Text style={styles.sectionTitle}>Incoming Job Pings</Text>
       
-      {!isOnline ? (
+      {isOnline && connectionMessage ? (
+        <View style={styles.offlineCard}>
+          <Text style={styles.offlineText}>{connectionMessage}</Text>
+        </View>
+      ) : !isOnline ? (
         <View style={styles.offlineCard}>
           <Text style={styles.offlineText}>
             🔴 Go online to start receiving live technician pings.

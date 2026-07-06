@@ -1,10 +1,89 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.authenticateToken = void 0;
+exports.requireAdminPermission = exports.requireRole = exports.authenticateToken = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const user_model_1 = __importStar(require("../models/user.model"));
+const ADMIN_ROLE_PERMISSIONS = {
+    [user_model_1.AdminRole.SUPER_ADMIN]: Object.values(user_model_1.AdminPermission),
+    [user_model_1.AdminRole.OPERATIONS_MANAGER]: [
+        user_model_1.AdminPermission.OVERVIEW_READ,
+        user_model_1.AdminPermission.BOOKINGS_READ,
+        user_model_1.AdminPermission.BOOKINGS_UPDATE,
+        user_model_1.AdminPermission.TECHNICIANS_READ,
+        user_model_1.AdminPermission.SETTINGS_READ,
+    ],
+    [user_model_1.AdminRole.DISPATCHER]: [
+        user_model_1.AdminPermission.OVERVIEW_READ,
+        user_model_1.AdminPermission.BOOKINGS_READ,
+        user_model_1.AdminPermission.BOOKINGS_UPDATE,
+    ],
+    [user_model_1.AdminRole.FINANCE_ADMIN]: [
+        user_model_1.AdminPermission.OVERVIEW_READ,
+        user_model_1.AdminPermission.FINANCE_READ,
+        user_model_1.AdminPermission.SETTINGS_READ,
+    ],
+    [user_model_1.AdminRole.SUPPORT_AGENT]: [
+        user_model_1.AdminPermission.OVERVIEW_READ,
+        user_model_1.AdminPermission.BOOKINGS_READ,
+        user_model_1.AdminPermission.TECHNICIANS_READ,
+    ],
+    [user_model_1.AdminRole.TECHNICIAN_REVIEWER]: [
+        user_model_1.AdminPermission.OVERVIEW_READ,
+        user_model_1.AdminPermission.TECHNICIANS_READ,
+        user_model_1.AdminPermission.TECHNICIANS_REVIEW,
+    ],
+    [user_model_1.AdminRole.MARKET_MANAGER]: [
+        user_model_1.AdminPermission.OVERVIEW_READ,
+        user_model_1.AdminPermission.MARKETS_READ,
+        user_model_1.AdminPermission.MARKETS_UPDATE,
+        user_model_1.AdminPermission.SETTINGS_READ,
+    ],
+    [user_model_1.AdminRole.READ_ONLY_ADMIN]: [
+        user_model_1.AdminPermission.OVERVIEW_READ,
+        user_model_1.AdminPermission.BOOKINGS_READ,
+        user_model_1.AdminPermission.TECHNICIANS_READ,
+        user_model_1.AdminPermission.FINANCE_READ,
+        user_model_1.AdminPermission.MARKETS_READ,
+        user_model_1.AdminPermission.ADMINS_READ,
+        user_model_1.AdminPermission.SETTINGS_READ,
+    ],
+};
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers.authorization;
     const secret = process.env.JWT_SECRET;
@@ -32,6 +111,7 @@ const authenticateToken = (req, res, next) => {
             ...payload,
             id: userId,
             _id: userId,
+            role: (0, user_model_1.normalizeUserRole)(payload.role),
         };
         next();
     }
@@ -40,4 +120,37 @@ const authenticateToken = (req, res, next) => {
     }
 };
 exports.authenticateToken = authenticateToken;
+const requireRole = (allowedRoles) => (req, res, next) => {
+    const role = (0, user_model_1.normalizeUserRole)(req.user?.role);
+    if (!allowedRoles.includes(role)) {
+        res.status(403).json({ message: 'This account is not allowed to perform this action.' });
+        return;
+    }
+    next();
+};
+exports.requireRole = requireRole;
+const requireAdminPermission = (permission) => async (req, res, next) => {
+    const authUser = req.user;
+    const role = (0, user_model_1.normalizeUserRole)(authUser?.role);
+    if (role !== user_model_1.UserRole.ADMIN || !authUser?.id) {
+        res.status(403).json({ message: 'This portal is only available to internal admin staff.' });
+        return;
+    }
+    const admin = await user_model_1.default.findById(authUser.id).select('role adminRole adminPermissions isActive accountStatus');
+    if (!admin || admin.role !== user_model_1.UserRole.ADMIN || admin.isActive === false) {
+        res.status(403).json({ message: 'This admin account is not active.' });
+        return;
+    }
+    const adminRole = admin.adminRole || user_model_1.AdminRole.READ_ONLY_ADMIN;
+    const allowed = new Set([
+        ...(ADMIN_ROLE_PERMISSIONS[adminRole] || []),
+        ...(admin.adminPermissions || []),
+    ]);
+    if (!allowed.has(permission)) {
+        res.status(403).json({ message: 'You do not have permission to perform this action.' });
+        return;
+    }
+    next();
+};
+exports.requireAdminPermission = requireAdminPermission;
 //# sourceMappingURL=auth.middleware.js.map

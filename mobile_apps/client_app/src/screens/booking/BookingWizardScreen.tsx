@@ -25,8 +25,9 @@ import {
   Phone as LucidePhone 
 } from 'lucide-react-native';
 import DateTimePicker from '@react-native-community/datetimepicker'; 
-import apiService, { Coordinate } from '../../services/api.service';
+import apiService, { Coordinate, CustomerProfile } from '../../services/api.service';
 import socketService from '../../services/socket.service';
+import authService from '../../services/auth.service';
 
 // ✅ Clean type casting to fully resolve IntrinsicAttributes TypeScript errors
 const Calendar = LucideCalendar as any;
@@ -36,15 +37,15 @@ const User = LucideUser as any;
 const MessageSquare = LucideMessageSquare as any;
 const Phone = LucidePhone as any;
 
-const CUSTOMER_ID = 'mock-customer-001';
 const DEFAULT_COORDINATE: Coordinate = { latitude: -26.2041, longitude: 28.0473 };
 
 export default function BookingWizardScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
 
-  const { category, subCategory, basePrice } = route.params || {
-    category: 'appliances',
+  const { category, serviceKey, subCategory, basePrice } = route.params || {
+    category: 'appliance_repair',
+    serviceKey: 'appliance_repair',
     subCategory: 'General Appliance Fix',
     basePrice: 350
   };
@@ -58,8 +59,15 @@ export default function BookingWizardScreen() {
 
   const [latitude, setLatitude] = useState(String(DEFAULT_COORDINATE.latitude));
   const [longitude, setLongitude] = useState(String(DEFAULT_COORDINATE.longitude));
+  const [streetAddress, setStreetAddress] = useState('');
+  const [suburb, setSuburb] = useState('');
+  const [city, setCity] = useState('');
+  const [postalCode, setPostalCode] = useState('');
   const [isLocating, setIsLocating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [profile, setProfile] = useState<CustomerProfile | null>(null);
+  const [useDifferentAddress, setUseDifferentAddress] = useState(false);
+  const [saveAsDefaultAddress, setSaveAsDefaultAddress] = useState(false);
   
   const [isSearchingProvider, setIsSearchingProvider] = useState(false);
   const [assignedProvider, setAssignedProvider] = useState<any>(null);
@@ -67,9 +75,27 @@ export default function BookingWizardScreen() {
 
   useEffect(() => {
     let isMounted = true;
-    const fetchLocation = async () => {
+    const loadProfileAndLocation = async () => {
       setIsLocating(true);
       try {
+        const profileResponse = await apiService.getMyProfile();
+        if (!isMounted) return;
+        const nextProfile = profileResponse.profile;
+        setProfile(nextProfile);
+        const defaultAddress = nextProfile.defaultServiceAddress;
+        if (defaultAddress?.streetAddress) {
+          setStreetAddress(defaultAddress.streetAddress || '');
+          setSuburb(defaultAddress.suburb || '');
+          setCity(defaultAddress.city || '');
+          setPostalCode(defaultAddress.postalCode || '');
+          const coordinates = defaultAddress.coordinates?.coordinates;
+          if (coordinates?.length === 2) {
+            setLongitude(String(coordinates[0]));
+            setLatitude(String(coordinates[1]));
+            return;
+          }
+        }
+
         const permission = await Location.requestForegroundPermissionsAsync();
         if (permission.status !== Location.PermissionStatus.GRANTED) return;
         const currentLoc = await Location.getCurrentPositionAsync({});
@@ -83,7 +109,7 @@ export default function BookingWizardScreen() {
         if (isMounted) setIsLocating(false);
       }
     };
-    fetchLocation();
+    loadProfileAndLocation();
     return () => { isMounted = false; };
   }, []);
 
@@ -106,51 +132,57 @@ export default function BookingWizardScreen() {
   };
 
   const handleBookingSubmit = async () => {
-    setIsSubmitting(true);
-    setIsSearchingProvider(true);
-
     try {
+      if (!streetAddress.trim() || !suburb.trim() || !city.trim() || !postalCode.trim()) {
+        Alert.alert('Address Required', 'Please enter your street address, suburb, city, and postal code.');
+        return;
+      }
+
+      setIsSubmitting(true);
+      setIsSearchingProvider(true);
+
       const customerCoordinate = { latitude: Number(latitude), longitude: Number(longitude) };
       const formattedTimestamp = scheduleMode === 'NOW' ? 'Urgent / Right Now' : selectedDate.toLocaleString();
-      const pinnedAddress = `Pinned customer location (${customerCoordinate.latitude.toFixed(5)}, ${customerCoordinate.longitude.toFixed(5)})`;
+      const readableAddress = [streetAddress, suburb, city, postalCode].filter(Boolean).join(', ');
+      const session = authService.getSession();
+      const currency = (session?.user.currency ?? 'ZAR') as any;
 
       const response = await apiService.createBooking({
-        customerId: CUSTOMER_ID,
-        customerName: 'Client',
+        customerName: session?.user.name ?? 'Client',
         applianceType: `${subCategory} (${formattedTimestamp})`,
         faultDescription: notes.trim() || 'No description provided.',
         latitude: customerCoordinate.latitude,
         longitude: customerCoordinate.longitude,
         price: basePrice,
-        currency: 'ZAR',
-        fullAddress: pinnedAddress,
-        generalArea: category || 'Local Area',
+        countryCode: session?.user.countryCode,
+        currency,
+        fullAddress: readableAddress,
+        streetAddress: streetAddress.trim(),
+        suburb: suburb.trim(),
+        postalCode: postalCode.trim(),
+        generalArea: suburb.trim(),
+        city: city.trim(),
+        area: suburb.trim(),
+        serviceKey: serviceKey || category,
+        category,
+        saveAsDefaultAddress: useDifferentAddress && saveAsDefaultAddress,
       });
 
       const socket = socketService.initializeConnection();
       socketService.joinBookingRoom(response.bookingId);
       setCreatedBookingId(response.bookingId);
 
-      socket.emit('request_technician', {
-        bookingId: response.bookingId,
-        customerId: CUSTOMER_ID,
-        applianceType: subCategory,
-        price: basePrice,
-        currency: 'ZAR',
-        coordinate: customerCoordinate,
-        clientNotes: notes,
-        scheduledFor: scheduleMode === 'LATER' ? selectedDate.toISOString() : 'NOW'
-      });
+      socket.once('booking_assigned', (payload: { bookingId?: string; technicianId?: string }) => {
+        if (payload.bookingId !== response.bookingId) return;
 
-      setTimeout(() => {
         setAssignedProvider({
-          name: 'Blessing Khumalo',
-          rating: '4.95',
-          phone: '+27834567891',
-          image: 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?auto=format&fit=crop&w=200&q=80'
+          name: payload.technicianId ? `Technician ${payload.technicianId}` : 'Assigned technician',
+          rating: 'Verified',
+          phone: '',
+          image: 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?auto=format&fit=crop&w=200&q=80',
         });
         setIsSearchingProvider(false);
-      }, 4000);
+      });
 
     } catch (err: any) {
       Alert.alert('Booking Failure', err.message || 'System issues encountered.');
@@ -158,6 +190,15 @@ export default function BookingWizardScreen() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleUseDifferentAddress = () => {
+    setUseDifferentAddress(true);
+    setSaveAsDefaultAddress(false);
+    setStreetAddress('');
+    setSuburb('');
+    setCity('');
+    setPostalCode('');
   };
 
   return (
@@ -205,6 +246,56 @@ export default function BookingWizardScreen() {
           {!assignedProvider && !isSearchingProvider && (
             <View style={styles.formContainer}>
               
+              <Text style={styles.sectionTitle}>Service Address</Text>
+              {profile?.defaultServiceAddress?.fullAddress && !useDifferentAddress ? (
+                <View style={styles.defaultAddressNotice}>
+                  <Text style={styles.defaultAddressText}>Using saved address: {profile.defaultServiceAddress.fullAddress}</Text>
+                  <TouchableOpacity onPress={handleUseDifferentAddress}>
+                    <Text style={styles.defaultAddressAction}>Use different address</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+              <TextInput
+                style={styles.instructionInput}
+                placeholder="Street address"
+                placeholderTextColor="#475569"
+                value={streetAddress}
+                onChangeText={setStreetAddress}
+              />
+              <View style={styles.addressRow}>
+                <TextInput
+                  style={[styles.addressInput, { flex: 1 }]}
+                  placeholder="Suburb"
+                  placeholderTextColor="#475569"
+                  value={suburb}
+                  onChangeText={setSuburb}
+                />
+                <TextInput
+                  style={[styles.addressInput, { flex: 1 }]}
+                  placeholder="City"
+                  placeholderTextColor="#475569"
+                  value={city}
+                  onChangeText={setCity}
+                />
+              </View>
+              <TextInput
+                style={styles.addressInput}
+                placeholder="Postal code"
+                placeholderTextColor="#475569"
+                value={postalCode}
+                onChangeText={setPostalCode}
+              />
+              {useDifferentAddress ? (
+                <TouchableOpacity
+                  style={styles.saveDefaultToggle}
+                  onPress={() => setSaveAsDefaultAddress((current) => !current)}
+                >
+                  <Text style={styles.saveDefaultText}>
+                    {saveAsDefaultAddress ? 'Save this as my default address' : 'Do not save as default'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+
               <Text style={styles.sectionTitle}>Instruction Notes for Provider</Text>
               <TextInput
                 style={styles.instructionInput}
@@ -304,6 +395,13 @@ const styles = StyleSheet.create({
   formContainer: { gap: 20 },
   sectionTitle: { color: '#94A3B8', fontSize: 13, fontWeight: '700' },
   instructionInput: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 16, color: '#FFFFFF', fontSize: 14, minHeight: 90, textAlignVertical: 'top' },
+  addressRow: { flexDirection: 'row', gap: 12 },
+  addressInput: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 14, color: '#FFFFFF', fontSize: 14 },
+  defaultAddressNotice: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 12, gap: 8 },
+  defaultAddressText: { color: '#CBD5E1', fontSize: 12, lineHeight: 18 },
+  defaultAddressAction: { color: '#00FF87', fontSize: 12, fontWeight: '700' },
+  saveDefaultToggle: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 12 },
+  saveDefaultText: { color: '#00FF87', fontSize: 12, fontWeight: '700' },
   timeToggleRow: { flexDirection: 'row', gap: 12 },
   toggleBtn: { flex: 1, flexDirection: 'row', gap: 8, height: 48, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   toggleBtnActive: { backgroundColor: '#FFFFFF', borderColor: '#FFFFFF' },

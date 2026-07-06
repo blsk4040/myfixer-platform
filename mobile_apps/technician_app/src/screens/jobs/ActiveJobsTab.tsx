@@ -1,9 +1,12 @@
 // mobile_apps/technician_app/src/screens/jobs/ActiveJobsTab.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Alert, Linking, Modal, TextInput, FlatList, KeyboardAvoidingView, Platform, Image, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import { useJobStore, JobPayload } from '../../store/useJobStore';
+import { useJobStore, JobPayload, JobStatus } from '../../store/useJobStore';
+import apiService from '../../services/api.service';
+import techSocketService from '../../services/tech_socket.service';
+import { NotificationService } from '../../services/notification.service';
 
 interface Message {
   id: string;
@@ -20,11 +23,7 @@ export function ActiveJobsTab(): React.JSX.Element {
   const [chatVisible, setChatVisible] = useState(false);
   const [selectedJob, setSelectedJob] = useState<JobPayload | null>(null);
   const [typedMessage, setTypedMessage] = useState('');
-  const [chatThreads, setChatThreads] = useState<Record<string, Message[]>>({
-    'job_001': [
-      { id: '1', text: 'Hi, what time will you arrive?', sender: 'client', timestamp: '14:02' },
-    ]
-  });
+  const [chatThreads, setChatThreads] = useState<Record<string, Message[]>>({});
 
   // Proof of Work Photo Verification State
   const [jobPhotos, setJobPhotos] = useState<Record<string, string>>({});
@@ -35,6 +34,41 @@ export function ActiveJobsTab(): React.JSX.Element {
   const [additionalLabor, setAdditionalLabor] = useState('');
   const [partsAmount, setPartsAmount] = useState('');
   const [submittingInvoice, setSubmittingInvoice] = useState(false);
+  const [approvedQuoteJobIds, setApprovedQuoteJobIds] = useState<Set<string>>(new Set());
+  const [sentQuoteJobIds, setSentQuoteJobIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const socket = techSocketService.getSocket();
+    if (!socket) return undefined;
+
+    const handleQuoteApproved = (quote: { bookingId?: string }) => {
+      if (!quote.bookingId) return;
+      setApprovedQuoteJobIds((prev) => new Set(prev).add(String(quote.bookingId)));
+    };
+
+    const handleQuoteRejected = (quote: { bookingId?: string }) => {
+      if (!quote.bookingId) return;
+      setSentQuoteJobIds((prev) => {
+        const next = new Set(prev);
+        next.delete(String(quote.bookingId));
+        return next;
+      });
+      setApprovedQuoteJobIds((prev) => {
+        const next = new Set(prev);
+        next.delete(String(quote.bookingId));
+        return next;
+      });
+      Alert.alert('Quote Rejected', 'The client rejected the work order. Please revise the quote or close the visit.');
+    };
+
+    socket.on('quote_approved', handleQuoteApproved);
+    socket.on('quote_rejected', handleQuoteRejected);
+
+    return () => {
+      socket.off('quote_approved', handleQuoteApproved);
+      socket.off('quote_rejected', handleQuoteRejected);
+    };
+  }, []);
 
   const getActionButtonProps = (status: string | undefined) => {
     switch (status) {
@@ -51,6 +85,28 @@ export function ActiveJobsTab(): React.JSX.Element {
     }
   };
 
+  const getNextStatus = (status: JobStatus | undefined): Exclude<JobStatus, 'IDLE'> | null => {
+    switch (status) {
+      case 'ACCEPTED':
+        return 'IN_ROUTE';
+      case 'IN_ROUTE':
+        return 'ARRIVED';
+      case 'ARRIVED':
+        return 'DIAGNOSTIC_DONE';
+      case 'DIAGNOSTIC_DONE':
+        return 'COMPLETED';
+      default:
+        return null;
+    }
+  };
+
+  const getStageBlockReason = (job: JobPayload): string => {
+    if (!job.jobStatus) return 'Booking has not been accepted yet';
+    if (job.jobStatus === 'DIAGNOSTIC_DONE' && !approvedQuoteJobIds.has(job.id)) return 'Quote not accepted';
+    if (job.jobStatus === 'COMPLETED') return 'Payment already completed';
+    return 'Waiting for customer approval';
+  };
+
   const handlePhoneCall = (phoneNum: string = '0825550192') => {
     const url = `tel:${phoneNum}`;
     Linking.canOpenURL(url)
@@ -62,6 +118,25 @@ export function ActiveJobsTab(): React.JSX.Element {
         }
       })
       .catch((err) => console.error(err));
+  };
+
+  const handleNavigate = (job: JobPayload) => {
+    const latitude = Number(job.latitude);
+    const longitude = Number(job.longitude);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      Alert.alert('Navigation Unavailable', 'This job does not have valid GPS coordinates yet.');
+      return;
+    }
+
+    const label = encodeURIComponent(job.fullAddress || job.applianceType || 'Client location');
+    const latLng = `${latitude},${longitude}`;
+    const url = Platform.select({
+      ios: `maps:0,0?q=${label}@${latLng}`,
+      android: `geo:0,0?q=${latLng}(${label})`,
+    });
+
+    if (url) Linking.openURL(url);
   };
 
   const openChatModal = (job: JobPayload) => {
@@ -104,8 +179,16 @@ export function ActiveJobsTab(): React.JSX.Element {
     }
   };
 
-  const handleStatusPress = (job: JobPayload) => {
+  const handleStatusPress = async (job: JobPayload) => {
     if (job.jobStatus === 'DIAGNOSTIC_DONE') {
+      if (!approvedQuoteJobIds.has(job.id)) {
+        setActiveInvoiceJob(job);
+        setAdditionalLabor('');
+        setPartsAmount('');
+        setInvoiceModalVisible(true);
+        return;
+      }
+
       if (!jobPhotos[job.id]) {
         Alert.alert(
           "Verification Missing", 
@@ -120,7 +203,23 @@ export function ActiveJobsTab(): React.JSX.Element {
       setPartsAmount('');
       setInvoiceModalVisible(true);
     } else {
+      const nextStatus = getNextStatus(job.jobStatus);
+      if (!nextStatus) {
+        Alert.alert('Status Error', getStageBlockReason(job));
+        return;
+      }
+
+      try {
+        await apiService.updateBookingStatus(job.id, nextStatus);
+      } catch (error: any) {
+        Alert.alert('Status Sync Failed', error.message || 'Could not update this job status.');
+        return;
+      }
+
       advanceJobStatus(job.id);
+      if (nextStatus === 'ARRIVED') {
+        await NotificationService.handleArrival(job.id);
+      }
     }
   };
 
@@ -146,26 +245,56 @@ export function ActiveJobsTab(): React.JSX.Element {
         proofPhoto: jobPhotos[activeInvoiceJob.id] || ''
       };
 
-      console.log('Dispatching Finalized Invoice Details to Node backend:', billingPayload);
-      // In production: await axios.post('/api/v1/invoices/generate', billingPayload);
+      if (!approvedQuoteJobIds.has(activeInvoiceJob.id)) {
+        const lineItems = [
+          {
+            type: 'CALLOUT' as const,
+            label: 'Diagnostic callout fee',
+            quantity: 1,
+            unitAmount: baseCallout,
+          },
+          ...(laborNum > 0 ? [{
+            type: 'LABOR' as const,
+            label: 'Extended labor',
+            quantity: 1,
+            unitAmount: laborNum,
+          }] : []),
+          ...(partsNum > 0 ? [{
+            type: 'PART' as const,
+            label: 'Parts and materials',
+            quantity: 1,
+            unitAmount: partsNum,
+          }] : []),
+        ];
 
-      setTimeout(() => {
-        setSubmittingInvoice(false);
+        await apiService.createJobQuote(activeInvoiceJob.id, {
+          lineItems,
+          technicianNotes: 'Please approve this work order before repairs continue.',
+        });
+
+        setSentQuoteJobIds((prev) => new Set(prev).add(activeInvoiceJob.id));
         setInvoiceModalVisible(false);
-        
-        // Execute original store transitions to cycle job away
-        advanceJobStatus(activeInvoiceJob.id);
-        Alert.alert("Revenue Synced", `Tax Invoice generated completely! R ${totalSettlement.toFixed(2)} has been credited to your platform wallet.`);
-      }, 1200);
+        Alert.alert('Quote Sent', 'The client must approve this work order before you can complete the job.');
+        return;
+      }
+
+      await apiService.finalizeJobInvoice(billingPayload);
+
+      setInvoiceModalVisible(false);
+      advanceJobStatus(activeInvoiceJob.id);
+      await NotificationService.handlePayment(activeInvoiceJob.id);
+      Alert.alert("Revenue Synced", `Tax Invoice generated completely! R ${totalSettlement.toFixed(2)} has been credited to your platform wallet.`);
 
     } catch (error) {
-      setSubmittingInvoice(false);
       Alert.alert("Error", "Could not synchronize invoice ledger calculations with the server.");
+    } finally {
+      setSubmittingInvoice(false);
     }
   };
 
   // Live total computation helper variables for prompt UI reflection
   const basePriceValue = activeInvoiceJob ? (Number(activeInvoiceJob.price) || 450) : 450;
+  const activeInvoiceCurrency = activeInvoiceJob?.currency || 'ZAR';
   const computedLiveTotal = basePriceValue + (parseFloat(additionalLabor) || 0) + (parseFloat(partsAmount) || 0);
 
   if (activeJobs.length === 0) {
@@ -196,7 +325,7 @@ export function ActiveJobsTab(): React.JSX.Element {
               
               <View style={styles.priceRow}>
                 <Text style={styles.metaLabel}>BASE CALLOUT FEE</Text>
-                <Text style={styles.priceValue}>R {job.price}</Text>
+                <Text style={styles.priceValue}>{job.currency || 'ZAR'} {job.price}</Text>
               </View>
 
               <View style={styles.divider} />
@@ -206,10 +335,13 @@ export function ActiveJobsTab(): React.JSX.Element {
               
               <View style={styles.commsRow}>
                 <TouchableOpacity style={styles.commsBtn} onPress={() => openChatModal(job)}>
-                  <Text style={styles.commsBtnText}>💬 Direct Chat</Text>
+                  <Text style={styles.commsBtnText}>Chat</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.commsBtn, { borderColor: '#38BDF820' }]} onPress={() => handlePhoneCall()}>
                   <Text style={[styles.commsBtnText, { color: '#38BDF8' }]}>📞 Voice Call</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.commsBtn, { borderColor: '#00FF8740' }]} onPress={() => handleNavigate(job)}>
+                  <Text style={styles.commsBtnText}>Navigate</Text>
                 </TouchableOpacity>
               </View>
 
@@ -237,7 +369,9 @@ export function ActiveJobsTab(): React.JSX.Element {
                   onPress={() => handleStatusPress(job)}
                 >
                   <Text style={[styles.btnTextDark, { color: currentProps.textColor }]}>
-                    {currentProps.text}
+                    {job.jobStatus === 'DIAGNOSTIC_DONE' && !approvedQuoteJobIds.has(job.id)
+                      ? sentQuoteJobIds.has(job.id) ? 'Quote Sent - Waiting Approval' : 'Send Quote for Approval'
+                      : currentProps.text}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -304,16 +438,16 @@ export function ActiveJobsTab(): React.JSX.Element {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Base Diagnostic Callout (Fixed)</Text>
               <View style={[styles.inputWrapper, styles.disabledInputWrapper]}>
-                <Text style={styles.currencyPrefix}>R</Text>
+                <Text style={styles.currencyPrefix}>{activeInvoiceCurrency}</Text>
                 <Text style={styles.disabledInputText}>{basePriceValue.toFixed(2)}</Text>
               </View>
             </View>
 
             {/* Item 2: Additional Labor Cost */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Extended Labor Charges (ZAR)</Text>
+              <Text style={styles.inputLabel}>Extended Labor Charges ({activeInvoiceCurrency})</Text>
               <View style={styles.inputWrapper}>
-                <Text style={styles.currencyPrefix}>R</Text>
+                <Text style={styles.currencyPrefix}>{activeInvoiceCurrency}</Text>
                 <TextInput
                   style={styles.textInput}
                   keyboardType="numeric"
@@ -327,9 +461,9 @@ export function ActiveJobsTab(): React.JSX.Element {
 
             {/* Item 3: Parts & Materials */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Acquired Materials & Component Parts (ZAR)</Text>
+              <Text style={styles.inputLabel}>Acquired Materials & Component Parts ({activeInvoiceCurrency})</Text>
               <View style={styles.inputWrapper}>
-                <Text style={styles.currencyPrefix}>R</Text>
+                <Text style={styles.currencyPrefix}>{activeInvoiceCurrency}</Text>
                 <TextInput
                   style={styles.textInput}
                   keyboardType="numeric"
@@ -344,7 +478,7 @@ export function ActiveJobsTab(): React.JSX.Element {
             {/* Total Computation Box Summary */}
             <View style={styles.summaryBox}>
               <Text style={styles.summaryLabel}>Total Due from Client:</Text>
-              <Text style={styles.summaryValue}>R {computedLiveTotal.toFixed(2)}</Text>
+              <Text style={styles.summaryValue}>{activeInvoiceCurrency} {computedLiveTotal.toFixed(2)}</Text>
             </View>
 
             {/* Modal Actions Button Row */}

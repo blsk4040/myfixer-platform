@@ -23,13 +23,7 @@ interface InvoiceItem {
   description: string;
 }
 
-// Mock database ledger records - reflecting major African hubs expansion
-const MOCK_INVOICES: InvoiceItem[] = [
-  { id: '1', invoiceNumber: 'INV-2026-004', date: '2026-06-24', amount: 850.00, currency: 'ZAR', status: 'Paid', description: 'Washing Machine Drum Repair' },
-  { id: '2', invoiceNumber: 'INV-2026-003', date: '2026-06-18', amount: 24500.00, currency: 'NGN', status: 'Paid', description: 'Commercial Refrigerator Gas Refill' },
-  { id: '3', invoiceNumber: 'INV-2026-002', date: '2026-06-12', amount: 4800.00, currency: 'KES', status: 'Paid', description: 'Oven Element Replacement' },
-  { id: '4', invoiceNumber: 'INV-2026-001', date: '2026-06-04', amount: 650.00, currency: 'ZAR', status: 'Paid', description: 'Dishwasher Drainage System Flush' },
-];
+const invoices: InvoiceItem[] = [];
 
 export function BankingInvoiceScreen({ navigation }: any): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<'payout' | 'invoices'>('payout');
@@ -128,7 +122,7 @@ export function BankingInvoiceScreen({ navigation }: any): React.JSX.Element {
             <Text style={styles.inputLabel}>Account Holder Legal Name</Text>
             <TextInput 
               style={styles.input} 
-              placeholder="e.g., Andrew Murray" 
+              placeholder="e.g., Account holder legal name" 
               placeholderTextColor="#64748B"
               value={accountHolder}
               onChangeText={setAccountHolder}
@@ -183,7 +177,7 @@ export function BankingInvoiceScreen({ navigation }: any): React.JSX.Element {
       ) : (
         /* Tax Invoice Ledger Rendering Node */
         <FlatList 
-          data={MOCK_INVOICES}
+          data={invoices}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.invoiceListContainer}
           showsVerticalScrollIndicator={false}

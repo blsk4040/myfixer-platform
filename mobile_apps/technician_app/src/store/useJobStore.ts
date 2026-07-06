@@ -22,6 +22,7 @@ export interface JobPayload {
   scheduledTime?: string;    // Used for future queue buckets
   rating?: number;
   jobStatus?: JobStatus;     // Attached inline status variant tracking
+  customerPhone?: string;
 }
 
 interface JobStoreState {
@@ -43,6 +44,9 @@ interface JobStoreState {
 
   // Actions Matrix
   setOnlineStatus: (isOnline: boolean) => void;
+  upsertIncomingJob: (jobPayload: JobPayload) => boolean;
+  replaceIncomingJobs: (jobs: JobPayload[]) => void;
+  removeIncomingJob: (jobId: string) => void;
   acceptJob: (jobPayload: JobPayload) => void;
   declineJob: (jobId: string) => void;
   updateJobStatus: (status: JobStatus) => void;
@@ -51,18 +55,11 @@ interface JobStoreState {
   clearJob: () => void;
 }
 
-// Mock initial queues matching your South African service locations perfectly
-const initialIncoming: JobPayload[] = [
-  { id: 'job_001', customerId: 'c_01', customerName: 'Sarah M.', applianceType: 'Defy Double Door Fridge', faultDescription: 'Compressor clicking, not cooling down properly.', price: 450, currency: 'ZAR', latitude: -26.2215, longitude: 28.1432, distance: '2.4 km', generalArea: 'Germiston', fullAddress: 'Unit 12, Stone Arch Estate', complexDetails: 'Phase 2', jobStatus: 'IDLE' },
-  { id: 'job_002', customerId: 'c_02', customerName: 'Dumisani K.', applianceType: 'Samsung EcoBubble Washer', faultDescription: 'Error code E4, won\'t drain mid-cycle.', price: 450, currency: 'ZAR', latitude: -26.1189, longitude: 28.1256, distance: '4.1 km', generalArea: 'Greenstone Hill', fullAddress: '45 Greenstone Avenue', complexDetails: 'Block C', jobStatus: 'IDLE' }
-];
-
-const initialScheduled: JobPayload[] = [
-  { id: 'job_003', customerId: 'c_03', customerName: 'Johan van Zyl', applianceType: 'Whirlpool Dishwasher', price: 450, currency: 'ZAR', latitude: -25.7923, longitude: 28.2912, distance: '8.5 km', generalArea: 'Garsfontein', fullAddress: '12 Garsfontein Road', scheduledTime: 'Tomorrow, 09:00', jobStatus: 'IDLE' }
-];
+const initialIncoming: JobPayload[] = [];
+const initialScheduled: JobPayload[] = [];
 
 export const useJobStore = create<JobStoreState>((set) => ({
-  // Seed state baselines
+  // Empty production baselines are populated from real booking/socket data.
   currentJob: null,
   jobStatus: 'IDLE',
   isOnline: false,
@@ -70,20 +67,49 @@ export const useJobStore = create<JobStoreState>((set) => ({
   activeJobs: [],
   scheduledJobs: initialScheduled,
   completedJobs: [],
-  earningsToday: 1250,
-  earningsWeek: 6800,
-  earningsMonth: 27400,
+  earningsToday: 0,
+  earningsWeek: 0,
+  earningsMonth: 0,
 
   setOnlineStatus: (isOnline) => set({ isOnline }),
+
+  upsertIncomingJob: (jobPayload) => {
+    let inserted = false;
+    set((state) => {
+      if (!jobPayload.id) return {};
+      inserted = !(state.incomingJobs || []).some((job) => job.id === jobPayload.id);
+      return {
+        incomingJobs: [
+          jobPayload,
+          ...(state.incomingJobs || []).filter((job) => job.id !== jobPayload.id),
+        ],
+      };
+    });
+    return inserted;
+  },
+
+  replaceIncomingJobs: (jobs) => set({
+    incomingJobs: Array.from(
+      new Map(jobs.filter((job) => job.id).map((job) => [job.id, job])).values()
+    ),
+  }),
+
+  removeIncomingJob: (jobId) => set((state) => ({
+    incomingJobs: state.incomingJobs.filter(j => j.id !== jobId)
+  })),
 
   // Upgraded Accept Action: Satisfies old dashboard bindings AND populates Phase 2 active tracking pipes
   acceptJob: (jobPayload) => set((state) => {
     const updatedJob = { ...jobPayload, jobStatus: 'ACCEPTED' as const };
+    const activeJobs = [
+      ...state.activeJobs.filter(j => j.id !== jobPayload.id),
+      updatedJob,
+    ];
     return {
       currentJob: updatedJob,
       jobStatus: 'ACCEPTED',
       incomingJobs: state.incomingJobs.filter(j => j.id !== jobPayload.id),
-      activeJobs: [...state.activeJobs, updatedJob]
+      activeJobs
     };
   }),
 

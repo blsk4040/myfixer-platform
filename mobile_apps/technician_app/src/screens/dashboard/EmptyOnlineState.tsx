@@ -6,10 +6,7 @@ export function EmptyOnlineState(): React.JSX.Element {
   return (
     <View style={styles.card}>
       <ActivityIndicator size="small" color="#00E676" style={styles.spinner} />
-      <Text style={styles.title}>Searching for local matches...</Text>
-      <Text style={styles.subtitle}>
-        Keep your screen active. Appliance repairs near your current location will appear here in real time.
-      </Text>
+      <Text style={styles.title}>No nearby jobs right now.</Text>
     </View>
   );
 }

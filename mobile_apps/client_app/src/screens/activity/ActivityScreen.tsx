@@ -1,71 +1,67 @@
-// mobile_apps/client_app/src/screens/activity/ActivityScreen.tsx
-import React, { useState, useEffect } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  ActivityIndicator 
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ShieldAlert } from 'lucide-react-native';
 import { LiveTrackScreen } from '../tracking/LiveTrackScreen';
+import apiService, { BookingDetails } from '../../services/api.service';
 
 export function ActivityScreen({ navigation }: any): React.JSX.Element {
   const [checkingActiveJobs, setCheckingActiveJobs] = useState<boolean>(true);
-  const [activeJob, setActiveJob] = useState<any | null>(null);
+  const [activeJob, setActiveJob] = useState<BookingDetails | null>(null);
 
   useEffect(() => {
-    // Synchronize check with backend engine framework pipeline
+    let isMounted = true;
+
     const checkActiveClientDispatches = async () => {
       try {
         setCheckingActiveJobs(true);
-        
-        // In production context API lookups: 
-        // const res = await axios.get('/api/v1/bookings/active-current');
-        // if (res.data.active) { setActiveJob(res.data.jobPayload); }
-        
-        setTimeout(() => {
-          // 💡 TEST MECHANIC: Set to null to see the empty "No jobs" screen framework, 
-          // or leave populated to see the LiveTrackScreen run automatically!
-          setActiveJob({
-            jobId: 'JOB-9921',
-            techName: 'Andrew Murray',
-            techPhone: '+27821234567'
-          });
-          setCheckingActiveJobs(false);
-        }, 1000);
-      } catch (err) {
-        setCheckingActiveJobs(false);
+        const response = await apiService.getMyActiveBooking();
+        if (isMounted) setActiveJob(response.active ? response.booking : null);
+      } catch {
+        if (isMounted) setActiveJob(null);
+      } finally {
+        if (isMounted) setCheckingActiveJobs(false);
       }
     };
 
-    checkActiveClientDispatches();
+    void checkActiveClientDispatches();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // 1. Loading Frame Layout State
   if (checkingActiveJobs) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#00FF87" />
-        <Text style={styles.syncText}>Checking dispatch gateway pipeline...</Text>
+        <Text style={styles.syncText}>Checking your active booking...</Text>
       </View>
     );
   }
 
-  // 2. Active Tracking State -> Renders Live Track pipeline straight into the Tab viewport frame
   if (activeJob) {
-    const mockRouteObject = {
+    const technician = activeJob.technician;
+    const routeObject = {
       params: {
-        jobId: activeJob.jobId,
-        techName: activeJob.techName,
-        techPhone: activeJob.techPhone
-      }
+        bookingId: activeJob.id,
+        techName: technician?.name || 'Assigned technician',
+        techPhone: technician?.phone || '',
+        techPhotoUrl: technician?.profilePhotoUrl || '',
+        currentStatus: activeJob.status,
+        lastGpsUpdate: (technician as any)?.lastGpsUpdate || activeJob.updatedAt,
+      },
     };
-    return <LiveTrackScreen route={mockRouteObject} navigation={navigation} />;
+
+    return <LiveTrackScreen route={routeObject} navigation={navigation} />;
   }
 
-  // 3. Idle / Empty State Layout
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <View style={styles.emptyContent}>
@@ -74,10 +70,10 @@ export function ActivityScreen({ navigation }: any): React.JSX.Element {
         </View>
         <Text style={styles.emptyTitle}>No Active Callouts Found</Text>
         <Text style={styles.emptySubtitle}>
-          You don't have an engineering specialist dispatched to your location right now. Need something repaired?
+          You don't have a specialist dispatched to your location right now. Need something repaired?
         </Text>
-        
-        <TouchableOpacity 
+
+        <TouchableOpacity
           style={styles.actionBtn}
           activeOpacity={0.8}
           onPress={() => navigation.navigate('Home')}
@@ -98,5 +94,5 @@ const styles = StyleSheet.create({
   emptyTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
   emptySubtitle: { color: '#64748B', fontSize: 13, textAlign: 'center', marginTop: 8, lineHeight: 20, fontWeight: '500' },
   actionBtn: { backgroundColor: '#00FF87', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12, marginTop: 28, shadowColor: '#00FF87', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8 },
-  actionBtnText: { color: '#090D14', fontSize: 14, fontWeight: '700' }
+  actionBtnText: { color: '#090D14', fontSize: 14, fontWeight: '700' },
 });

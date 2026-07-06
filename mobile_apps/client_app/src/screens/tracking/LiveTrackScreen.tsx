@@ -1,18 +1,20 @@
 // src/screens/tracking/LiveTrackScreen.tsx
 import React, { useEffect, useState } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  ActivityIndicator, 
+import {
+  ActivityIndicator,
   Alert,
-  Platform,
-  ScrollView
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { initiateNativeCall } from '../../utils/communications'; 
+import { initiateNativeCall } from '../../utils/communications';
 import socketService from '../../services/socket.service';
+import apiService, { JobQuote } from '../../services/api.service';
 
 interface TechnicianLocation {
   latitude: number;
@@ -23,159 +25,202 @@ interface TechnicianLocation {
 }
 
 export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
-  const { bookingId, jobId, techName, techPhone } = route?.params || { 
-    bookingId: 'JOB-9921',
-    jobId: 'JOB-9921',
-    techName: 'Andrew Murray',
-    techPhone: '+27821234567' 
-  };
+  const {
+    bookingId,
+    jobId,
+    techName = 'Assigned technician',
+    techPhone = '',
+    techPhotoUrl = '',
+    currentStatus = 'Dispatched',
+    lastGpsUpdate = '',
+  } = route?.params || {};
   const trackingId = bookingId ?? jobId;
 
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [techLocation, setTechLocation] = useState<TechnicianLocation | null>(null);
-  const [eta, setEta] = useState<number>(14); 
+  const [pendingQuote, setPendingQuote] = useState<JobQuote | null>(null);
+  const [isQuoteDecisionLoading, setIsQuoteDecisionLoading] = useState(false);
 
   useEffect(() => {
-    const socket = socketService.initializeConnection();
-
-    socket.on('connect', () => {
-      console.log(`[Socket] Connected. ID: ${socket.id}`);
+    if (!trackingId) {
       setIsLoading(false);
-      socketService.joinBookingRoom(trackingId);
-    });
-
-    if (socket.connected) {
-      setIsLoading(false);
-      socketService.joinBookingRoom(trackingId);
+      return undefined;
     }
 
-    socket.on('job_location_changed', (data: TechnicianLocation) => {
-      console.log('⚡ Telemetry received:', data);
+    const socket = socketService.initializeConnection();
+    const joinRoom = () => {
+      setIsLoading(false);
+      socketService.joinBookingRoom(trackingId);
+    };
+    const handleLocation = (data: TechnicianLocation) => {
       setTechLocation(data);
-      if (data.speed > 5) {
-        setEta((currentEta) => (currentEta > 2 ? currentEta - 1 : 2));
-      }
-    });
+    };
+    const handleQuote = (quote: JobQuote) => setPendingQuote(quote);
 
-    socket.on('connect_error', (error) => {
-      console.error('[Socket] Connection failed:', error);
-      setIsLoading(false); 
-    });
+    socket.on('connect', joinRoom);
+    socket.on('job_location_changed', handleLocation);
+    socket.on('quote_sent', handleQuote);
+    socket.on('connect_error', () => setIsLoading(false));
+    if (socket.connected) joinRoom();
 
     return () => {
-      console.log(`[Socket] Tearing down stream for: ${trackingId}`);
-      socket.off('job_location_changed');
-      socket.off('connect');
+      socket.off('connect', joinRoom);
+      socket.off('job_location_changed', handleLocation);
+      socket.off('quote_sent', handleQuote);
       socket.off('connect_error');
     };
   }, [trackingId]);
 
-  const handleCallSpecialist = () => {
-    initiateNativeCall(techPhone);
-  };
+  useEffect(() => {
+    let isMounted = true;
 
-  const handleChatSpecialist = () => {
-    Alert.alert('In-App Chat', 'Chat pipeline initialization coming soon.');
+    const loadPendingQuote = async () => {
+      if (!trackingId) return;
+      try {
+        const response = await apiService.getBookingQuotes(trackingId);
+        const quote = response.quotes.find((item) => item.status === 'SENT_TO_CLIENT');
+        if (isMounted && quote) setPendingQuote(quote);
+      } catch {
+        // Socket updates still surface new quotes.
+      }
+    };
+
+    void loadPendingQuote();
+    return () => { isMounted = false; };
+  }, [trackingId]);
+
+  const handleQuoteDecision = async (decision: 'APPROVE' | 'REJECT') => {
+    if (!pendingQuote) return;
+
+    try {
+      setIsQuoteDecisionLoading(true);
+      if (decision === 'APPROVE') {
+        await apiService.approveJobQuote(pendingQuote.id);
+        Alert.alert('Quote Approved', 'The technician can now continue with the approved work order.');
+      } else {
+        await apiService.rejectJobQuote(pendingQuote.id);
+        Alert.alert('Quote Rejected', 'The technician has been notified.');
+      }
+      setPendingQuote(null);
+    } catch (error: any) {
+      Alert.alert('Quote Error', error.message || 'Could not update quote.');
+    } finally {
+      setIsQuoteDecisionLoading(false);
+    }
   };
 
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#00FF87" />
-        <Text style={styles.loadingText}>Connecting to Live Dispatch Grid...</Text>
+        <Text style={styles.loadingText}>Connecting to live tracking...</Text>
+      </View>
+    );
+  }
+
+  if (!trackingId) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>No active booking selected for live tracking.</Text>
       </View>
     );
   }
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      
-      {/* 🗺️ MAP SURFACE - Restricted to 45% screen height */}
       <View style={styles.mapViewport}>
         <View style={styles.mapGridLinesSim}>
-          <Text style={styles.mapWatermark}>MapTiler Vector Layer Active</Text>
           {techLocation ? (
             <View style={styles.techMarkerPulse}>
-              <Text style={styles.markerIcon}>🛠️</Text>
+              <Text style={styles.markerIcon}>•</Text>
               <Text style={styles.markerBadgeText}>{techName.split(' ')[0]}</Text>
-              <Text style={styles.telemetryMiniText}>
-                {techLocation.latitude.toFixed(4)}, {techLocation.longitude.toFixed(4)}
-              </Text>
             </View>
           ) : (
-            <Text style={styles.searchingText}>Awaiting GPS beacon signal...</Text>
+            <Text style={styles.searchingText}>Waiting for the technician's latest location...</Text>
           )}
         </View>
       </View>
 
-      {/* 🎛️ SCROLLABLE HUD DELIVERY PANEL */}
       <View style={styles.hudWrapper}>
-        <ScrollView 
-          showsVerticalScrollIndicator={false} 
-          contentContainerStyle={styles.hudScrollBody}
-        >
-          {/* Identity Block */}
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.hudScrollBody}>
           <View style={styles.identityContainer}>
+            {techPhotoUrl ? <Image source={{ uri: techPhotoUrl }} style={styles.techAvatar} /> : null}
             <View style={styles.metaLeft}>
-              <Text style={styles.techNameText} numberOfLines={1}>👤 {techName}</Text>
-              <Text style={styles.techMetaText}>★ 4.9 Verified Specialist</Text>
+              <Text style={styles.techNameText} numberOfLines={1}>{techName}</Text>
+              <Text style={styles.techMetaText}>Verified technician</Text>
             </View>
             <View style={styles.etaBadgeSmall}>
-              <Text style={styles.etaNumberSmall}>{eta}</Text>
-              <Text style={styles.etaUnitSmall}>MINS</Text>
+              <Text style={styles.etaCalculatingText}>ETA calculating...</Text>
             </View>
           </View>
 
-          {/* Metric Grid Layer */}
           <View style={styles.metricGrid}>
             <View style={styles.gridItem}>
               <Text style={styles.metricLabel}>STATUS</Text>
-              <Text style={styles.metricValueText}>
-                {techLocation ? '🟢 En Route' : '🟡 Dispatched'}
-              </Text>
+              <Text style={styles.metricValueText}>{techLocation ? 'En route' : currentStatus}</Text>
             </View>
             <View style={styles.gridItem}>
               <Text style={styles.metricLabel}>LAST GPS</Text>
               <Text style={styles.metricValueText}>
-                {techLocation ? 'Just now' : 'Connecting...'}
+                {techLocation?.updatedAt
+                  ? new Date(techLocation.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : lastGpsUpdate ? new Date(lastGpsUpdate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Waiting'}
               </Text>
             </View>
           </View>
 
-          <View style={styles.metricGrid}>
-            <View style={styles.gridItem}>
-              <Text style={styles.metricLabel}>SPEED</Text>
-              <Text style={styles.metricValueText}>
-                {techLocation && techLocation.speed > 0 ? `${Math.round(techLocation.speed)} km/h` : '0 km/h'}
-              </Text>
-            </View>
-            <View style={styles.gridItem}>
-              <Text style={styles.metricLabel}>TRACKING ID</Text>
-              <Text style={styles.metricValueText} numberOfLines={1}>{trackingId}</Text>
-            </View>
-          </View>
-
-          {/* Double Action Row */}
           <View style={styles.actionRow}>
-            <TouchableOpacity 
-              style={[styles.actionButton, styles.callButton]} 
-              activeOpacity={0.8} 
-              onPress={handleCallSpecialist}
-            >
-              <Text style={styles.actionButtonText}>📞 Call</Text>
+            <TouchableOpacity style={[styles.actionButton, styles.callButton]} activeOpacity={0.8} onPress={() => initiateNativeCall(techPhone)}>
+              <Text style={styles.actionButtonText}>Call</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={[styles.actionButton, styles.chatButton]} 
-              activeOpacity={0.8} 
-              onPress={handleChatSpecialist}
+            <TouchableOpacity
+              style={[styles.actionButton, styles.chatButton]}
+              activeOpacity={0.8}
+              onPress={() => Alert.alert('Chat Unavailable', 'Chat is not available for this booking yet. You can still call your technician.')}
             >
-              <Text style={styles.actionButtonText}>💬 Chat</Text>
+              <Text style={styles.actionButtonText}>Chat</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
       </View>
 
+      <Modal visible={!!pendingQuote} animationType="slide" transparent onRequestClose={() => setPendingQuote(null)}>
+        <View style={styles.quoteModalOverlay}>
+          <View style={styles.quoteModalContent}>
+            <Text style={styles.quoteTitle}>Approve Work Order</Text>
+            <Text style={styles.quoteSubtitle}>Review the technician's quote before work continues.</Text>
+
+            <View style={styles.quoteLineList}>
+              {pendingQuote?.lineItems.map((item, index) => (
+                <View key={`${item.label}-${index}`} style={styles.quoteLine}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.quoteLineLabel}>{item.label}</Text>
+                    <Text style={styles.quoteLineMeta}>{item.type} x {item.quantity}</Text>
+                  </View>
+                  <Text style={styles.quoteLineAmount}>{pendingQuote.currency} {item.totalAmount.toFixed(2)}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.quoteTotalRow}>
+              <Text style={styles.quoteTotalLabel}>Total</Text>
+              <Text style={styles.quoteTotalAmount}>{pendingQuote?.currency} {pendingQuote?.totalAmount.toFixed(2)}</Text>
+            </View>
+
+            {pendingQuote?.technicianNotes ? <Text style={styles.quoteNotes}>{pendingQuote.technicianNotes}</Text> : null}
+
+            <View style={styles.quoteActions}>
+              <TouchableOpacity style={styles.quoteRejectButton} onPress={() => handleQuoteDecision('REJECT')} disabled={isQuoteDecisionLoading}>
+                <Text style={styles.quoteRejectText}>Reject</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quoteApproveButton} onPress={() => handleQuoteDecision('APPROVE')} disabled={isQuoteDecisionLoading}>
+                <Text style={styles.quoteApproveText}>{isQuoteDecisionLoading ? 'Working...' : 'Approve'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -184,42 +229,46 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#090D14' },
   loadingContainer: { flex: 1, backgroundColor: '#090D14', justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#64748B', fontSize: 14, marginTop: 12, fontWeight: '600' },
-  
-  // Map sizing configuration
   mapViewport: { height: '45%', backgroundColor: '#111827', marginHorizontal: 16, marginTop: 10, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: '#1E293B' },
   mapGridLinesSim: { flex: 1, justifyContent: 'center', alignItems: 'center', position: 'relative' },
-  mapWatermark: { color: '#1E293B', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 2, position: 'absolute', bottom: 16 },
   techMarkerPulse: { alignItems: 'center', position: 'absolute' },
-  markerIcon: { fontSize: 32 },
+  markerIcon: { color: '#00FF87', fontSize: 52, lineHeight: 52 },
   markerBadgeText: { color: '#00FF87', fontSize: 11, fontWeight: '700', backgroundColor: '#090D14', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#1E293B', marginTop: 4, overflow: 'hidden' },
-  telemetryMiniText: { color: '#64748B', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', marginTop: 2 },
   searchingText: { color: '#475569', fontSize: 13, fontWeight: '500' },
-  
-  // Safe layout containers
   hudWrapper: { flex: 1, backgroundColor: '#111827', margin: 16, marginTop: 8, borderRadius: 20, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden' },
   hudScrollBody: { padding: 20, paddingBottom: 40 },
-  
-  // Identity elements
   identityContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1E293B', paddingBottom: 16, marginBottom: 16 },
+  techAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#1E293B', marginRight: 12 },
   metaLeft: { flex: 1, paddingRight: 12 },
   techNameText: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
   techMetaText: { color: '#00FF87', fontSize: 12, fontWeight: '600', marginTop: 4 },
-  
-  // Optimized space-conscious ETA badge
-  etaBadgeSmall: { backgroundColor: '#00FF8710', borderWidth: 1, borderColor: '#00FF87', borderRadius: 10, width: 52, height: 52, justifyContent: 'center', alignItems: 'center' },
-  etaNumberSmall: { color: '#00FF87', fontSize: 18, fontWeight: '800', lineHeight: 20 },
-  etaUnitSmall: { color: '#00FF87', fontSize: 8, fontWeight: '700', marginTop: 1 },
-  
-  // Anti-wrapping grid systems
+  etaBadgeSmall: { backgroundColor: '#00FF8710', borderWidth: 1, borderColor: '#00FF87', borderRadius: 10, minWidth: 96, minHeight: 52, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8 },
+  etaCalculatingText: { color: '#00FF87', fontSize: 11, fontWeight: '800', textAlign: 'center' },
   metricGrid: { flexDirection: 'row', gap: 12, marginBottom: 12 },
   gridItem: { flex: 1, backgroundColor: '#090D14', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#1E293B' },
   metricLabel: { color: '#64748B', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
   metricValueText: { color: '#E2E8F0', fontSize: 13, fontWeight: '600', marginTop: 4 },
-  
-  // Composed actions bar
   actionRow: { flexDirection: 'row', gap: 12, marginTop: 12 },
   actionButton: { flex: 1, padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   callButton: { backgroundColor: '#1E293B', borderColor: '#334155' },
   chatButton: { backgroundColor: '#090D14', borderColor: '#1E293B' },
-  actionButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' }
+  actionButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  quoteModalOverlay: { flex: 1, backgroundColor: '#000000AA', justifyContent: 'flex-end' },
+  quoteModalContent: { backgroundColor: '#111827', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderWidth: 1, borderColor: '#1E293B' },
+  quoteTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
+  quoteSubtitle: { color: '#64748B', fontSize: 12, marginTop: 4, marginBottom: 16 },
+  quoteLineList: { gap: 10 },
+  quoteLine: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1E293B', paddingBottom: 10 },
+  quoteLineLabel: { color: '#E2E8F0', fontSize: 14, fontWeight: '700' },
+  quoteLineMeta: { color: '#64748B', fontSize: 11, marginTop: 2 },
+  quoteLineAmount: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  quoteTotalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#334155' },
+  quoteTotalLabel: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  quoteTotalAmount: { color: '#00FF87', fontSize: 18, fontWeight: '900' },
+  quoteNotes: { color: '#94A3B8', fontSize: 12, marginTop: 12, lineHeight: 18 },
+  quoteActions: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  quoteRejectButton: { flex: 1, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', borderRadius: 12, height: 48, alignItems: 'center', justifyContent: 'center' },
+  quoteApproveButton: { flex: 2, backgroundColor: '#00FF87', borderRadius: 12, height: 48, alignItems: 'center', justifyContent: 'center' },
+  quoteRejectText: { color: '#94A3B8', fontSize: 14, fontWeight: '700' },
+  quoteApproveText: { color: '#090D14', fontSize: 14, fontWeight: '800' },
 });
