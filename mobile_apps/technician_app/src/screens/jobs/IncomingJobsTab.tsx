@@ -1,20 +1,21 @@
 // src/screens/jobs/IncomingJobsTab.tsx
 import React from 'react';
-import { Alert, StyleSheet, View, Text, ScrollView } from 'react-native';
-import { useJobStore } from '../../store/useJobStore';
-import { IncomingRequestCard } from '.././dashboard/IncomingRequestCard';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { IncomingRequestCard } from '../dashboard/IncomingRequestCard';
 import { acceptBookingWorkflow, declineBookingWorkflow } from '../../services/jobWorkflow.service';
 import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
+import { useJobStore } from '../../store/useJobStore';
 
 export function IncomingJobsTab(): React.JSX.Element {
-  // Pull live data and actions from the unified store
   const incomingJobs = useJobStore((state) => state.incomingJobs || []);
   const technicianIdentity = getTechnicianIdentity();
 
   if (incomingJobs.length === 0) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.emptyText}>No incoming job pings in your area.</Text>
+        <Text style={styles.emptyTitle}>No incoming requests yet</Text>
+        <Text style={styles.emptyText}>Stay live and nearby jobs will appear here.</Text>
       </View>
     );
   }
@@ -24,27 +25,25 @@ export function IncomingJobsTab(): React.JSX.Element {
       {incomingJobs.map((job) => (
         <IncomingRequestCard
           key={job.id}
-          // 🚀 Bypasses type constraint and explicit sanity sanitizes location types
           job={{
             ...job,
             latitude: Number(job.latitude),
             longitude: Number(job.longitude),
-          } as any}   
-          // 🔌 Ensures the action handlers extract the primitive ID payload smoothly
+          } as any}
           onAccept={async (job: any) => {
             try {
               await acceptBookingWorkflow(job, technicianIdentity.userId);
             } catch (error: any) {
               console.error('Accept booking failed:', error);
-              Alert.alert('Accept Failed', error.message || 'Could not accept this booking.');
+              Alert.alert('Accept failed', error.message || 'Could not accept this job.');
             }
           }}
-          onDecline={async (job: any) => {
+          onDecline={async (jobId: string) => {
             try {
-              await declineBookingWorkflow(job.id);
+              await declineBookingWorkflow(jobId);
             } catch (error: any) {
               console.error('Decline booking failed:', error);
-              Alert.alert('Decline Failed', error.message || 'Could not decline this booking.');
+              Alert.alert('Decline failed', error.message || 'Could not decline this job.');
             }
           }}
         />
@@ -59,13 +58,21 @@ const styles = StyleSheet.create({
   },
   centerContainer: {
     flex: 1,
-    justifyContent: 'center', // Fixed the 'justify Soy' syntax error here
+    justifyContent: 'center',
     alignItems: 'center',
     padding: 40,
+  },
+  emptyTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 6,
   },
   emptyText: {
     color: '#64748B',
     fontSize: 14,
     textAlign: 'center',
+    lineHeight: 20,
   },
 });

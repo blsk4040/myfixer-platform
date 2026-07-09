@@ -58,7 +58,7 @@ export class NotificationService {
         content: {
           title: details?.title || 'New Job Request',
           body: details?.body || 'A new service request is available. Open MyFixer to review it.',
-          sound: true,
+          sound: 'incoming-job.wav',
         },
         trigger: Platform.OS === 'android' ? { channelId: 'job-alerts' } : null,
       });

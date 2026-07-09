@@ -489,6 +489,24 @@ async function reviewTechnician(id, status) {
   }
 }
 
+async function reviewTechnicianProfilePhoto(id, status) {
+  if (!canMutate('technicians.review')) {
+    alert('You do not have permission to review technician photos.');
+    return;
+  }
+  const rejectionReason = status === 'REJECTED' ? prompt('Reason for photo rejection?') || '' : '';
+  if (!confirm(`Confirm technician profile photo status change to ${status}?`)) return;
+  try {
+    await api(`/admin/technicians/${id}/profile-photo`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, rejectionReason }),
+    });
+    await refresh();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
 async function openBooking(id) {
   try {
     const result = await api(`/admin/bookings/${id}`);
@@ -933,17 +951,33 @@ function renderTechnicians() {
       <div class="card-list">
         ${rows.map((tech) => {
           const user = tech.userId || {};
+          const photoUrl = tech.documents?.profilePhotoUrl || user.profilePhotoUrl || '';
+          const photoStatus = tech.documents?.profilePhotoStatus || 'NOT_SUBMITTED';
           return `
             <article class="review-card">
-              <div>
-                <div class="row-title">${escapeHtml(user.name || 'Provider')} <span class="status ${statusClass(tech.approvalStatus)}">${escapeHtml(tech.approvalStatus)}</span></div>
-                <p>${escapeHtml(user.email || '-')} - ${escapeHtml(user.phone || '-')} - ${escapeHtml(tech.city)}, ${escapeHtml(tech.countryCode)}</p>
-                <p>${escapeHtml((tech.serviceCategories || []).join(', '))} - ${tech.yearsExperience || 0} yrs - ${tech.serviceRadiusKm || 0}km radius</p>
-                <p>${escapeHtml(tech.businessName || 'Independent provider')} - ${escapeHtml(tech.vehicleType || 'Transport not set')}</p>
+              <div class="technician-review-main">
+                <a class="technician-photo" href="${escapeHtml(photoUrl || '#')}" target="_blank" rel="noopener noreferrer">
+                  ${photoUrl
+                    ? `<img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(user.name || 'Technician')} profile photo" />`
+                    : '<span>No photo</span>'}
+                </a>
+                <div>
+                  <div class="row-title">
+                    ${escapeHtml(user.name || 'Provider')}
+                    <span class="status ${statusClass(tech.approvalStatus)}">${escapeHtml(tech.approvalStatus)}</span>
+                    <span class="status ${photoStatus === 'VERIFIED' ? 'success' : photoStatus === 'REJECTED' ? 'danger' : 'info'}">Photo ${escapeHtml(photoStatus)}</span>
+                  </div>
+                  <p>${escapeHtml(user.email || '-')} - ${escapeHtml(user.phone || '-')} - ${escapeHtml(tech.city)}, ${escapeHtml(tech.countryCode)}</p>
+                  <p>${escapeHtml((tech.serviceCategories || []).join(', '))} - ${tech.yearsExperience || 0} yrs - ${tech.serviceRadiusKm || 0}km radius</p>
+                  <p>${escapeHtml(tech.businessName || 'Independent provider')} - ${escapeHtml(tech.vehicleType || 'Transport not set')}</p>
+                  ${tech.review?.rejectionReason ? `<p class="warning-text">${escapeHtml(tech.review.rejectionReason)}</p>` : ''}
+                </div>
               </div>
               ${canReview ? `
                 <div class="review-actions">
-                  <button class="success-button" onclick="reviewTechnician('${tech._id}', 'APPROVED')">Approve</button>
+                  <button class="success-button" onclick="reviewTechnicianProfilePhoto('${tech._id}', 'VERIFIED')" ${photoUrl ? '' : 'disabled'}>Approve Photo</button>
+                  <button class="ghost-button" onclick="reviewTechnicianProfilePhoto('${tech._id}', 'REJECTED')" ${photoUrl ? '' : 'disabled'}>Reject Photo</button>
+                  <button class="success-button" onclick="reviewTechnician('${tech._id}', 'APPROVED')" ${photoStatus === 'VERIFIED' ? '' : 'disabled'}>Approve</button>
                   <button class="ghost-button" onclick="reviewTechnician('${tech._id}', 'REJECTED')">Reject</button>
                   <button class="danger-button" onclick="reviewTechnician('${tech._id}', 'SUSPENDED')">Suspend</button>
                 </div>
@@ -1705,6 +1739,32 @@ function renderAdminUsers() {
 function renderSettings() {
   const canUpdateMarkets = canMutate('markets.update');
   return `
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Mobile App Controls</h2>
+          <span>These settings decide what customers can book and what technicians can receive.</span>
+        </div>
+      </div>
+      <div class="role-grid">
+        <article class="mini-card">
+          <strong>Markets & Countries</strong>
+          <p>Enable or pause countries, currency, tax labels, support contacts, and payment providers.</p>
+        </article>
+        <article class="mini-card">
+          <strong>Cities, Areas & Services</strong>
+          <p>Control which services are active, coming soon, paused, or disabled for each city and area.</p>
+        </article>
+        <article class="mini-card">
+          <strong>Call-out Fees</strong>
+          <p>The default fee here is used by app booking flows unless a more specific service price is added later.</p>
+        </article>
+        <article class="mini-card">
+          <strong>Technician Matching</strong>
+          <p>Service keys in this section must match technician capability/category keys for dispatch to work cleanly.</p>
+        </article>
+      </div>
+    </section>
     <div class="two-column settings-layout">
       <section class="panel">
         <div class="panel-header">
@@ -2137,11 +2197,61 @@ function renderEmpty(message) {
   return `<p class="empty"><span>No data</span>${escapeHtml(message)}</p>`;
 }
 
+function mediaById(media = []) {
+  return new Map(media.map((item) => [String(item._id || item.id), item]));
+}
+
+function renderMediaGallery(media = []) {
+  if (!media.length) return renderEmpty('No images have been uploaded for this booking yet.');
+  return `
+    <div class="media-gallery">
+      ${media.map((item) => `
+        <a class="media-tile" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">
+          <img src="${escapeHtml(item.thumbnailUrl || item.url)}" alt="${escapeHtml(item.purpose || 'Job image')}" />
+          <span class="status ${statusClass(item.purpose)}">${escapeHtml(item.purpose || 'IMAGE')}</span>
+          <small>${escapeHtml(item.uploadedByRole || 'UNKNOWN')} - ${formatDate(item.createdAt)}</small>
+        </a>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderChatLog(messages = [], media = []) {
+  if (!messages.length) return renderEmpty('No chat messages have been saved for this booking yet.');
+  const lookup = mediaById(media);
+
+  return `
+    <div class="chat-log">
+      ${messages.map((message) => {
+        const attachedMedia = (message.mediaIds || [])
+          .map((id) => lookup.get(String(id)))
+          .filter(Boolean);
+        return `
+          <article class="chat-row ${message.senderRole === 'CUSTOMER' ? 'customer' : 'provider'}">
+            <div class="chat-row-header">
+              <strong>${escapeHtml(message.senderRole || 'UNKNOWN')}</strong>
+              <span>${formatDate(message.createdAt)}</span>
+            </div>
+            ${message.text ? `<p>${escapeHtml(message.text)}</p>` : ''}
+            ${attachedMedia.length ? renderMediaGallery(attachedMedia) : ''}
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
 function renderBookingDrawer() {
   const data = state.selectedBooking;
   const booking = data.booking;
   const countryCode = booking.identity?.countryCode || booking.countryCode || '-';
   const currency = booking.identity?.currency || booking.currency || 'ZAR';
+  const media = data.media || [];
+  const messages = data.messages || [];
+  const participants = data.participants || {};
+  const technician = participants.technician || {};
+  const customer = participants.customer || {};
+  const proofMedia = media.filter((item) => String(item.purpose || '').includes('PROOF') || String(item.purpose || '').includes('AFTER'));
   return `
     <aside class="drawer">
       <div class="drawer-header">
@@ -2162,6 +2272,32 @@ function renderBookingDrawer() {
         <p>${escapeHtml(booking.fullAddress || '-')} ${escapeHtml(booking.complexDetails || '')}</p>
         <h3>Fault</h3>
         <p>${escapeHtml(booking.faultDescription || '-')}</p>
+        <h3>People Involved</h3>
+        <div class="participant-grid">
+          <article class="participant-card">
+            <div class="participant-avatar">${customer.profilePhotoUrl ? `<img src="${escapeHtml(customer.profilePhotoUrl)}" alt="Customer" />` : 'C'}</div>
+            <div>
+              <strong>${escapeHtml(customer.name || booking.customerName || 'Customer')}</strong>
+              <p>${escapeHtml(customer.email || '')}</p>
+              <p>${escapeHtml(customer.phone || '')}</p>
+            </div>
+          </article>
+          <article class="participant-card">
+            <div class="participant-avatar">${technician.profilePhotoUrl ? `<img src="${escapeHtml(technician.profilePhotoUrl)}" alt="Technician" />` : 'T'}</div>
+            <div>
+              <strong>${escapeHtml(technician.name || 'Assigned technician')}</strong>
+              <p>${escapeHtml(technician.email || '')}</p>
+              <p>${escapeHtml(technician.phone || '')}</p>
+              <span class="status ${technician.photoStatus === 'VERIFIED' ? 'success' : 'info'}">Photo ${escapeHtml(technician.photoStatus || 'NOT_SUBMITTED')}</span>
+            </div>
+          </article>
+        </div>
+        <h3>Uploaded Images</h3>
+        ${renderMediaGallery(media)}
+        <h3>Completion Proof</h3>
+        ${renderMediaGallery(proofMedia)}
+        <h3>Chat History</h3>
+        ${renderChatLog(messages, media)}
         <h3>Quotes</h3>
         ${renderGenericTable(data.quotes || [], ['Status', 'Total', 'Items'], (quote) => [
           `<span class="status ${statusClass(quote.status)}">${escapeHtml(quote.status)}</span>`,

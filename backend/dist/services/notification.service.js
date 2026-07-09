@@ -41,6 +41,7 @@ const mongoose_1 = __importDefault(require("mongoose"));
 const notification_model_1 = __importStar(require("../models/notification.model"));
 const notification_preference_model_1 = __importDefault(require("../models/notification-preference.model"));
 const user_model_1 = __importDefault(require("../models/user.model"));
+const push_token_model_1 = __importDefault(require("../models/push-token.model"));
 const email_service_1 = require("./email/email.service");
 const audit_log_model_1 = __importStar(require("../models/audit-log.model"));
 const channelPreferenceMap = {
@@ -53,12 +54,13 @@ const channelPreferenceMap = {
 const enabledPhaseFourChannels = new Set([
     notification_model_1.NotificationChannel.IN_APP,
     notification_model_1.NotificationChannel.EMAIL,
+    notification_model_1.NotificationChannel.PUSH,
 ]);
 const getPreferenceChannels = async (userId) => {
     const defaults = {
         inApp: true,
         email: true,
-        push: false,
+        push: true,
         sms: false,
         whatsapp: false,
     };
@@ -101,6 +103,66 @@ const emailProvider = {
             : { success: false, error: 'Email provider is not configured or delivery failed.' };
     },
 };
+const isTechnicianJobAlert = (type) => ['NEW_JOB_REQUEST', 'EMERGENCY_JOB_REQUEST'].includes(type);
+const pushProvider = {
+    async send(notification) {
+        const userId = notification.recipient.userId;
+        if (!userId) {
+            return { success: false, error: 'Recipient user id is missing.' };
+        }
+        const tokens = await push_token_model_1.default.find({
+            userId,
+            isActive: true,
+        }).select('token').lean();
+        if (!tokens.length) {
+            return { success: false, error: 'No active push tokens registered for recipient.' };
+        }
+        const technicianJobAlert = isTechnicianJobAlert(String(notification.type));
+        const messages = tokens.map((record) => ({
+            to: record.token,
+            sound: technicianJobAlert ? 'incoming-job.wav' : 'default',
+            channelId: technicianJobAlert ? 'job-alerts' : 'default',
+            title: notification.title,
+            body: notification.message,
+            data: {
+                notificationId: notification._id.toString(),
+                type: notification.type,
+                ...notification.metadata,
+            },
+        }));
+        const response = await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Accept-Encoding': 'gzip, deflate',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(messages),
+        });
+        if (!response.ok) {
+            return { success: false, error: `Expo push request failed with status ${response.status}.` };
+        }
+        const body = await response.json();
+        if (body.errors?.length) {
+            return { success: false, error: body.errors.map((error) => error.message).filter(Boolean).join('; ') || 'Expo push delivery failed.' };
+        }
+        const receipts = body.data || [];
+        const invalidTokens = receipts
+            .map((receipt, index) => receipt.details?.error === 'DeviceNotRegistered' ? tokens[index]?.token : '')
+            .filter((token) => Boolean(token));
+        if (invalidTokens.length) {
+            await push_token_model_1.default.updateMany({ token: { $in: invalidTokens } }, { $set: { isActive: false, disabledAt: new Date() } });
+        }
+        const failedReceipts = receipts.filter((receipt) => receipt.status === 'error' && receipt.details?.error !== 'DeviceNotRegistered');
+        if (failedReceipts.length) {
+            return {
+                success: false,
+                error: failedReceipts.map((receipt) => receipt.message || receipt.details?.error).filter(Boolean).join('; ') || 'Expo push delivery failed.',
+            };
+        }
+        return { success: true };
+    },
+};
 const disabledProvider = (channel) => ({
     async send() {
         return { success: false, error: `${channel} delivery is disabled in Phase 4.` };
@@ -109,7 +171,7 @@ const disabledProvider = (channel) => ({
 const providers = {
     [notification_model_1.NotificationChannel.IN_APP]: inAppProvider,
     [notification_model_1.NotificationChannel.EMAIL]: emailProvider,
-    [notification_model_1.NotificationChannel.PUSH]: disabledProvider(notification_model_1.NotificationChannel.PUSH),
+    [notification_model_1.NotificationChannel.PUSH]: pushProvider,
     [notification_model_1.NotificationChannel.SMS]: disabledProvider(notification_model_1.NotificationChannel.SMS),
     [notification_model_1.NotificationChannel.WHATSAPP]: disabledProvider(notification_model_1.NotificationChannel.WHATSAPP),
 };
@@ -182,7 +244,10 @@ const createNotifications = async (input) => {
         },
         success: true,
     })));
-    return notifications;
+    const dueNotifications = notifications.filter((notification) => notification.scheduledAt.getTime() <= Date.now());
+    if (!dueNotifications.length)
+        return notifications;
+    return Promise.all(dueNotifications.map((notification) => (0, exports.deliverNotification)(notification)));
 };
 exports.createNotifications = createNotifications;
 const deliverNotification = async (notification) => {

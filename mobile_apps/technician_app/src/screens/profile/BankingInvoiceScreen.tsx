@@ -1,211 +1,271 @@
-// src/screens/profile/BankingInvoiceScreen.tsx
 import React, { useState } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  ScrollView, 
-  TouchableOpacity, 
-  TextInput, 
-  Alert, 
-  FlatList // 👈 FIXED: Explicitly imported to prevent runtime crash
+import {
+  Alert,
+  FlatList,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Type definitions matching a globally adaptable platform infrastructure
 interface InvoiceItem {
   id: string;
   invoiceNumber: string;
   date: string;
   amount: number;
-  currency: string; 
+  currency: string;
   status: 'Paid' | 'Pending' | 'Failed';
   description: string;
 }
 
 const invoices: InvoiceItem[] = [];
 
-export function BankingInvoiceScreen({ navigation }: any): React.JSX.Element {
-  const [activeTab, setActiveTab] = useState<'payout' | 'invoices'>('payout');
+export function BankingInvoiceScreen(): React.JSX.Element {
+  const [activeTab, setActiveTab] = useState<'banking' | 'invoices'>('banking');
   const [selectedRegion, setSelectedRegion] = useState<'ZA' | 'NG' | 'EA'>('ZA');
-
-  // Form Fields State
   const [accountHolder, setAccountHolder] = useState('');
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
-  
-  // Region Specific Variables
-  const [branchCode, setBranchCode] = useState(''); // ZA specific
-  const [sortCode, setSortCode] = useState(''); // NG specific
-  const [mobileMoneyNumber, setMobileMoneyNumber] = useState(''); // East Africa (M-Pesa/Airtel)
+  const [branchCode, setBranchCode] = useState('');
+  const [sortCode, setSortCode] = useState('');
+  const [mobileMoneyNumber, setMobileMoneyNumber] = useState('');
+  const [taxNumber, setTaxNumber] = useState('');
+  const [businessName, setBusinessName] = useState('');
 
-  // Global Currency Formatting Utility
-  const formatGlobalCurrency = (amount: number, currencyCode: string) => {
+  const formatMoney = (amount: number, currencyCode: string) => {
     try {
       return new Intl.NumberFormat('en-ZA', {
         style: 'currency',
         currency: currencyCode,
       }).format(amount);
-    } catch (e) {
+    } catch {
       return `${currencyCode} ${amount.toFixed(2)}`;
     }
   };
 
-  const handleSavePayoutProfile = () => {
-    if (!accountHolder || (!bankName && selectedRegion !== 'EA')) {
-      Alert.alert("Missing Information", "Please enter the account holder name and financial institution.");
+  const handleSaveBankingDetails = () => {
+    if (!accountHolder.trim()) {
+      Alert.alert('Account Holder Required', 'Please enter the name on the bank or wallet account.');
+      return;
+    }
+
+    if (selectedRegion === 'EA') {
+      if (!bankName.trim() || !mobileMoneyNumber.trim()) {
+        Alert.alert('Mobile Money Required', 'Please enter your mobile money provider and registered wallet number.');
+        return;
+      }
+    } else if (!bankName.trim() || !accountNumber.trim()) {
+      Alert.alert('Bank Details Required', 'Please enter your bank name and account number.');
       return;
     }
 
     Alert.alert(
-      "Secure Vault Saved",
-      `Your African market settlement profile (${selectedRegion}) has been encrypted and saved to the secure banking directory.`,
-      [{ text: "Understood" }]
+      'Bank Details Saved',
+      'Your payout details have been saved. MyFixer will use these details when payouts are ready.'
+    );
+  };
+
+  const handleSaveTaxDetails = () => {
+    Alert.alert(
+      'Tax Details Saved',
+      taxNumber.trim()
+        ? 'Your tax details have been saved for future invoices.'
+        : 'No tax number was added. You can add it later if needed.'
     );
   };
 
   const handleDownloadInvoice = (invoice: InvoiceItem) => {
-    Alert.alert(
-      "Downloading Document",
-      `Fetching PDF object link for ${invoice.invoiceNumber} from cloud storage bucket...`,
-      [{ text: "OK" }]
-    );
+    Alert.alert('Invoice', `Opening ${invoice.invoiceNumber}.`);
   };
 
-  return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      {/* Dynamic Sub-header Navigation Matrix */}
-      <View style={styles.tabHeaderContainer}>
-        <TouchableOpacity 
-          style={[styles.tabButton, activeTab === 'payout' && styles.activeTabButton]}
-          onPress={() => setActiveTab('payout')}
-        >
-          <Text style={[styles.tabButtonText, activeTab === 'payout' && styles.activeTabButtonText]}>Payout Methods</Text>
+  const renderInvoice = ({ item }: { item: InvoiceItem }) => (
+    <View style={styles.invoiceCard}>
+      <View style={styles.invoiceHeaderRow}>
+        <View style={{ flex: 1, paddingRight: 8 }}>
+          <Text style={styles.invoiceNumberText}>{item.invoiceNumber}</Text>
+          <Text style={styles.invoiceDateText}>{item.date}</Text>
+        </View>
+        <Text style={styles.invoiceAmountText}>{formatMoney(item.amount, item.currency)}</Text>
+      </View>
+
+      <Text style={styles.invoiceDescText}>{item.description}</Text>
+
+      <View style={styles.invoiceActionRow}>
+        <View style={styles.statusBadge}>
+          <Text style={styles.statusBadgeText}>{item.status}</Text>
+        </View>
+        <TouchableOpacity style={styles.downloadLinkButton} onPress={() => handleDownloadInvoice(item)}>
+          <Text style={styles.downloadLinkText}>View Invoice</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
+      </View>
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.tabHeaderContainer}>
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'banking' && styles.activeTabButton]}
+          onPress={() => setActiveTab('banking')}
+        >
+          <Text style={[styles.tabButtonText, activeTab === 'banking' && styles.activeTabButtonText]}>Bank Account</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.tabButton, activeTab === 'invoices' && styles.activeTabButton]}
           onPress={() => setActiveTab('invoices')}
         >
-          <Text style={[styles.tabButtonText, activeTab === 'invoices' && styles.activeTabButtonText]}>Tax Invoices</Text>
+          <Text style={[styles.tabButtonText, activeTab === 'invoices' && styles.activeTabButtonText]}>Invoices</Text>
         </TouchableOpacity>
       </View>
 
-      {activeTab === 'payout' ? (
+      {activeTab === 'banking' ? (
         <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-          <Text style={styles.sectionTitle}>Global Settlement Architecture</Text>
-          <Text style={styles.sectionSubtitle}>Select the target infrastructure payout layout matching your operating market country:</Text>
+          <Text style={styles.sectionTitle}>Where should we pay you?</Text>
+          <Text style={styles.sectionSubtitle}>
+            Add the bank account or mobile wallet MyFixer should use for your payouts.
+          </Text>
 
-          {/* Region Picker Ribbon - Updated for major African expansion hubs */}
+          <View style={styles.statusCard}>
+            <Text style={styles.statusTitle}>Payout status</Text>
+            <Text style={styles.statusText}>Not ready yet. Add your details below so payouts can be reviewed.</Text>
+          </View>
+
+          <Text style={styles.inputLabel}>Country / payout type</Text>
           <View style={styles.regionSelectorRow}>
-            <TouchableOpacity 
-              style={[styles.regionChip, selectedRegion === 'ZA' && styles.activeRegionChip]} 
+            <TouchableOpacity
+              style={[styles.regionChip, selectedRegion === 'ZA' && styles.activeRegionChip]}
               onPress={() => setSelectedRegion('ZA')}
             >
-              <Text style={[styles.regionChipText, selectedRegion === 'ZA' && styles.activeRegionChipText]}>South Africa (ZAR)</Text>
+              <Text style={[styles.regionChipText, selectedRegion === 'ZA' && styles.activeRegionChipText]}>South Africa</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.regionChip, selectedRegion === 'NG' && styles.activeRegionChip]} 
+            <TouchableOpacity
+              style={[styles.regionChip, selectedRegion === 'NG' && styles.activeRegionChip]}
               onPress={() => setSelectedRegion('NG')}
             >
-              <Text style={[styles.regionChipText, selectedRegion === 'NG' && styles.activeRegionChipText]}>Nigeria (NGN)</Text>
+              <Text style={[styles.regionChipText, selectedRegion === 'NG' && styles.activeRegionChipText]}>Nigeria</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.regionChip, selectedRegion === 'EA' && styles.activeRegionChip]} 
+            <TouchableOpacity
+              style={[styles.regionChip, selectedRegion === 'EA' && styles.activeRegionChip]}
               onPress={() => setSelectedRegion('EA')}
             >
-              <Text style={[styles.regionChipText, selectedRegion === 'EA' && styles.activeRegionChipText]}>East Africa (KES/GHS)</Text>
+              <Text style={[styles.regionChipText, selectedRegion === 'EA' && styles.activeRegionChipText]}>Mobile money</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Shared Standard Vault Inputs */}
           <View style={styles.formContainer}>
-            <Text style={styles.inputLabel}>Account Holder Legal Name</Text>
-            <TextInput 
-              style={styles.input} 
-              placeholder="e.g., Account holder legal name" 
+            <Text style={styles.inputLabel}>Account holder name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Name on the account"
               placeholderTextColor="#64748B"
               value={accountHolder}
               onChangeText={setAccountHolder}
             />
 
-            {selectedRegion !== 'EA' && (
+            {selectedRegion === 'EA' ? (
               <>
-                <Text style={styles.inputLabel}>Financial Institution / Bank Name</Text>
-                <TextInput 
-                  style={styles.input} 
-                  placeholder="e.g., Standard Bank, Access Bank, GTBank" 
+                <Text style={styles.inputLabel}>Mobile money provider</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="M-Pesa, MTN MoMo, Airtel Money"
                   placeholderTextColor="#64748B"
                   value={bankName}
                   onChangeText={setBankName}
                 />
+                <Text style={styles.inputLabel}>Registered wallet number</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="+254 712 345 678"
+                  placeholderTextColor="#64748B"
+                  keyboardType="phone-pad"
+                  value={mobileMoneyNumber}
+                  onChangeText={setMobileMoneyNumber}
+                />
               </>
-            )}
-
-            {/* Dynamic Adaptive UI Row Layout Fields based on Location */}
-            {selectedRegion === 'ZA' && (
+            ) : (
               <>
-                <Text style={styles.inputLabel}>Account Number</Text>
-                <TextInput style={styles.input} placeholder="10123456789" placeholderTextColor="#64748B" keyboardType="number-pad" value={accountNumber} onChangeText={setAccountNumber} />
-                <Text style={styles.inputLabel}>Branch Code</Text>
-                <TextInput style={styles.input} placeholder="250655" placeholderTextColor="#64748B" keyboardType="number-pad" value={branchCode} onChangeText={setBranchCode} />
-              </>
-            )}
-
-            {selectedRegion === 'NG' && (
-              <>
-                <Text style={styles.inputLabel}>10-Digit NUBAN Account Number</Text>
-                <TextInput style={styles.input} placeholder="0123456789" placeholderTextColor="#64748B" keyboardType="number-pad" value={accountNumber} onChangeText={setAccountNumber} />
-                <Text style={styles.inputLabel}>Bank Sort Code (Optional)</Text>
-                <TextInput style={styles.input} placeholder="e.g., 044150149" placeholderTextColor="#64748B" keyboardType="number-pad" value={sortCode} onChangeText={setSortCode} />
-              </>
-            )}
-
-            {selectedRegion === 'EA' && (
-              <>
-                <Text style={styles.inputLabel}>Mobile Money Operator Name</Text>
-                <TextInput style={styles.input} placeholder="e.g., M-Pesa, MTN MoMo, Airtel Money" placeholderTextColor="#64748B" value={bankName} onChangeText={setBankName} />
-                <Text style={styles.inputLabel}>Registered Mobile Wallet Number</Text>
-                <TextInput style={styles.input} placeholder="e.g., +254 712 345 678" placeholderTextColor="#64748B" keyboardType="phone-pad" value={mobileMoneyNumber} onChangeText={setMobileMoneyNumber} />
+                <Text style={styles.inputLabel}>Bank name</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={selectedRegion === 'ZA' ? 'Standard Bank, FNB, Capitec' : 'Access Bank, GTBank, Zenith'}
+                  placeholderTextColor="#64748B"
+                  value={bankName}
+                  onChangeText={setBankName}
+                />
+                <Text style={styles.inputLabel}>Account number</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={selectedRegion === 'ZA' ? '10123456789' : '0123456789'}
+                  placeholderTextColor="#64748B"
+                  keyboardType="number-pad"
+                  value={accountNumber}
+                  onChangeText={setAccountNumber}
+                />
+                <Text style={styles.inputLabel}>{selectedRegion === 'ZA' ? 'Branch code' : 'Sort code (optional)'}</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={selectedRegion === 'ZA' ? '250655' : '044150149'}
+                  placeholderTextColor="#64748B"
+                  keyboardType="number-pad"
+                  value={selectedRegion === 'ZA' ? branchCode : sortCode}
+                  onChangeText={selectedRegion === 'ZA' ? setBranchCode : setSortCode}
+                />
               </>
             )}
           </View>
 
-          <TouchableOpacity style={styles.saveButton} activeOpacity={0.8} onPress={handleSavePayoutProfile}>
-            <Text style={styles.saveButtonText}>Encrypt & Save Banking Vault</Text>
+          <TouchableOpacity style={styles.saveButton} activeOpacity={0.8} onPress={handleSaveBankingDetails}>
+            <Text style={styles.saveButtonText}>Save Bank Details</Text>
           </TouchableOpacity>
+
+          <View style={styles.taxSection}>
+            <Text style={styles.sectionTitle}>Tax details</Text>
+            <Text style={styles.sectionSubtitle}>
+              Optional for now. Add this if you need it shown on future invoices.
+            </Text>
+            <Text style={styles.inputLabel}>Business name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Optional"
+              placeholderTextColor="#64748B"
+              value={businessName}
+              onChangeText={setBusinessName}
+            />
+            <Text style={styles.inputLabel}>Tax number</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Optional"
+              placeholderTextColor="#64748B"
+              value={taxNumber}
+              onChangeText={setTaxNumber}
+            />
+            <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.8} onPress={handleSaveTaxDetails}>
+              <Text style={styles.secondaryButtonText}>Save Tax Details</Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       ) : (
-        /* Tax Invoice Ledger Rendering Node */
-        <FlatList 
+        <FlatList
           data={invoices}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.invoiceListContainer}
           showsVerticalScrollIndicator={false}
-          renderItem={({ item }) => (
-            <View style={styles.invoiceCard}>
-              <View style={styles.invoiceHeaderRow}>
-                <View style={{ flex: 1, paddingRight: 8 }}>
-                  <Text style={styles.invoiceNumberText}>{item.invoiceNumber}</Text>
-                  <Text style={styles.invoiceDateText}>{item.date}</Text>
-                </View>
-                <Text style={styles.invoiceAmountText}>
-                  {formatGlobalCurrency(item.amount, item.currency)}
-                </Text>
-              </View>
-              
-              <Text style={styles.invoiceDescText}>{item.description}</Text>
-              
-              <View style={styles.invoiceActionRow}>
-                <View style={styles.statusBadge}>
-                  <Text style={styles.statusBadgeText}>● {item.status}</Text>
-                </View>
-                <TouchableOpacity 
-                  style={styles.downloadLinkButton}
-                  onPress={() => handleDownloadInvoice(item)}
-                >
-                  <Text style={styles.downloadLinkText}>Get PDF Statement</Text>
-                </TouchableOpacity>
-              </View>
+          renderItem={renderInvoice}
+          ListHeaderComponent={(
+            <View style={styles.invoiceIntro}>
+              <Text style={styles.sectionTitle}>Invoices</Text>
+              <Text style={styles.sectionSubtitle}>Invoices for completed jobs will appear here.</Text>
+            </View>
+          )}
+          ListEmptyComponent={(
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>No invoices yet</Text>
+              <Text style={styles.emptyText}>
+                Once jobs are completed and paid, your invoices will show here for viewing or download.
+              </Text>
             </View>
           )}
         />
@@ -219,31 +279,41 @@ const styles = StyleSheet.create({
   tabHeaderContainer: { flexDirection: 'row', backgroundColor: '#111827', margin: 16, borderRadius: 10, padding: 4, borderWidth: 1, borderColor: '#1E293B' },
   tabButton: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 8 },
   activeTabButton: { backgroundColor: '#1E293B' },
-  tabButtonText: { color: '#64748B', fontSize: 14, fontWeight: '600' },
+  tabButtonText: { color: '#64748B', fontSize: 14, fontWeight: '700' },
   activeTabButtonText: { color: '#00FF87' },
   scrollContainer: { paddingHorizontal: 20, paddingBottom: 40 },
-  sectionTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', marginBottom: 6 },
-  sectionSubtitle: { color: '#64748B', fontSize: 13, marginBottom: 16, lineHeight: 18 },
-  regionSelectorRow: { flexDirection: 'row', gap: 8, marginBottom: 24, flexWrap: 'wrap' },
-  regionChip: { backgroundColor: '#111827', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#1E293B' },
+  sectionTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '900', marginBottom: 6 },
+  sectionSubtitle: { color: '#94A3B8', fontSize: 13, marginBottom: 16, lineHeight: 19 },
+  statusCard: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 18 },
+  statusTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
+  statusText: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 4 },
+  regionSelectorRow: { flexDirection: 'row', gap: 8, marginBottom: 18, flexWrap: 'wrap' },
+  regionChip: { backgroundColor: '#111827', paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: '#1E293B' },
   activeRegionChip: { borderColor: '#00FF87', backgroundColor: '#00FF8710' },
-  regionChipText: { color: '#64748B', fontSize: 12, fontWeight: '600' },
+  regionChipText: { color: '#64748B', fontSize: 12, fontWeight: '700' },
   activeRegionChipText: { color: '#00FF87' },
-  formContainer: { marginBottom: 24 },
-  inputLabel: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', marginBottom: 8, marginTop: 14 },
+  formContainer: { marginBottom: 18 },
+  inputLabel: { color: '#E2E8F0', fontSize: 12, fontWeight: '800', marginBottom: 8, marginTop: 12 },
   input: { backgroundColor: '#111827', color: '#FFFFFF', padding: 14, borderRadius: 10, fontSize: 15, borderWidth: 1, borderColor: '#1E293B' },
-  saveButton: { backgroundColor: '#00FF87', padding: 16, borderRadius: 12, alignItems: 'center' },
-  saveButtonText: { color: '#090D14', fontSize: 15, fontWeight: '700' },
+  saveButton: { backgroundColor: '#00FF87', padding: 16, borderRadius: 12, alignItems: 'center', marginBottom: 26 },
+  saveButtonText: { color: '#090D14', fontSize: 15, fontWeight: '900' },
+  secondaryButton: { backgroundColor: '#1E293B', padding: 15, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#334155', marginTop: 16 },
+  secondaryButtonText: { color: '#E2E8F0', fontSize: 14, fontWeight: '800' },
+  taxSection: { borderTopWidth: 1, borderTopColor: '#1E293B', paddingTop: 22 },
   invoiceListContainer: { padding: 20, paddingBottom: 40 },
+  invoiceIntro: { marginBottom: 12 },
   invoiceCard: { backgroundColor: '#111827', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#1E293B', marginBottom: 14 },
   invoiceHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
-  invoiceNumberText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  invoiceNumberText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
   invoiceDateText: { color: '#64748B', fontSize: 12, marginTop: 2 },
-  invoiceAmountText: { color: '#00FF87', fontSize: 16, fontWeight: '700' },
+  invoiceAmountText: { color: '#00FF87', fontSize: 16, fontWeight: '800' },
   invoiceDescText: { color: '#E2E8F0', fontSize: 13, marginBottom: 14, lineHeight: 18 },
   invoiceActionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#1E293B', paddingTop: 12 },
   statusBadge: { backgroundColor: '#00FF8715', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
-  statusBadgeText: { color: '#00FF87', fontSize: 11, fontWeight: '700' },
+  statusBadgeText: { color: '#00FF87', fontSize: 11, fontWeight: '800' },
   downloadLinkButton: { paddingVertical: 4 },
-  downloadLinkText: { color: '#38BDF8', fontSize: 13, fontWeight: '600' }
+  downloadLinkText: { color: '#38BDF8', fontSize: 13, fontWeight: '800' },
+  emptyState: { backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 14, padding: 22, marginTop: 8, alignItems: 'center' },
+  emptyTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+  emptyText: { color: '#94A3B8', fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: 8 },
 });

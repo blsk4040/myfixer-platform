@@ -12,13 +12,16 @@ import {
 } from '../controllers/booking.controller';
 import {
   bootstrapAdmin,
+  completeGoogleClientProfile,
   forgotPassword,
   getMyProfile,
+  googleAuth,
   loginUser,
   registerTechnician,
   registerUser,
   resetPassword,
   updateMyDefaultAddress,
+  verifyEmail,
 } from '../controllers/auth.controller'; 
 import { getInvoicesByUser, downloadInvoicePDF } from '../controllers/invoice.controller';
 import { getWalletBalance, getWalletTransactions, requestWalletCashout } from '../controllers/wallet.controller';
@@ -29,9 +32,16 @@ import {
   rejectJobQuote,
 } from '../controllers/quote.controller';
 import {
+  getBookingMessages,
+  sendBookingMessage,
+  uploadBookingMedia,
+} from '../controllers/booking-chat.controller';
+import {
   getAvailableJobsForTechnician,
   listTechnicianApplications,
+  reviewTechnicianProfilePhoto,
   reviewTechnicianApplication,
+  uploadMyTechnicianProfilePhoto,
 } from '../controllers/technician.controller';
 import {
   getAdminBookingById,
@@ -70,6 +80,10 @@ import {
   updateMyNotificationPreferences,
 } from '../controllers/notification.controller';
 import {
+  registerPushToken,
+  unregisterPushToken,
+} from '../controllers/push-token.controller';
+import {
   createAdminSubscriptionPlan,
   createManagedCollectionSubscription,
   generateManagedCollectionSubscriptionInvoices,
@@ -92,6 +106,10 @@ apiRouter.post('/auth/register', registerUser);
 apiRouter.post('/auth/register-technician', registerTechnician);
 apiRouter.post('/auth/bootstrap-admin', bootstrapAdmin);
 apiRouter.post('/auth/login', loginUser);
+apiRouter.post('/auth/google', googleAuth);
+apiRouter.post('/auth/google/complete-profile', completeGoogleClientProfile);
+apiRouter.get('/auth/verify-email', verifyEmail);
+apiRouter.post('/auth/verify-email', verifyEmail);
 apiRouter.post('/auth/forgot-password', forgotPassword);
 apiRouter.post('/auth/reset-password', resetPassword);
 
@@ -104,6 +122,9 @@ apiRouter.get('/notifications', authenticateToken, getMyNotifications);
 apiRouter.patch('/notifications/:id', authenticateToken, updateMyNotification);
 apiRouter.get('/notification-preferences', authenticateToken, getMyNotificationPreferences);
 apiRouter.patch('/notification-preferences', authenticateToken, updateMyNotificationPreferences);
+apiRouter.post('/push-tokens', authenticateToken, registerPushToken);
+apiRouter.delete('/push-tokens', authenticateToken, unregisterPushToken);
+apiRouter.post('/technician/profile-photo', authenticateToken, requireRole([UserRole.TECHNICIAN]), uploadMyTechnicianProfilePhoto);
 apiRouter.get('/profile/me', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyProfile);
 apiRouter.patch('/profile/default-address', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), updateMyDefaultAddress);
 apiRouter.get('/managed-collection-plans', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), listPublicSubscriptionPlans);
@@ -120,6 +141,9 @@ apiRouter.post('/bookings/:id/accept', authenticateToken, requireRole([UserRole.
 apiRouter.post('/bookings/:id/decline', authenticateToken, requireRole([UserRole.TECHNICIAN]), declineBooking);
 apiRouter.patch('/bookings/:id/status', authenticateToken, updateBookingStatus);
 apiRouter.get('/bookings/:id', authenticateToken, getBookingById);
+apiRouter.post('/bookings/:bookingId/media', authenticateToken, uploadBookingMedia);
+apiRouter.get('/bookings/:bookingId/messages', authenticateToken, getBookingMessages);
+apiRouter.post('/bookings/:bookingId/messages', authenticateToken, sendBookingMessage);
 
 apiRouter.post('/bookings/:bookingId/quotes', authenticateToken, createJobQuote);
 apiRouter.get('/bookings/:bookingId/quotes', authenticateToken, getBookingQuotes);
@@ -129,6 +153,7 @@ apiRouter.get('/technician/available-jobs', authenticateToken, requireRole([User
 
 apiRouter.get('/admin/technicians', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.TECHNICIANS_READ), listTechnicianApplications);
 apiRouter.patch('/admin/technicians/:id/review', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.TECHNICIANS_REVIEW), reviewTechnicianApplication);
+apiRouter.patch('/admin/technicians/:id/profile-photo', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.TECHNICIANS_REVIEW), reviewTechnicianProfilePhoto);
 apiRouter.put('/admin/capabilities/:capabilityId/status', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.TECHNICIANS_REVIEW), updateTechnicianCapabilityStatus);
 apiRouter.get('/admin/overview', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.OVERVIEW_READ), getAdminOverview);
 apiRouter.get('/admin/bookings', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_READ), getAdminBookings);

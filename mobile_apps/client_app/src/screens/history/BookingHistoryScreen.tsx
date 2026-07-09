@@ -1,9 +1,9 @@
-// src/screens/history/BookingHistoryScreen.tsx
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Modal,
   StatusBar,
   StyleSheet,
@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { FileText as LucideFileText, X as LucideX, CheckCircle2 as LucideCheckCircle } from 'lucide-react-native';
+import { CheckCircle2 as LucideCheckCircle, FileText as LucideFileText, X as LucideX } from 'lucide-react-native';
 import apiService, { BookingHistoryItem } from '../../services/api.service';
 
 const FileText = LucideFileText as any;
@@ -33,14 +33,14 @@ export function BookingHistoryScreen(): React.JSX.Element {
         setLoading(true);
         const response = await apiService.getMyBookingHistory();
         setBookings(response.bookings || []);
-      } catch (err) {
+      } catch {
         Alert.alert('Error', 'Could not synchronize account history logs.');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchHistoryData();
+    void fetchHistoryData();
   }, []);
 
   const handleViewInvoice = (item: BookingHistoryItem) => {
@@ -57,10 +57,15 @@ export function BookingHistoryScreen(): React.JSX.Element {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.categoryRow}>
-            <Text style={styles.icon}>•</Text>
-            <View>
+            {item.technician?.profilePhotoUrl ? (
+              <Image source={{ uri: item.technician.profilePhotoUrl }} style={styles.techAvatar} />
+            ) : (
+              <Text style={styles.icon}>•</Text>
+            )}
+            <View style={{ flex: 1 }}>
               <Text style={styles.categoryText}>{item.applianceType}</Text>
               <Text style={styles.jobId}>{item.generalArea || item.fullAddress || 'Service address'}</Text>
+              {item.technician?.name ? <Text style={styles.techName}>Handled by {item.technician.name}</Text> : null}
             </View>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: `${statusColor}10`, borderColor: statusColor }]}>
@@ -122,7 +127,7 @@ export function BookingHistoryScreen(): React.JSX.Element {
             </View>
 
             <View style={styles.invoiceBody}>
-              <View style={styles.invoiceRow}><Text style={styles.billingLabel}>Base Diagnostic Callout</Text><Text style={styles.billingValue}>{money(currency, invoice?.baseAmountMinor)}</Text></View>
+              <View style={styles.invoiceRow}><Text style={styles.billingLabel}>Call-out Fee</Text><Text style={styles.billingValue}>{money(currency, invoice?.baseAmountMinor)}</Text></View>
               <View style={styles.invoiceRow}><Text style={styles.billingLabel}>Extended Labour Charges</Text><Text style={styles.billingValue}>{money(currency, invoice?.additionalLaborMinor)}</Text></View>
               <View style={styles.invoiceRow}><Text style={styles.billingLabel}>Materials & Parts</Text><Text style={styles.billingValue}>{money(currency, invoice?.partsAmountMinor)}</Text></View>
               <View style={styles.totalDivider} />
@@ -149,11 +154,13 @@ const styles = StyleSheet.create({
   listContainer: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 24 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   card: { backgroundColor: '#111827', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#1E293B', marginBottom: 14 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
   categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   icon: { color: '#00FF87', fontSize: 22, backgroundColor: '#1E293B', padding: 8, borderRadius: 10, overflow: 'hidden' },
+  techAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#00FF87' },
   categoryText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   jobId: { color: '#64748B', fontSize: 11, fontWeight: '600', marginTop: 1 },
+  techName: { color: '#94A3B8', fontSize: 11, fontWeight: '700', marginTop: 3 },
   statusBadge: { borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   statusText: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   serviceDetails: { color: '#E2E8F0', fontSize: 13, fontWeight: '500', marginVertical: 14, lineHeight: 18 },

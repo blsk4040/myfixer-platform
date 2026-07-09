@@ -57,6 +57,50 @@ class EmailService {
             return false;
         }
     }
+    static async sendEmailVerificationEmail(args) {
+        try {
+            if (!resend || !process.env.RESEND_FROM_EMAIL) {
+                console.warn('Email verification dispatch skipped: Resend is not fully configured.', {
+                    hasResendApiKey: Boolean(resend),
+                    hasFromEmail: Boolean(process.env.RESEND_FROM_EMAIL),
+                });
+                return false;
+            }
+            const { data, error } = await resend.emails.send({
+                from: process.env.RESEND_FROM_EMAIL,
+                to: args.recipientEmail,
+                subject: 'Verify your MyFixer email',
+                html: `
+          <p>Hello ${args.name || 'there'},</p>
+          <p>Please verify your email address to finish setting up your MyFixer account.</p>
+          <p><a href="${args.verificationUrl}">Verify email</a></p>
+          <p>If you did not create this account, you can ignore this email.</p>
+        `,
+            });
+            if (error) {
+                console.error('Email verification dispatch failed:', {
+                    recipientEmail: args.recipientEmail,
+                    fromEmail: process.env.RESEND_FROM_EMAIL,
+                    error,
+                });
+                return false;
+            }
+            console.info('Email verification dispatched via Resend:', {
+                recipientEmail: args.recipientEmail,
+                fromEmail: process.env.RESEND_FROM_EMAIL,
+                messageId: data?.id,
+            });
+            return true;
+        }
+        catch (err) {
+            console.error('Email verification worker failed:', {
+                recipientEmail: args.recipientEmail,
+                fromEmail: process.env.RESEND_FROM_EMAIL,
+                error: err,
+            });
+            return false;
+        }
+    }
     static async sendJobInvoiceEmail(args) {
         try {
             if (!resend || !process.env.RESEND_FROM_EMAIL) {
@@ -123,6 +167,64 @@ class EmailService {
         }
         catch (err) {
             console.error('Quote email worker failed:', err);
+            return false;
+        }
+    }
+    static async sendTechnicianReviewEmail(args) {
+        try {
+            if (!resend || !process.env.RESEND_FROM_EMAIL) {
+                console.warn('Technician review email skipped: Resend is not fully configured.', {
+                    hasResendApiKey: Boolean(resend),
+                    hasFromEmail: Boolean(process.env.RESEND_FROM_EMAIL),
+                });
+                return false;
+            }
+            const normalizedStatus = args.status.toUpperCase();
+            const isApproved = normalizedStatus === 'APPROVED';
+            const isRejected = normalizedStatus === 'REJECTED';
+            const readableStatus = normalizedStatus.toLowerCase().replace(/_/g, ' ');
+            const subject = isApproved
+                ? 'Your MyFixer Pro application has been approved'
+                : `Your MyFixer Pro application is ${readableStatus}`;
+            const nextStep = isApproved
+                ? '<p>You can now sign in to the MyFixer Technician app and go live when you are ready to receive jobs.</p>'
+                : '<p>Please contact MyFixer support if you need help with your application.</p>';
+            const reason = isRejected && args.rejectionReason
+                ? `<p><strong>Reason:</strong> ${args.rejectionReason}</p>`
+                : '';
+            const { data, error } = await resend.emails.send({
+                from: process.env.RESEND_FROM_EMAIL,
+                to: args.recipientEmail,
+                subject,
+                html: `
+          <p>Hello ${args.technicianName || 'there'},</p>
+          <p>Your MyFixer Pro application status is now <strong>${readableStatus}</strong>.</p>
+          ${reason}
+          ${nextStep}
+          <p>Thank you,<br/>The MyFixer Team</p>
+        `,
+            });
+            if (error) {
+                console.error('Technician review email dispatch failed:', {
+                    recipientEmail: args.recipientEmail,
+                    status: args.status,
+                    error,
+                });
+                return false;
+            }
+            console.info('Technician review email dispatched via Resend:', {
+                recipientEmail: args.recipientEmail,
+                status: args.status,
+                messageId: data?.id,
+            });
+            return true;
+        }
+        catch (err) {
+            console.error('Technician review email worker failed:', {
+                recipientEmail: args.recipientEmail,
+                status: args.status,
+                error: err,
+            });
             return false;
         }
     }

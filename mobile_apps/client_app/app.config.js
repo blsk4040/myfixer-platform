@@ -2,11 +2,37 @@ const appJson = require('./app.json');
 const { loadPlatformConfig } = require('../../config/load-platform-config');
 
 const { config } = loadPlatformConfig({ override: true });
-const isLocalDevelopment = config.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
+const isLocalDevelopment =
+  config.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
 
 module.exports = {
   ...appJson.expo,
-  ...(isLocalDevelopment ? { updates: { ...(appJson.expo.updates || {}), enabled: false } } : {}),
+
+  android: {
+    ...(appJson.expo.android || {}),
+    package: 'co.za.myfixer.client',
+    googleServicesFile: './google-services.json',
+  },
+
+  plugins: [
+    'expo-web-browser',
+    'expo-notifications',
+    '@react-native-google-signin/google-signin',
+    '@react-native-firebase/app',
+    '@react-native-firebase/auth',
+    [
+      'expo-location',
+      {
+        locationWhenInUsePermission:
+          'Allow MyFixer to show your position relative to the dispatch technician on the live map radar.',
+      },
+    ],
+  ],
+
+  ...(isLocalDevelopment
+    ? { updates: { ...(appJson.expo.updates || {}), enabled: false } }
+    : {}),
+
   extra: {
     ...(appJson.expo.extra || {}),
     API_BASE_URL: config.API_BASE_URL,

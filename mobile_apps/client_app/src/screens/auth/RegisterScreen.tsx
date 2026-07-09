@@ -1,5 +1,5 @@
 // mobile_apps/client_app/src/screens/auth/RegisterScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -13,7 +13,13 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
+import apiService from '../../services/api.service';
+import authService from '../../services/auth.service';
 import { assertConfiguredUrl, getApiBaseUrl } from '../../config/runtime.config';
+
+WebBrowser.maybeCompleteAuthSession();
 
 const MARKET_OPTIONS = [
   { countryCode: 'ZA', country: 'South Africa', currency: 'ZAR' },
@@ -25,6 +31,21 @@ const MARKET_OPTIONS = [
 export function RegisterScreen({ navigation }: any): React.JSX.Element {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState<boolean>(false);
+
+  // Check if credentials exist at runtime safely
+  const isGoogleConfigured = !!(
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID &&
+    process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID &&
+    process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID
+  );
+
+  const [googleRequest, googleResponse, promptGoogleSignIn] = Google.useIdTokenAuthRequest({
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '',
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '',
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '',
+    selectAccount: true,
+  });
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -37,6 +58,24 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
     password: '',
     confirmPassword: '',
   });
+
+  // Watch for AuthSession responses cleanly in a side effect loop
+  useEffect(() => {
+    if (googleResponse?.type === 'success') {
+      const idToken = googleResponse.params?.id_token || googleResponse.authentication?.idToken;
+      if (idToken) {
+        processGoogleAuthentication(idToken);
+      } else {
+        setIsGoogleLoading(false);
+        Alert.alert('Google Sign-In Failed', 'Google did not return an identity token.');
+      }
+    } else if (googleResponse?.type === 'error' || googleResponse?.type === 'cancel' || googleResponse?.type === 'dismiss') {
+      setIsGoogleLoading(false);
+      if (googleResponse.type === 'error') {
+        Alert.alert('Google Sign-In Failed', 'An error occurred during Google registration access.');
+      }
+    }
+  }, [googleResponse]);
 
   const updateField = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -102,13 +141,69 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
         throw new Error(result.message || 'Registration failed.');
       }
 
-      Alert.alert('Success!', 'Your MyFixer client profile has been created.', [
+      if (result.token && result.user) {
+        await authService.persistSession({ token: result.token, user: result.user });
+        navigation.replace('VerifyEmailNotice');
+        return;
+      }
+
+      Alert.alert('Profile Created', 'Please check your email to verify your account.', [
         { text: 'Login Now', onPress: () => navigation.navigate('Login') }
       ]);
     } catch (error: any) {
       Alert.alert('Registration Error', error.message || 'Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (!isGoogleConfigured || !googleRequest) {
+      Alert.alert(
+        'Configuration Unavailable',
+        'Google application configurations are missing for this channel. Please review setup variables.'
+      );
+      return;
+    }
+
+    setIsGoogleLoading(true);
+    try {
+      await promptGoogleSignIn();
+    } catch (error: any) {
+      setIsGoogleLoading(false);
+      Alert.alert('Google Sign-In Failed', error.message || 'Unable to continue with Google right now.');
+    }
+  };
+
+  const processGoogleAuthentication = async (idToken: string) => {
+    try {
+      const result = await apiService.signInWithGoogle(idToken);
+
+      if (result.status === 'profile_required') {
+        if (result.token && result.user) {
+          await authService.persistSession({ token: result.token, user: result.user });
+        }
+        navigation.navigate('CompleteClientProfile', {
+          idToken,
+          googleProfile: result.googleProfile,
+        });
+        return;
+      }
+
+      if (!result.token || !result.user) {
+        throw new Error(result.message || 'Google session exchange was missing session details.');
+      }
+
+      await authService.persistSession({ token: result.token, user: result.user });
+      if (result.status === 'email_verification_required' || result.user.isEmailVerified === false) {
+        navigation.replace('VerifyEmailNotice');
+        return;
+      }
+      navigation.replace('MainTabs');
+    } catch (error: any) {
+      Alert.alert('Google Sign-In Failed', error.message || 'Unable to authenticate registration details over host services.');
+    } finally {
+      setIsGoogleLoading(false);
     }
   };
 
@@ -134,6 +229,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
                 placeholderTextColor="#475569"
                 value={formData.fullName}
                 onChangeText={(val) => updateField('fullName', val)}
+                editable={!isLoading && !isGoogleLoading}
               />
 
               <Text style={styles.inputLabel}>EMAIL ADDRESS</Text>
@@ -145,6 +241,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
                 autoCapitalize="none"
                 value={formData.email}
                 onChangeText={(val) => updateField('email', val)}
+                editable={!isLoading && !isGoogleLoading}
               />
 
               <Text style={styles.inputLabel}>MOBILE NUMBER</Text>
@@ -155,10 +252,44 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
                 keyboardType="phone-pad"
                 value={formData.phone}
                 onChangeText={(val) => updateField('phone', val)}
+                editable={!isLoading && !isGoogleLoading}
               />
 
-              <TouchableOpacity style={styles.primaryButton} onPress={() => validateStepOne() && setCurrentStep(2)}>
+              <TouchableOpacity 
+                style={styles.primaryButton} 
+                onPress={() => validateStepOne() && setCurrentStep(2)}
+                disabled={isLoading || isGoogleLoading}
+              >
                 <Text style={styles.primaryButtonText}>Continue to Region Details →</Text>
+              </TouchableOpacity>
+
+              <View style={styles.socialDivider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.googleButton, 
+                  (isLoading || isGoogleLoading || !googleRequest || !isGoogleConfigured) && styles.googleButtonDisabled
+                ]}
+                activeOpacity={0.86}
+                onPress={handleGoogleSignIn}
+                disabled={isLoading || isGoogleLoading || !googleRequest || !isGoogleConfigured}
+                accessibilityRole="button"
+                accessibilityLabel="Continue with Google"
+              >
+                {isGoogleLoading ? (
+                  <ActivityIndicator color="#111827" />
+                ) : (
+                  <>
+                    <View style={styles.googleIconWrap}>
+                      <Text style={styles.googleIconText}>G</Text>
+                    </View>
+                    <Text style={styles.googleButtonText}>Continue with Google</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           )}
@@ -173,6 +304,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
                     <TouchableOpacity
                       key={market.countryCode}
                       style={[styles.marketChip, isSelected && styles.marketChipActive]}
+                      disabled={isLoading || isGoogleLoading}
                       onPress={() => {
                         updateField('country', market.country);
                         updateField('countryCode', market.countryCode);
@@ -194,6 +326,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
                 placeholderTextColor="#475569"
                 value={formData.city}
                 onChangeText={(val) => updateField('city', val)}
+                editable={!isLoading && !isGoogleLoading}
               />
 
               <Text style={styles.inputLabel}>AREA / NEIGHBOURHOOD OPTIONAL</Text>
@@ -203,13 +336,22 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
                 placeholderTextColor="#475569"
                 value={formData.area}
                 onChangeText={(val) => updateField('area', val)}
+                editable={!isLoading && !isGoogleLoading}
               />
 
               <View style={styles.navigationRow}>
-                <TouchableOpacity style={styles.secondaryButton} onPress={() => setCurrentStep(1)}>
+                <TouchableOpacity 
+                  style={styles.secondaryButton} 
+                  onPress={() => setCurrentStep(1)}
+                  disabled={isLoading || isGoogleLoading}
+                >
                   <Text style={styles.secondaryButtonText}>← Back</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.primaryButton, { flex: 2, marginTop: 0 }]} onPress={() => validateStepTwo() && setCurrentStep(3)}>
+                <TouchableOpacity 
+                  style={[styles.primaryButton, { flex: 2, marginTop: 0 }]} 
+                  onPress={() => validateStepTwo() && setCurrentStep(3)}
+                  disabled={isLoading || isGoogleLoading}
+                >
                   <Text style={styles.primaryButtonText}>Security Verification</Text>
                 </TouchableOpacity>
               </View>
@@ -228,7 +370,8 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
                 textContentType="newPassword"
                 value={formData.password}
                 onChangeText={(val) => updateField('password', val)}
-                onChange={(e) => updateField('password', e.nativeEvent.text)} // ✅ FIX: Autofill Protection
+                onChange={(e) => updateField('password', e.nativeEvent.text)}
+                editable={!isLoading && !isGoogleLoading}
               />
 
               <Text style={styles.inputLabel}>CONFIRM PASSWORD</Text>
@@ -241,14 +384,15 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
                 textContentType="newPassword"
                 value={formData.confirmPassword}
                 onChangeText={(val) => updateField('confirmPassword', val)}
-                onChange={(e) => updateField('confirmPassword', e.nativeEvent.text)} // ✅ FIX: Autofill Protection
+                onChange={(e) => updateField('confirmPassword', e.nativeEvent.text)}
+                editable={!isLoading && !isGoogleLoading}
               />
 
               <View style={styles.navigationRow}>
-                <TouchableOpacity style={styles.secondaryButton} disabled={isLoading} onPress={() => setCurrentStep(2)}>
+                <TouchableOpacity style={styles.secondaryButton} disabled={isLoading || isGoogleLoading} onPress={() => setCurrentStep(2)}>
                   <Text style={styles.secondaryButtonText}>← Back</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.primaryButton, styles.submitButton, { flex: 2, marginTop: 0 }]} onPress={handleFinalSubmit} disabled={isLoading}>
+                <TouchableOpacity style={[styles.primaryButton, styles.submitButton, { flex: 2, marginTop: 0 }]} onPress={handleFinalSubmit} disabled={isLoading || isGoogleLoading}>
                   {isLoading ? <ActivityIndicator color="#090D14" /> : <Text style={[styles.primaryButtonText, { color: '#090D14' }]}>Complete Profile ✓</Text>}
                 </TouchableOpacity>
               </View>
@@ -284,5 +428,32 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   submitButton: { backgroundColor: '#00FF87', borderColor: '#00FF87' },
   secondaryButton: { flex: 1, padding: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#1E293B' },
-  secondaryButtonText: { color: '#64748B', fontSize: 14, fontWeight: '600' }
+  secondaryButtonText: { color: '#64748B', fontSize: 14, fontWeight: '600' },
+  socialDivider: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 4 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#1E293B' },
+  dividerText: { color: '#64748B', fontSize: 12, fontWeight: '700' },
+  googleButton: {
+    minHeight: 54,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  googleButtonDisabled: { opacity: 0.4 },
+  googleIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  googleIconText: { color: '#4285F4', fontSize: 16, fontWeight: '900' },
+  googleButtonText: { color: '#111827', fontSize: 15, fontWeight: '800' }
 });

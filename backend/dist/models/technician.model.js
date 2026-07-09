@@ -135,6 +135,21 @@ const TechnicianSchema = new mongoose_1.Schema({
         min: 1,
         max: 150,
     },
+    walletBalance: {
+        type: Number,
+        default: 0,
+    },
+    strikesCount: {
+        type: Number,
+        default: 0,
+        min: 0,
+    },
+    reliabilityScore: {
+        type: Number,
+        default: 100,
+        min: 0,
+        max: 100,
+    },
     bio: {
         type: String,
         default: '',

@@ -149,10 +149,16 @@ const createJobQuote = async (request, response) => {
             technicianNotes: typeof body.technicianNotes === 'string' ? body.technicianNotes.trim() : '',
             sentAt: new Date(),
         });
+        booking.metadata = {
+            ...(booking.metadata ?? {}),
+            latestQuoteId: quote.id,
+            latestQuoteTotalAmountMinor: totalAmountMinor,
+            latestQuoteSentAt: quote.sentAt,
+        };
         if (booking.status === booking_model_1.BookingStatus.ARRIVED) {
             booking.status = booking_model_1.BookingStatus.DIAGNOSTIC_DONE;
-            await booking.save();
         }
+        await booking.save();
         const serializedQuote = serializeQuote(quote);
         const invoicePayload = {
             bookingId: booking.id,
@@ -180,11 +186,11 @@ const createJobQuote = async (request, response) => {
                 totalAmountMinor: item.totalAmountMinor,
             })),
         });
-        await (0, notification_service_1.createNotifications)({
+        const inboxMessages = await (0, notification_service_1.createNotifications)({
             userId: booking.customerId,
             email: booking.customerEmail,
             name: booking.customerName,
-            channels: [notification_model_1.NotificationChannel.IN_APP],
+            channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
             type: 'QUOTE_SENT',
             title: 'Quote sent for approval',
             message: `A quote for ${booking.applianceType} is ready for your review.`,
@@ -194,6 +200,9 @@ const createJobQuote = async (request, response) => {
                 totalAmountMinor,
                 currency: booking.currency,
             },
+        });
+        inboxMessages.forEach((message) => {
+            io?.to(`customer:${booking.customerId.toString()}`).emit('new_inbox_message', message);
         });
         response.status(201).json({ success: true, quote: serializedQuote, invoice: invoicePayload, emailSent });
     }
@@ -297,7 +306,7 @@ const decideJobQuote = async (request, response, decision) => {
             userId: booking.customerId,
             email: booking.customerEmail,
             name: booking.customerName,
-            channels: [notification_model_1.NotificationChannel.IN_APP],
+            channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
             type: decision === quote_model_1.QuoteStatus.APPROVED ? 'QUOTE_APPROVED' : 'QUOTE_REJECTED',
             title: decision === quote_model_1.QuoteStatus.APPROVED ? 'Quote approved' : 'Quote rejected',
             message: decision === quote_model_1.QuoteStatus.APPROVED

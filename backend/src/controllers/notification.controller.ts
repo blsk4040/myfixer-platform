@@ -63,8 +63,8 @@ export const listAdminNotifications = async (req: Request, res: Response): Promi
       meta: {
         statuses: Object.values(NotificationStatus),
         channels: Object.values(NotificationChannel),
-        enabledChannels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
-        disabledChannels: [NotificationChannel.PUSH, NotificationChannel.SMS, NotificationChannel.WHATSAPP],
+        enabledChannels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL, NotificationChannel.PUSH],
+        disabledChannels: [NotificationChannel.SMS, NotificationChannel.WHATSAPP],
         types: Object.values(NotificationType),
       },
     });
@@ -241,7 +241,7 @@ export const getMyNotificationPreferences = async (req: Request, res: Response):
         channels: {
           inApp: true,
           email: true,
-          push: false,
+          push: true,
           sms: false,
           whatsapp: false,
         },

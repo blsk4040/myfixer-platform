@@ -38,9 +38,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.reviewTechnicianApplication = exports.getAvailableJobsForTechnician = exports.listTechnicianApplications = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
+const booking_model_1 = __importStar(require("../models/booking.model"));
 const technician_model_1 = __importStar(require("../models/technician.model"));
 const audit_service_1 = require("../services/audit.service");
 const matching_service_1 = __importDefault(require("../services/matching.service"));
+const user_model_1 = __importDefault(require("../models/user.model"));
+const email_service_1 = require("../services/email/email.service");
 const isApprovalStatus = (value) => typeof value === 'string' &&
     Object.values(technician_model_1.TechnicianApprovalStatus).includes(value);
 const listTechnicianApplications = async (_req, res) => {
@@ -65,6 +68,16 @@ const getAvailableJobsForTechnician = async (req, res) => {
     try {
         const jobs = await matching_service_1.default.findNearbyPendingBookingsForTechnician(technicianId);
         await matching_service_1.default.markBookingsSentToTechnician(technicianId, jobs.map((job) => job.id));
+        const acceptedFutureJobs = await booking_model_1.default.find({
+            technicianId: new mongoose_1.default.Types.ObjectId(technicianId),
+            status: { $in: [booking_model_1.BookingStatus.ACCEPTED, booking_model_1.BookingStatus.IN_ROUTE, booking_model_1.BookingStatus.ARRIVED] },
+            'appointmentWindow.isPreBook': true,
+            'appointmentWindow.scheduledStartTime': { $gte: new Date() },
+        })
+            .select('applianceType faultDescription fullAddress complexDetails generalArea priceMinor currency countryCode appointmentWindow status customerName')
+            .sort({ 'appointmentWindow.scheduledStartTime': 1 })
+            .limit(100)
+            .lean();
         res.status(200).json({
             success: true,
             jobs: jobs.map((job) => ({
@@ -82,7 +95,21 @@ const getAvailableJobsForTechnician = async (req, res) => {
                 distanceKm: job.distanceKm,
                 distanceText: `${job.distanceKm.toFixed(1)} km`,
                 categoryMatch: job.categoryMatch,
-            }))
+            })),
+            acceptedFutureJobs: acceptedFutureJobs.map((job) => ({
+                bookingId: job._id.toString(),
+                customerName: job.customerName,
+                applianceType: job.applianceType,
+                faultDescription: job.faultDescription,
+                fullAddress: job.fullAddress,
+                complexDetails: job.complexDetails,
+                generalArea: job.generalArea,
+                priceMinor: job.priceMinor,
+                currency: job.currency,
+                countryCode: job.countryCode,
+                appointmentWindow: job.appointmentWindow,
+                status: job.status,
+            })),
         });
     }
     catch (error) {
@@ -138,7 +165,19 @@ const reviewTechnicianApplication = async (req, res) => {
                 status: body.status,
             },
         });
-        res.status(200).json({ success: true, technician });
+        let reviewEmailSent = false;
+        if (before.approvalStatus !== technician.approvalStatus) {
+            const technicianUser = await user_model_1.default.findById(technician.userId).select('name email').lean();
+            if (technicianUser?.email) {
+                reviewEmailSent = await email_service_1.EmailService.sendTechnicianReviewEmail({
+                    recipientEmail: technicianUser.email,
+                    technicianName: technicianUser.name || 'there',
+                    status: technician.approvalStatus,
+                    rejectionReason: reviewReason,
+                });
+            }
+        }
+        res.status(200).json({ success: true, technician, reviewEmailSent });
     }
     catch (error) {
         res.status(500).json({ success: false, message: 'Failed to review technician application.' });

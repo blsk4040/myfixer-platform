@@ -154,10 +154,18 @@ export const createJobQuote = async (request: Request, response: Response): Prom
       sentAt: new Date(),
     });
 
+    booking.metadata = {
+      ...(booking.metadata ?? {}),
+      latestQuoteId: quote.id,
+      latestQuoteTotalAmountMinor: totalAmountMinor,
+      latestQuoteSentAt: quote.sentAt,
+    };
+
     if (booking.status === BookingStatus.ARRIVED) {
       booking.status = BookingStatus.DIAGNOSTIC_DONE;
-      await booking.save();
     }
+
+    await booking.save();
 
     const serializedQuote = serializeQuote(quote);
     const invoicePayload = {
@@ -188,11 +196,11 @@ export const createJobQuote = async (request: Request, response: Response): Prom
         totalAmountMinor: item.totalAmountMinor,
       })),
     });
-    await createNotifications({
+    const inboxMessages = await createNotifications({
       userId: booking.customerId,
       email: booking.customerEmail,
       name: booking.customerName,
-      channels: [NotificationChannel.IN_APP],
+      channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
       type: 'QUOTE_SENT',
       title: 'Quote sent for approval',
       message: `A quote for ${booking.applianceType} is ready for your review.`,
@@ -202,6 +210,9 @@ export const createJobQuote = async (request: Request, response: Response): Prom
         totalAmountMinor,
         currency: booking.currency,
       },
+    });
+    inboxMessages.forEach((message) => {
+      io?.to(`customer:${booking.customerId.toString()}`).emit('new_inbox_message', message);
     });
 
     response.status(201).json({ success: true, quote: serializedQuote, invoice: invoicePayload, emailSent });
@@ -326,7 +337,7 @@ const decideJobQuote = async (
       userId: booking.customerId,
       email: booking.customerEmail,
       name: booking.customerName,
-      channels: [NotificationChannel.IN_APP],
+      channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
       type: decision === QuoteStatus.APPROVED ? 'QUOTE_APPROVED' : 'QUOTE_REJECTED',
       title: decision === QuoteStatus.APPROVED ? 'Quote approved' : 'Quote rejected',
       message: decision === QuoteStatus.APPROVED

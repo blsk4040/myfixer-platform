@@ -27,6 +27,56 @@ export interface JobQuote {
   technicianNotes?: string;
 }
 
+export interface JobMediaRecord {
+  id: string;
+  bookingId: string;
+  uploadedByUserId: string;
+  uploadedByRole: 'CUSTOMER' | 'TECHNICIAN' | 'ADMIN' | 'SYSTEM';
+  mediaType: 'IMAGE';
+  purpose: string;
+  url: string;
+  thumbnailUrl: string;
+  mimeType: string;
+  fileName?: string;
+  fileSize?: number;
+  width?: number;
+  height?: number;
+  retentionExpiresAt?: string;
+  createdAt: string;
+}
+
+export interface BookingChatMessage {
+  id: string;
+  bookingId: string;
+  senderId: string;
+  senderRole: 'CUSTOMER' | 'TECHNICIAN' | 'ADMIN' | 'SYSTEM';
+  messageType: 'TEXT' | 'IMAGE' | 'SYSTEM';
+  text: string;
+  media: JobMediaRecord[];
+  createdAt: string;
+}
+
+export interface WalletBalanceResponse {
+  success: boolean;
+  country_code?: string;
+  currency: string;
+  available_balance: number;
+  available_balance_minor: number;
+  pending_balance: number;
+  pending_balance_minor: number;
+}
+
+export interface WalletTransactionRecord {
+  _id: string;
+  type?: string;
+  status?: string;
+  amount?: number;
+  amountMinor?: number;
+  currency?: string;
+  description?: string;
+  createdAt?: string;
+}
+
 export interface RegisterTechnicianPayload {
   name: string;
   email: string;
@@ -41,6 +91,20 @@ export interface RegisterTechnicianPayload {
   vehicleType?: string;
   serviceRadiusKm?: number;
   bio?: string;
+  profilePhotoDataUri: string;
+}
+
+export interface GoogleAuthResponse {
+  status: 'success' | 'profile_required' | 'email_verification_required';
+  token?: string;
+  user?: AuthSession['user'];
+  technician?: AuthSession['technician'];
+  googleProfile?: {
+    email: string;
+    name?: string;
+    googleSubject?: string;
+  };
+  message?: string;
 }
 
 class ApiService {
@@ -72,6 +136,13 @@ class ApiService {
     });
   }
 
+  signInWithGoogle(idToken: string): Promise<GoogleAuthResponse> {
+    return this.request<GoogleAuthResponse>('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ idToken }),
+    });
+  }
+
   registerTechnician(payload: RegisterTechnicianPayload): Promise<{
     status: string;
     message: string;
@@ -85,7 +156,9 @@ class ApiService {
       businessName?: string;
       yearsExperience?: number;
       profilePhotoUrl?: string;
+      profilePhotoStatus?: string;
     };
+    verificationEmailSent?: boolean;
   }> {
     return this.request('/auth/register-technician', {
       method: 'POST',
@@ -106,7 +179,27 @@ class ApiService {
         vehicleType: payload.vehicleType,
         serviceRadiusKm: payload.serviceRadiusKm,
         bio: payload.bio,
+        documents: {
+          profilePhotoDataUri: payload.profilePhotoDataUri,
+        },
       }),
+    });
+  }
+
+  uploadTechnicianProfilePhoto(payload: {
+    dataUri: string;
+  }): Promise<{
+    success: boolean;
+    technician: {
+      id: string;
+      approvalStatus: string;
+      profilePhotoUrl: string;
+      profilePhotoStatus: string;
+    };
+  }> {
+    return this.request('/technician/profile-photo', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   }
 
@@ -157,6 +250,52 @@ class ApiService {
     return this.request('/bookings/finalize-invoice', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  }
+
+  getBookingMessages(bookingId: string): Promise<{ success: boolean; messages: BookingChatMessage[] }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/messages`);
+  }
+
+  uploadBookingMedia(bookingId: string, payload: {
+    dataUri: string;
+    fileName?: string;
+    mimeType?: string;
+    purpose?: 'CHAT' | 'BEFORE_WORK' | 'AFTER_WORK' | 'PROOF_OF_COMPLETION' | 'QUOTE_PART' | 'DISPUTE';
+  }): Promise<{ success: boolean; media: JobMediaRecord }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/media`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  sendBookingMessage(bookingId: string, payload: {
+    text?: string;
+    mediaIds?: string[];
+  }): Promise<{ success: boolean; message: BookingChatMessage }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  getWalletBalance(): Promise<WalletBalanceResponse> {
+    return this.request('/wallet');
+  }
+
+  getWalletTransactions(): Promise<{ success: boolean; transactions: WalletTransactionRecord[] }> {
+    return this.request('/wallet/transactions');
+  }
+
+  requestWalletCashout(amountMinor: number): Promise<{
+    success: boolean;
+    amount_minor: number;
+    amount: number;
+    message: string;
+  }> {
+    return this.request('/wallet/cashout', {
+      method: 'POST',
+      body: JSON.stringify({ amountMinor }),
     });
   }
 

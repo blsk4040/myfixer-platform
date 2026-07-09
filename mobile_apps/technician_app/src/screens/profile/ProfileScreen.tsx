@@ -1,67 +1,62 @@
 // src/screens/profile/ProfileScreen.tsx
 import React from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Alert, Switch, Image } from 'react-native';
+import { Alert, Image, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { NavigationProp, ParamListBase, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, NavigationProp, ParamListBase } from '@react-navigation/native'; // 🟢 Added React Navigation hooks & types
-import { useSocketConnection } from '../../context/SocketContext'; 
-import { useJobStore } from '../../store/useJobStore';     
+
+import { useSocketConnection } from '../../context/SocketContext';
+import { useJobStore } from '../../store/useJobStore';
 import authService from '../../services/auth.service';
 import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
 
-// 🟢 Correctly typed props interface
 interface ProfileScreenProps {
   setIsAuthenticated: (auth: boolean) => void;
 }
 
 export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React.JSX.Element {
-  // 🟢 Hook instantiation with an open navigation param type to avoid navigation compilation blocks
-  const navigation = useNavigation<NavigationProp<ParamListBase>>(); 
-  const { isConnected, disconnectSocket } = useSocketConnection(); 
+  const navigation = useNavigation<NavigationProp<ParamListBase>>();
+  const { isOnDuty, toggleDutyStatus, disconnectSocket } = useSocketConnection();
   const completedJobs = useJobStore((state) => state.completedJobs);
   const technicianIdentity = getTechnicianIdentity();
 
-  const totalCompletedCount = completedJobs.length; 
-  const currentRating = "5.00";
+  const totalCompletedCount = completedJobs.length;
+  const currentRating = '5.00';
   const serviceCategories = technicianIdentity.serviceCategories.length
     ? technicianIdentity.serviceCategories
     : ['No service categories set'];
 
   const handleToggleDuty = () => {
-    if (isConnected) {
-      disconnectSocket();
-      Alert.alert("Off Duty", "You are now offline. You won't receive new live repair jobs.");
-    } else {
-      Alert.alert(
-        "Go On Duty?",
-        "This will connect to the dispatch grid and start your location tracking shift.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { 
-            text: "Go Online", 
-            onPress: () => {
-              Alert.alert("System Notice", "To go back online, please toggle availability or pull-to-refresh your dashboard.");
-            }
-          }
-        ]
-      );
+    if (isOnDuty) {
+      toggleDutyStatus();
+      Alert.alert('Off duty', "You are offline. You won't receive new jobs.");
+      return;
     }
+
+    Alert.alert(
+      'Go live?',
+      'You will start receiving nearby job requests and share your location while live.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Go Live', onPress: toggleDutyStatus },
+      ]
+    );
   };
 
-  const handleAbsoluteLogout = () => {
+  const handleLogout = () => {
     Alert.alert(
-      "Confirm Logout",
-      "Are you sure you want to log out of MyFixer Pro completely?",
+      'Log out?',
+      'You will stop receiving jobs until you sign in again.',
       [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Log Out", 
-          style: "destructive",
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Log Out',
+          style: 'destructive',
           onPress: () => {
-            disconnectSocket(); 
+            disconnectSocket();
             authService.clearSession();
-            setIsAuthenticated(false); 
-          }
-        }
+            setIsAuthenticated(false);
+          },
+        },
       ]
     );
   };
@@ -69,10 +64,8 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-        
-        {/* Profile Identity Unit - Interactive Trigger Link to AI Security Upload */}
-        <TouchableOpacity 
-          style={styles.avatarRow} 
+        <TouchableOpacity
+          style={styles.avatarRow}
           activeOpacity={0.7}
           onPress={() => navigation.navigate('ProfilePictureUpload')}
         >
@@ -91,30 +84,29 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
             <Text style={styles.techMeta}>{technicianIdentity.email}</Text>
             <Text style={styles.techMeta}>{technicianIdentity.phone}</Text>
             <Text style={styles.techMeta}>{technicianIdentity.city} - {technicianIdentity.approvalStatus}</Text>
+            <Text style={styles.photoStatus}>Photo: {technicianIdentity.profilePhotoStatus}</Text>
           </View>
         </TouchableOpacity>
 
-        {/* 🟢 Dedicated Shift Status Control Card */}
-        <View style={[styles.dutyCard, { borderColor: isConnected ? '#00FF87' : '#EF4444' }]}>
+        <View style={[styles.dutyCard, { borderColor: isOnDuty ? '#00FF87' : '#EF4444' }]}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.dutyLabel}>DISPATCH AVAILABILITY</Text>
-            <Text style={[styles.dutyStatusText, { color: isConnected ? '#00FF87' : '#EF4444' }]}>
-              {isConnected ? '🟢 ON DUTY (Live Tracking)' : '🔴 OFF DUTY (Passive Viewing)'}
+            <Text style={styles.dutyLabel}>AVAILABILITY</Text>
+            <Text style={[styles.dutyStatusText, { color: isOnDuty ? '#00FF87' : '#EF4444' }]}>
+              {isOnDuty ? 'Live and receiving jobs' : 'Off duty'}
             </Text>
           </View>
-          <Switch 
-            value={isConnected} 
+          <Switch
+            value={isOnDuty}
             onValueChange={handleToggleDuty}
             trackColor={{ false: '#1E293B', true: '#00FF8730' }}
-            thumbColor={isConnected ? '#00FF87' : '#64748B'}
+            thumbColor={isOnDuty ? '#00FF87' : '#64748B'}
           />
         </View>
 
-        {/* 📊 Live Performance Stats Ribbon Row */}
         <View style={styles.performanceMetricsGrid}>
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>RATING</Text>
-            <Text style={styles.metricValue}>⭐ {currentRating}</Text>
+            <Text style={styles.metricValue}>{currentRating}</Text>
           </View>
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>COMPLETED</Text>
@@ -122,8 +114,7 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
           </View>
         </View>
 
-        {/* Operating Specialties Badges Container */}
-        <Text style={styles.sectionTitle}>Service Focus Areas</Text>
+        <Text style={styles.sectionTitle}>Service Areas</Text>
         <View style={styles.badgeWrapper}>
           {serviceCategories.map((spec) => (
             <View key={spec} style={styles.badge}>
@@ -132,29 +123,29 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
           ))}
         </View>
 
-        {/* Settings Action Blocks Grid */}
-        <Text style={styles.sectionTitle}>Account Configurations</Text>
+        <Text style={styles.sectionTitle}>Account</Text>
         <View style={styles.menuGroup}>
-          <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert("Operating Zone", `Your current operating city is ${technicianIdentity.city}.`)}>
-            <Text style={styles.menuItemText}>Operating Zone ({technicianIdentity.city})</Text>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => Alert.alert('Operating Area', `Your current operating city is ${technicianIdentity.city}.`)}
+          >
+            <Text style={styles.menuItemText}>Operating Area ({technicianIdentity.city})</Text>
           </TouchableOpacity>
-          
-          {/* 🏦 Dynamic Global Payouts & Invoicing Entry Point */}
-          <TouchableOpacity 
-            style={styles.menuItem} 
+
+          <TouchableOpacity
+            style={styles.menuItem}
             onPress={() => navigation.navigate('BankingInvoice')}
           >
             <Text style={styles.menuItemText}>Banking Details & Tax Invoices</Text>
           </TouchableOpacity>
         </View>
 
-        {/* 🚨 Separate Absolute Account Logout Button */}
-        <TouchableOpacity 
-          style={styles.logoutButton} 
+        <TouchableOpacity
+          style={styles.logoutButton}
           activeOpacity={0.8}
-          onPress={handleAbsoluteLogout}
+          onPress={handleLogout}
         >
-          <Text style={styles.logoutText}>Log Out of Account</Text>
+          <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -172,6 +163,7 @@ const styles = StyleSheet.create({
   avatarEditBadgeText: { color: '#090D14', fontSize: 12, fontWeight: '900', lineHeight: 14 },
   techName: { color: '#FFFFFF', fontSize: 20, fontWeight: '700' },
   techMeta: { color: '#64748B', fontSize: 13 },
+  photoStatus: { color: '#00FF87', fontSize: 12, fontWeight: '800', marginTop: 3 },
   dutyCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 20 },
   dutyLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   dutyStatusText: { fontSize: 14, fontWeight: '700', marginTop: 4 },

@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "617172154841",
+    "project_id": "myfixer-app",
+    "storage_bucket": "myfixer-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:617172154841:android:875fa58365a3eddeb081c8",
+        "android_client_info": {
+          "package_name": "co.za.myfixer.client"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "617172154841-erej0iur7dbsc70sg5tdd7gimc4fo5im.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDkevrpYqf7-dfl-J79FqvlmurGaRyfTu8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "617172154841-erej0iur7dbsc70sg5tdd7gimc4fo5im.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

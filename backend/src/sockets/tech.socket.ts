@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { connectRedis } from '../config/redis';
-import TechnicianModel from '../models/technician.model';
+import TechnicianModel, { TechnicianApprovalStatus } from '../models/technician.model';
 import TechnicianTelemetry from '../models/technician-telemetry.model';
 import { normalizeUserRole, UserRole } from '../models/user.model';
 import matchingService from '../services/matching.service';
@@ -100,8 +100,20 @@ const updateTechnicianOnlineState = async (
     update.lastLocation = location;
   }
 
+  const existingTechnician = await TechnicianModel.findOne({ userId: new mongoose.Types.ObjectId(technicianId) })
+    .select('_id approvalStatus lastLocation')
+    .lean();
+
+  if (!existingTechnician) return;
+  if (isOnline && existingTechnician.approvalStatus === TechnicianApprovalStatus.SUSPENDED) {
+    throw new Error('Suspended technicians cannot go online.');
+  }
+
   const technician = await TechnicianModel.findOneAndUpdate(
-    { userId: new mongoose.Types.ObjectId(technicianId) },
+    {
+      userId: new mongoose.Types.ObjectId(technicianId),
+      approvalStatus: { $ne: TechnicianApprovalStatus.SUSPENDED },
+    },
     { $set: update },
     { new: true }
   ).select('_id lastLocation');

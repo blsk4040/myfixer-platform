@@ -63,7 +63,9 @@ export function getSocketUrl(): string {
   return apiBaseUrl ? normalizeUrl(apiBaseUrl.replace(/\/api\/v1$/, '')) : '';
 }
 
+
 export function assertConfiguredUrl(value: string, envName: string): void {
   if (value) return;
   throw new Error(`${envName} is not configured. Set Expo public environment variables for this build.`);
 }
+

@@ -10,7 +10,6 @@ import {
   View,
   ScrollView,
   Alert,
-  Image,
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,22 +19,21 @@ import {
   Calendar as LucideCalendar, 
   Clock as LucideClock, 
   MapPin as LucideMapPin, 
-  User as LucideUser, 
-  MessageSquare as LucideMessageSquare, 
-  Phone as LucidePhone 
+  CheckCircle2 as LucideCheckCircle
 } from 'lucide-react-native';
 import DateTimePicker from '@react-native-community/datetimepicker'; 
 import apiService, { Coordinate, CustomerProfile } from '../../services/api.service';
 import socketService from '../../services/socket.service';
 import authService from '../../services/auth.service';
+import LocationSelectionSheet, {
+  LocationConfirmationPayload,
+} from '../../components/LocationSelectionSheet';
 
 // ✅ Clean type casting to fully resolve IntrinsicAttributes TypeScript errors
 const Calendar = LucideCalendar as any;
 const Clock = LucideClock as any;
 const MapPin = LucideMapPin as any;
-const User = LucideUser as any;
-const MessageSquare = LucideMessageSquare as any;
-const Phone = LucidePhone as any;
+const CheckCircle = LucideCheckCircle as any;
 
 const DEFAULT_COORDINATE: Coordinate = { latitude: -26.2041, longitude: 28.0473 };
 
@@ -63,6 +61,7 @@ export default function BookingWizardScreen() {
   const [suburb, setSuburb] = useState('');
   const [city, setCity] = useState('');
   const [postalCode, setPostalCode] = useState('');
+  const [selectedLocation, setSelectedLocation] = useState<LocationConfirmationPayload | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
@@ -70,7 +69,7 @@ export default function BookingWizardScreen() {
   const [saveAsDefaultAddress, setSaveAsDefaultAddress] = useState(false);
   
   const [isSearchingProvider, setIsSearchingProvider] = useState(false);
-  const [assignedProvider, setAssignedProvider] = useState<any>(null);
+  const [requestAccepted, setRequestAccepted] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -88,6 +87,18 @@ export default function BookingWizardScreen() {
           setSuburb(defaultAddress.suburb || '');
           setCity(defaultAddress.city || '');
           setPostalCode(defaultAddress.postalCode || '');
+          if (defaultAddress.fullAddress) {
+            const coordinates = defaultAddress.coordinates?.coordinates;
+            setSelectedLocation({
+              fullAddress: defaultAddress.fullAddress,
+              latitude: coordinates?.length === 2 ? coordinates[1] : DEFAULT_COORDINATE.latitude,
+              longitude: coordinates?.length === 2 ? coordinates[0] : DEFAULT_COORDINATE.longitude,
+              isForSomeoneElse: false,
+              city: defaultAddress.city,
+              area: defaultAddress.suburb,
+              postalCode: defaultAddress.postalCode,
+            });
+          }
           const coordinates = defaultAddress.coordinates?.coordinates;
           if (coordinates?.length === 2) {
             setLongitude(String(coordinates[0]));
@@ -133,39 +144,60 @@ export default function BookingWizardScreen() {
 
   const handleBookingSubmit = async () => {
     try {
-      if (!streetAddress.trim() || !suburb.trim() || !city.trim() || !postalCode.trim()) {
-        Alert.alert('Address Required', 'Please enter your street address, suburb, city, and postal code.');
+      const session = authService.getSession();
+      if (session?.user.role === 'CUSTOMER' && session.user.profileCompleted === false) {
+        Alert.alert('Profile Required', 'Please complete your profile before booking a service.');
+        return;
+      }
+
+      if (session?.user.role === 'CUSTOMER' && session.user.isEmailVerified === false) {
+        Alert.alert('Verify Your Email', 'Please verify your email before booking a service.');
+        navigation.navigate('VerifyEmailNotice');
+        return;
+      }
+
+      if (!selectedLocation?.fullAddress || !Number.isFinite(selectedLocation.latitude) || !Number.isFinite(selectedLocation.longitude)) {
+        Alert.alert('Address Required', 'Please choose and confirm a service address from Google Places.');
         return;
       }
 
       setIsSubmitting(true);
       setIsSearchingProvider(true);
 
-      const customerCoordinate = { latitude: Number(latitude), longitude: Number(longitude) };
+      const customerCoordinate = {
+        latitude: selectedLocation.latitude,
+        longitude: selectedLocation.longitude,
+      };
       const formattedTimestamp = scheduleMode === 'NOW' ? 'Urgent / Right Now' : selectedDate.toLocaleString();
-      const readableAddress = [streetAddress, suburb, city, postalCode].filter(Boolean).join(', ');
-      const session = authService.getSession();
+      const readableAddress = selectedLocation.fullAddress;
       const currency = (session?.user.currency ?? 'ZAR') as any;
+      const onsiteContactNote = selectedLocation.isForSomeoneElse
+        ? `On-site contact: ${selectedLocation.contactName || 'Not provided'} (${selectedLocation.contactPhone || 'No phone provided'}).`
+        : '';
+      const faultDescription = [notes.trim() || 'No description provided.', onsiteContactNote].filter(Boolean).join('\n');
 
       const response = await apiService.createBooking({
         customerName: session?.user.name ?? 'Client',
         applianceType: `${subCategory} (${formattedTimestamp})`,
-        faultDescription: notes.trim() || 'No description provided.',
+        faultDescription,
         latitude: customerCoordinate.latitude,
         longitude: customerCoordinate.longitude,
         price: basePrice,
         countryCode: session?.user.countryCode,
         currency,
         fullAddress: readableAddress,
-        streetAddress: streetAddress.trim(),
-        suburb: suburb.trim(),
-        postalCode: postalCode.trim(),
-        generalArea: suburb.trim(),
-        city: city.trim(),
-        area: suburb.trim(),
+        streetAddress: streetAddress.trim() || readableAddress,
+        suburb: selectedLocation.area || suburb.trim(),
+        postalCode: selectedLocation.postalCode || postalCode.trim(),
+        generalArea: selectedLocation.area || suburb.trim() || readableAddress,
+        city: selectedLocation.city || city.trim() || profile?.location?.city,
+        area: selectedLocation.area || suburb.trim() || profile?.location?.area,
         serviceKey: serviceKey || category,
         category,
         saveAsDefaultAddress: useDifferentAddress && saveAsDefaultAddress,
+        isForSomeoneElse: selectedLocation.isForSomeoneElse,
+        contactName: selectedLocation.contactName,
+        contactPhone: selectedLocation.contactPhone,
       });
 
       const socket = socketService.initializeConnection();
@@ -175,12 +207,7 @@ export default function BookingWizardScreen() {
       socket.once('booking_assigned', (payload: { bookingId?: string; technicianId?: string }) => {
         if (payload.bookingId !== response.bookingId) return;
 
-        setAssignedProvider({
-          name: payload.technicianId ? `Technician ${payload.technicianId}` : 'Assigned technician',
-          rating: 'Verified',
-          phone: '',
-          image: 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?auto=format&fit=crop&w=200&q=80',
-        });
+        setRequestAccepted(true);
         setIsSearchingProvider(false);
       });
 
@@ -199,6 +226,18 @@ export default function BookingWizardScreen() {
     setSuburb('');
     setCity('');
     setPostalCode('');
+    setSelectedLocation(null);
+  };
+
+  const handleLocationConfirmed = (payload: LocationConfirmationPayload) => {
+    setSelectedLocation(payload);
+    setLatitude(String(payload.latitude));
+    setLongitude(String(payload.longitude));
+    setStreetAddress(payload.fullAddress);
+    setSuburb(payload.area || '');
+    setCity(payload.city || '');
+    setPostalCode(payload.postalCode || '');
+    setUseDifferentAddress(true);
   };
 
   return (
@@ -209,41 +248,46 @@ export default function BookingWizardScreen() {
           <View style={styles.header}>
             <Text style={styles.headerLabel}>SERVICE DISPATCH</Text>
             <Text style={styles.headerTitle}>{subCategory}</Text>
-            <Text style={styles.headerSubtitle}>Est. Base Cost: <Text style={styles.greenText}>R{basePrice}</Text></Text>
+            <Text style={styles.headerSubtitle}>Call-out fee: <Text style={styles.greenText}>R{basePrice}</Text></Text>
           </View>
 
           {isSearchingProvider && (
             <View style={styles.matchingBox}>
               <ActivityIndicator size="large" color="#00FF87" />
-              <Text style={styles.matchingText}>Broadcasting Request to Nearest Professionals...</Text>
+              <Text style={styles.matchingText}>Finding available specialists near you...</Text>
             </View>
           )}
 
-          {assignedProvider && (
+          {requestAccepted && (
             <View style={styles.providerCard}>
-              <Text style={styles.providerHeader}>🎉 Match Found! Dispatching Now</Text>
+              <View style={styles.acceptedIconWrap}>
+                <CheckCircle color="#00FF87" size={34} />
+              </View>
               <View style={styles.providerMeta}>
-                <Image source={{ uri: assignedProvider.image }} style={styles.providerAvatar} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.providerName}>{assignedProvider.name}</Text>
-                  <Text style={styles.providerRating}>⭐ {assignedProvider.rating} Verified Specialist</Text>
+                  <Text style={styles.providerName}>Your request was accepted</Text>
+                  <Text style={styles.providerRating}>A verified specialist is now assigned. Open tracking for live updates and contact options.</Text>
                 </View>
               </View>
               <View style={styles.providerActions}>
-                <TouchableOpacity style={styles.actionIconBtn}><Phone color="#00FF87" size={18} /></TouchableOpacity>
-                <TouchableOpacity style={styles.actionIconBtn}><MessageSquare color="#38BDF8" size={18} /></TouchableOpacity>
                 <TouchableOpacity
                   style={styles.trackBtn}
                   onPress={() => navigation.navigate('TrackingMain', { bookingId: createdBookingId })}
                   disabled={!createdBookingId}
                 >
-                  <Text style={styles.trackBtnText}>Track On Map</Text>
+                  <Text style={styles.trackBtnText}>Track Booking</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.secondaryTrackBtn}
+                  onPress={() => navigation.navigate('Activity')}
+                >
+                  <Text style={styles.secondaryTrackBtnText}>View Activity</Text>
                 </TouchableOpacity>
               </View>
             </View>
           )}
 
-          {!assignedProvider && !isSearchingProvider && (
+          {!requestAccepted && !isSearchingProvider && (
             <View style={styles.formContainer}>
               
               <Text style={styles.sectionTitle}>Service Address</Text>
@@ -255,35 +299,12 @@ export default function BookingWizardScreen() {
                   </TouchableOpacity>
                 </View>
               ) : null}
-              <TextInput
-                style={styles.instructionInput}
-                placeholder="Street address"
-                placeholderTextColor="#475569"
-                value={streetAddress}
-                onChangeText={setStreetAddress}
-              />
-              <View style={styles.addressRow}>
-                <TextInput
-                  style={[styles.addressInput, { flex: 1 }]}
-                  placeholder="Suburb"
-                  placeholderTextColor="#475569"
-                  value={suburb}
-                  onChangeText={setSuburb}
-                />
-                <TextInput
-                  style={[styles.addressInput, { flex: 1 }]}
-                  placeholder="City"
-                  placeholderTextColor="#475569"
-                  value={city}
-                  onChangeText={setCity}
-                />
-              </View>
-              <TextInput
-                style={styles.addressInput}
-                placeholder="Postal code"
-                placeholderTextColor="#475569"
-                value={postalCode}
-                onChangeText={setPostalCode}
+              <LocationSelectionSheet
+                countryCode={profile?.countryCode || authService.getSession()?.user.countryCode || 'ZA'}
+                initialFullAddress={selectedLocation?.fullAddress || profile?.defaultServiceAddress?.fullAddress || ''}
+                initialLatitude={Number(latitude)}
+                initialLongitude={Number(longitude)}
+                onLocationConfirmed={handleLocationConfirmed}
               />
               {useDifferentAddress ? (
                 <TouchableOpacity
@@ -296,12 +317,12 @@ export default function BookingWizardScreen() {
                 </TouchableOpacity>
               ) : null}
 
-              <Text style={styles.sectionTitle}>Instruction Notes for Provider</Text>
+              <Text style={styles.sectionTitle}>Tell us what is happening</Text>
               <TextInput
                 style={styles.instructionInput}
                 multiline
                 numberOfLines={4}
-                placeholder="Provide additional details here (e.g. Fridge is leaking water, gate code is #403)"
+                placeholder="Example: Fridge is leaking water, or gate code is #403"
                 placeholderTextColor="#475569"
                 value={notes}
                 onChangeText={setNotes}
@@ -371,7 +392,7 @@ export default function BookingWizardScreen() {
 
         </ScrollView>
         
-        {!assignedProvider && !isSearchingProvider && (
+        {!requestAccepted && !isSearchingProvider && (
           <View style={styles.footerSticky}>
             <TouchableOpacity style={styles.primaryActionButton} onPress={handleBookingSubmit} disabled={isSubmitting}>
               {isSubmitting ? <ActivityIndicator color="#090D14" /> : <Text style={styles.primaryActionText}>Confirm & Book Fixer</Text>}
@@ -421,13 +442,14 @@ const styles = StyleSheet.create({
   matchingBox: { backgroundColor: '#111827', borderRadius: 16, borderColor: '#1E293B', borderWidth: 1, padding: 32, alignItems: 'center', gap: 16, marginTop: 20 },
   matchingText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', textAlign: 'center', lineHeight: 20 },
   providerCard: { backgroundColor: '#111827', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 20, marginTop: 10 },
-  providerHeader: { color: '#00FF87', fontSize: 14, fontWeight: '700', marginBottom: 16 },
-  providerMeta: { flexDirection: 'row', alignItems: 'center', gap: 16, borderBottomWidth: 1, borderColor: '#1E293B', paddingBottom: 16 },
-  providerAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#1E293B' },
+  acceptedIconWrap: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#00FF8715', borderWidth: 1, borderColor: '#00FF87', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 },
+  providerMeta: { borderBottomWidth: 1, borderColor: '#1E293B', paddingBottom: 16 },
   providerName: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  providerRating: { color: '#64748B', fontSize: 12, marginTop: 4 },
+  providerRating: { color: '#94A3B8', fontSize: 12, marginTop: 6, lineHeight: 18 },
   providerActions: { flexDirection: 'row', gap: 12, marginTop: 16, alignItems: 'center' },
-  actionIconBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center' },
   trackBtn: { flex: 1, backgroundColor: '#FFFFFF', height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  trackBtnText: { color: '#090D14', fontSize: 13, fontWeight: '700' }
+  trackBtnText: { color: '#090D14', fontSize: 13, fontWeight: '700' },
+  secondaryTrackBtn: { flex: 1, backgroundColor: '#1E293B', height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
+  secondaryTrackBtnText: { color: '#CBD5E1', fontSize: 13, fontWeight: '700' }
 });
+

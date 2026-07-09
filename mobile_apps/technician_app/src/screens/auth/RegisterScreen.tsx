@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Image,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -12,8 +13,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Camera } from 'lucide-react-native';
 import apiService from '../../services/api.service';
 import authService, { AuthSession } from '../../services/auth.service';
+
+const CameraIcon = Camera as any;
+
+const toDataUri = (asset: ImagePicker.ImagePickerAsset): string | null => {
+  if (!asset.base64) return null;
+  return `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`;
+};
 
 const SERVICE_CATEGORIES = [
   { key: 'appliance_repair', label: 'Appliance Repair' },
@@ -29,11 +39,13 @@ const SERVICE_CATEGORIES = [
 interface RegisterScreenProps {
   onBackToLogin: () => void;
   onRegistrationApproved: (session: AuthSession) => void;
+  onApplicationSubmitted: (details: { email: string; verificationEmailSent?: boolean }) => void;
 }
 
 export function RegisterScreen({
   onBackToLogin,
   onRegistrationApproved,
+  onApplicationSubmitted,
 }: RegisterScreenProps): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -52,6 +64,8 @@ export function RegisterScreen({
     bio: '',
   });
   const [selectedCategories, setSelectedCategories] = useState<string[]>(['appliance_repair']);
+  const [profilePhotoUri, setProfilePhotoUri] = useState('');
+  const [profilePhotoDataUri, setProfilePhotoDataUri] = useState('');
 
   const updateField = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -76,6 +90,11 @@ export function RegisterScreen({
       return;
     }
 
+    if (!profilePhotoDataUri) {
+      Alert.alert('Profile Photo Required', 'Please upload a clear headshot for admin review.');
+      return;
+    }
+
     if (formData.password.length < 6 || formData.password !== formData.confirmPassword) {
       Alert.alert('Password Error', 'Password must be at least 6 characters and match confirmation.');
       return;
@@ -97,23 +116,51 @@ export function RegisterScreen({
         vehicleType: formData.vehicleType.trim(),
         serviceRadiusKm: Number(formData.serviceRadiusKm) || 25,
         bio: formData.bio.trim(),
+        profilePhotoDataUri,
       });
 
-      if (response.token && response.user) {
+      if (response.token && response.user?.isEmailVerified) {
         const session = { token: response.token, user: response.user, technician: response.technician };
         authService.setSession(session);
         onRegistrationApproved(session);
         return;
       }
 
-      Alert.alert('Application Submitted', response.message, [
-        { text: 'Back to Login', onPress: onBackToLogin },
-      ]);
+      onApplicationSubmitted({
+        email: formData.email.trim(),
+        verificationEmailSent: response.verificationEmailSent,
+      });
     } catch (error: any) {
       Alert.alert('Registration Failed', error.message || 'Unable to submit application.');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const pickProfilePhoto = async (source: 'camera' | 'library') => {
+    const permission = source === 'camera'
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert('Permission Required', 'Please allow photo access so you can upload your profile headshot.');
+      return;
+    }
+
+    const result = source === 'camera'
+      ? await ImagePicker.launchCameraAsync({ quality: 0.75, base64: true, allowsEditing: true, aspect: [1, 1] })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.75, base64: true, allowsEditing: true, aspect: [1, 1] });
+
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const dataUri = toDataUri(result.assets[0]);
+    if (!dataUri) {
+      Alert.alert('Image Error', 'Could not prepare this photo for upload. Please try another image.');
+      return;
+    }
+
+    setProfilePhotoUri(result.assets[0].uri);
+    setProfilePhotoDataUri(dataUri);
   };
 
   return (
@@ -122,6 +169,29 @@ export function RegisterScreen({
         <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
           <Text style={styles.title}>Join MyFixer Pro</Text>
           <Text style={styles.subtitle}>Submit your service provider application for review.</Text>
+
+          <Text style={styles.label}>Profile Photo</Text>
+          <View style={styles.photoCard}>
+            <View style={styles.photoPreview}>
+              {profilePhotoUri ? (
+                <Image source={{ uri: profilePhotoUri }} style={styles.photoImage} />
+              ) : (
+                <CameraIcon color="#64748B" size={32} />
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.photoTitle}>Clear headshot required</Text>
+              <Text style={styles.photoHelp}>Admin must approve this image before you can go live or be shown to customers.</Text>
+              <View style={styles.photoActions}>
+                <TouchableOpacity style={styles.photoButton} onPress={() => pickProfilePhoto('camera')} disabled={isLoading}>
+                  <Text style={styles.photoButtonText}>Camera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.photoButton} onPress={() => pickProfilePhoto('library')} disabled={isLoading}>
+                  <Text style={styles.photoButtonText}>Gallery</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
 
           <Text style={styles.label}>Full Name</Text>
           <TextInput style={styles.input} value={formData.name} onChangeText={(value) => updateField('name', value)} placeholder="e.g. Thabo Mokoena" placeholderTextColor="#64748B" />
@@ -210,6 +280,14 @@ const styles = StyleSheet.create({
   input: { backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, color: '#FFFFFF', padding: 14, fontSize: 14 },
   textArea: { minHeight: 90, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 12 },
+  photoCard: { flexDirection: 'row', gap: 14, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 14, padding: 14, alignItems: 'center' },
+  photoPreview: { width: 84, height: 84, borderRadius: 42, backgroundColor: '#090D14', borderWidth: 1, borderColor: '#334155', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  photoImage: { width: '100%', height: '100%' },
+  photoTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
+  photoHelp: { color: '#94A3B8', fontSize: 12, lineHeight: 17, marginTop: 4 },
+  photoActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  photoButton: { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  photoButtonText: { color: '#E2E8F0', fontSize: 12, fontWeight: '800' },
   categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   categoryChip: { borderWidth: 1, borderColor: '#1E293B', backgroundColor: '#111827', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   categoryChipActive: { backgroundColor: '#00FF8715', borderColor: '#00FF87' },

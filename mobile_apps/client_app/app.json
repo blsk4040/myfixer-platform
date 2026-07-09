@@ -2,18 +2,25 @@
   "expo": {
     "name": "MyFixer Client",
     "slug": "myfixer-client",
+    "scheme": "myfixerclient",
     "version": "1.0.0",
     "ios": {
       "bundleIdentifier": "co.za.myfixer.client"
     },
     "android": {
       "package": "co.za.myfixer.client",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
       ]
     },
     "plugins": [
+      "expo-web-browser",
+      "expo-notifications",
+      "@react-native-google-signin/google-signin",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
       [
         "expo-location",
         {

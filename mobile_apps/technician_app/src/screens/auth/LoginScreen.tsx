@@ -1,5 +1,5 @@
 // src/screens/auth/LoginScreen.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   StyleSheet, 
   Text, 
@@ -13,18 +13,31 @@ import {
   Alert,
   ActivityIndicator
 } from 'react-native';
+import auth from '@react-native-firebase/auth';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import apiService from '../../services/api.service';
 import authService, { AuthSession } from '../../services/auth.service';
 
 interface LoginScreenProps {
   onLoginSuccess: (session: AuthSession) => void;
   onRegisterPress: () => void;
+  onVerificationRequired: (details: { email?: string }) => void;
 }
 
-export function LoginScreen({ onLoginSuccess, onRegisterPress }: LoginScreenProps) {
+export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationRequired }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+
+  const isGoogleConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+  useEffect(() => {
+    GoogleSignin.configure({
+      webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+      offlineAccess: false,
+    });
+  }, []);
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -44,9 +57,78 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress }: LoginScreenProp
       authService.setSession(session);
       onLoginSuccess(session);
     } catch (error: any) {
+      if (typeof error.message === 'string' && error.message.toLowerCase().includes('verify your email')) {
+        onVerificationRequired({ email: email.trim() });
+        return;
+      }
+
       Alert.alert('Sign In Failed', error.message || 'Unable to sign in.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (!isGoogleConfigured) {
+      Alert.alert('Configuration Unavailable', 'Google Web Client ID is missing.');
+      return;
+    }
+
+    setIsGoogleLoading(true);
+
+    try {
+      await GoogleSignin.hasPlayServices({
+        showPlayServicesUpdateDialog: true,
+      });
+
+      await GoogleSignin.signOut();
+      const userInfo = await GoogleSignin.signIn();
+      const idToken = userInfo.data?.idToken;
+
+      if (!idToken) {
+        throw new Error('Google did not return an ID token.');
+      }
+
+      const googleCredential = auth.GoogleAuthProvider.credential(idToken);
+      await auth().signInWithCredential(googleCredential);
+
+      const result = await apiService.signInWithGoogle(idToken);
+
+      if (result.status === 'profile_required') {
+        Alert.alert(
+          'Technician application required',
+          'This Google account is not registered as an approved technician yet. Please submit a technician application.',
+          [{ text: 'Apply Now', onPress: onRegisterPress }]
+        );
+        return;
+      }
+
+      if (result.status === 'email_verification_required') {
+        onVerificationRequired({ email: result.user?.email });
+        return;
+      }
+
+      if (!result.token || !result.user) {
+        throw new Error(result.message || 'Google session exchange was missing session details.');
+      }
+
+      const role = result.user.role.toUpperCase();
+
+      if (role !== 'TECHNICIAN' && role !== 'ADMIN') {
+        throw new Error('This Google account is not registered as a technician.');
+      }
+
+      const session = { token: result.token, user: result.user, technician: result.technician };
+      authService.setSession(session);
+      onLoginSuccess(session);
+    } catch (error: any) {
+      if (error?.code === 'SIGN_IN_CANCELLED' || error?.code === '12501') {
+        return;
+      }
+
+      Alert.alert('Google Sign-In Failed', error.message || 'Unable to complete Google sign-in.');
+    } finally {
+      setIsGoogleLoading(false);
     }
   };
 
@@ -65,7 +147,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress }: LoginScreenProp
             resizeMode="contain"
           />
           <Text style={styles.logoText}>MyFixer<Text style={styles.accentText}> Pro</Text></Text>
-          <Text style={styles.subtitleText}>Technician Portal</Text>
+          <Text style={styles.subtitleText}>Service Provider</Text>
         </View>
 
         {/* 2. Authentication Input Matrix */}
@@ -79,7 +161,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress }: LoginScreenProp
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
-            editable={!isLoading}
+            editable={!isLoading && !isGoogleLoading}
           />
 
           <Text style={styles.inputLabel}>Password</Text>
@@ -91,7 +173,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress }: LoginScreenProp
             onChangeText={setPassword}
             secureTextEntry
             autoCapitalize="none"
-            editable={!isLoading}
+            editable={!isLoading && !isGoogleLoading}
           />
         </View>
 
@@ -100,7 +182,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress }: LoginScreenProp
           style={styles.loginButton} 
           activeOpacity={0.8} 
           onPress={handleLogin}
-          disabled={isLoading}
+          disabled={isLoading || isGoogleLoading}
         >
           {isLoading ? (
             <ActivityIndicator color="#090D14" />
@@ -109,7 +191,21 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress }: LoginScreenProp
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.registerLink} onPress={onRegisterPress} disabled={isLoading}>
+        {/* 4. Native Google Provider Auth Matrix */}
+        <TouchableOpacity
+          style={[styles.googleButton, (isLoading || isGoogleLoading || !isGoogleConfigured) && styles.googleButtonDisabled]}
+          activeOpacity={0.8}
+          onPress={handleGoogleSignIn}
+          disabled={isLoading || isGoogleLoading || !isGoogleConfigured}
+        >
+          {isGoogleLoading ? (
+            <ActivityIndicator color="#090D14" />
+          ) : (
+            <Text style={styles.googleButtonText}>Continue with Google</Text>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.registerLink} onPress={onRegisterPress} disabled={isLoading || isGoogleLoading}>
           <Text style={styles.registerText}>New provider? Apply to join MyFixer Pro</Text>
         </TouchableOpacity>
 
@@ -185,6 +281,21 @@ const styles = StyleSheet.create({
     color: '#090D14', // High-contrast text core execution 
     fontSize: 16, 
     fontWeight: '700' 
+  },
+  googleButton: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  googleButtonDisabled: {
+    opacity: 0.5,
+  },
+  googleButtonText: {
+    color: '#090D14',
+    fontSize: 16,
+    fontWeight: '700',
   },
   registerLink: { alignItems: 'center', paddingVertical: 18 },
   registerText: { color: '#94A3B8', fontSize: 13, fontWeight: '700' }

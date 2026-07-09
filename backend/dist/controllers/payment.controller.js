@@ -185,7 +185,7 @@ class PaymentController {
                 userId: booking.customerId,
                 email: req.user.email,
                 name: '',
-                channels: [notification_model_1.NotificationChannel.IN_APP],
+                channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
                 type: 'PAYMENT_CONFIRMED',
                 title: 'Payment confirmed',
                 message: `Payment for your ${booking.applianceType} booking has been confirmed.`,

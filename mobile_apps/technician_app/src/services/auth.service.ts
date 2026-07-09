@@ -1,4 +1,5 @@
 import { isSocketDebugEnabled } from '../config/runtime.config';
+import { registerDeviceForPushNotifications } from './pushNotification.service';
 
 export interface AuthUser {
   id: string;
@@ -14,6 +15,7 @@ export interface AuthUser {
   };
   countryCode?: string;
   currency?: string;
+  isEmailVerified?: boolean;
 }
 
 export interface AuthTechnicianProfile {
@@ -24,6 +26,7 @@ export interface AuthTechnicianProfile {
   businessName?: string;
   yearsExperience?: number;
   profilePhotoUrl?: string;
+  profilePhotoStatus?: string;
 }
 
 export interface AuthSession {
@@ -46,6 +49,9 @@ class AuthService {
       userId: session.user?.id,
       technicianProfileId: session.technician?.id,
       hasToken: Boolean(session.token),
+    });
+    void registerDeviceForPushNotifications('technician', this.getAuthHeader()).catch((error) => {
+      console.warn('Push notification registration failed:', error);
     });
   }
 

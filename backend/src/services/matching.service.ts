@@ -1,6 +1,6 @@
 // src/services/matching.service.ts
 import mongoose from 'mongoose';
-import TechnicianModel, { TechnicianApprovalStatus } from '../models/technician.model';
+import TechnicianModel, { TechnicianApprovalStatus, VerificationStatus } from '../models/technician.model';
 import Booking, { BookingCancellationBy, BookingDispatchStatus, BookingStatus } from '../models/booking.model';
 import TechnicianCapability, { CapabilityStatus } from '../models/technician-capability.model';
 import TechnicianTelemetry from '../models/technician-telemetry.model';
@@ -322,6 +322,7 @@ const findEligibleTechniciansWithTelemetryPipeline = async (
     {
       $match: {
         'technician.approvalStatus': TechnicianApprovalStatus.APPROVED,
+        'technician.documents.profilePhotoStatus': VerificationStatus.VERIFIED,
         'technician.countryCode': booking.countryCode,
         'technician.userId': {
           $exists: true,
@@ -357,6 +358,7 @@ const matchingService = {
 
     const technicians = await TechnicianModel.find({
       approvalStatus: TechnicianApprovalStatus.APPROVED,
+      'documents.profilePhotoStatus': VerificationStatus.VERIFIED,
       'availability.isOnline': true,
       lastLocation: { $ne: null },
       userId: { $exists: true },
@@ -534,6 +536,7 @@ const matchingService = {
     const technician = await TechnicianModel.findOne({
       userId: new mongoose.Types.ObjectId(technicianId),
       approvalStatus: TechnicianApprovalStatus.APPROVED,
+      'documents.profilePhotoStatus': VerificationStatus.VERIFIED,
       'availability.isOnline': true,
     })
       .select('lastLocation serviceRadiusKm serviceCategories countryCode')

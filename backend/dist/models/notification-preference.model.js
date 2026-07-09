@@ -53,7 +53,7 @@ const NotificationPreferenceSchema = new mongoose_1.Schema({
         },
         push: {
             type: Boolean,
-            default: false,
+            default: true,
         },
         sms: {
             type: Boolean,

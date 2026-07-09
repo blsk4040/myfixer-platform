@@ -40,6 +40,7 @@ const market_config_1 = require("../config/market.config");
 var BookingStatus;
 (function (BookingStatus) {
     BookingStatus["PENDING"] = "PENDING";
+    BookingStatus["SCHEDULED"] = "SCHEDULED";
     BookingStatus["ACCEPTED"] = "ACCEPTED";
     BookingStatus["IN_ROUTE"] = "IN_ROUTE";
     BookingStatus["ARRIVED"] = "ARRIVED";
@@ -110,6 +111,22 @@ const CancellationSchema = new mongoose_1.Schema({
         type: String,
         default: '',
         trim: true,
+    },
+}, { _id: false });
+const AppointmentWindowSchema = new mongoose_1.Schema({
+    isPreBook: {
+        type: Boolean,
+        default: false,
+        index: true,
+    },
+    scheduledStartTime: {
+        type: Date,
+        default: null,
+        index: true,
+    },
+    scheduledEndTime: {
+        type: Date,
+        default: null,
     },
 }, { _id: false });
 const DispatchSchema = new mongoose_1.Schema({
@@ -249,6 +266,10 @@ const BookingSchema = new mongoose_1.Schema({
         type: FinalBillingSchema,
         default: undefined,
     },
+    appointmentWindow: {
+        type: AppointmentWindowSchema,
+        default: undefined,
+    },
     acceptedAt: {
         type: Date,
         default: null,
@@ -309,6 +330,7 @@ BookingSchema.index({ customerLocation: '2dsphere' });
 BookingSchema.index({ status: 1, createdAt: -1 });
 BookingSchema.index({ customerId: 1, createdAt: -1 });
 BookingSchema.index({ technicianId: 1, status: 1 });
+BookingSchema.index({ technicianId: 1, 'appointmentWindow.scheduledStartTime': 1 });
 BookingSchema.index({ countryCode: 1, status: 1 });
 BookingSchema.index({ countryCode: 1, serviceKey: 1, status: 1 });
 BookingSchema.index({ generalArea: 1, status: 1 });

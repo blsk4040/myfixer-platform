@@ -1,12 +1,13 @@
-// src/components/dashboard/IncomingRequestsList.tsx
+// src/screens/dashboard/IncomingRequestsList.tsx
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { IncomingRequestCard } from './IncomingRequestCard';
+
 import { EmptyOnlineState } from './EmptyOnlineState';
-import { IncomingJob } from '../../screens/dashboard/types/dashboard';
+import { IncomingRequestCard } from './IncomingRequestCard';
+import { IncomingJob } from './types/dashboard';
 
 interface IncomingRequestsListProps {
-  jobs: IncomingJob[]; // FIX: Explicitly match your local array schema type
+  jobs: IncomingJob[];
   isOnline: boolean;
   onAccept: (job: IncomingJob) => void;
   onDecline: (id: string) => void;
@@ -22,27 +23,25 @@ export function IncomingRequestsList({
 }: IncomingRequestsListProps): React.JSX.Element {
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionTitle}>Incoming Job Pings</Text>
-      
+      <Text style={styles.sectionTitle}>Incoming Requests</Text>
+
       {isOnline && connectionMessage ? (
         <View style={styles.offlineCard}>
           <Text style={styles.offlineText}>{connectionMessage}</Text>
         </View>
       ) : !isOnline ? (
         <View style={styles.offlineCard}>
-          <Text style={styles.offlineText}>
-            🔴 Go online to start receiving live technician pings.
-          </Text>
+          <Text style={styles.offlineText}>Go live to start receiving nearby jobs.</Text>
         </View>
       ) : jobs.length === 0 ? (
         <EmptyOnlineState />
       ) : (
         jobs.map((job) => (
-          <IncomingRequestCard 
-            key={job.id} 
-            job={job} 
-            onAccept={onAccept} 
-            onDecline={onDecline} 
+          <IncomingRequestCard
+            key={job.id}
+            job={job}
+            onAccept={onAccept}
+            onDecline={onDecline}
           />
         ))
       )}

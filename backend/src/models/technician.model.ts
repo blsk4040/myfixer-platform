@@ -74,6 +74,9 @@ export interface ITechnicianDocument extends Document {
   vehicleRegistration: string;
 
   serviceRadiusKm: number;
+  walletBalance: number;
+  strikesCount: number;
+  reliabilityScore: number;
   bio: string;
 
   documents: {
@@ -226,6 +229,24 @@ const TechnicianSchema = new Schema<ITechnicianDocument>(
       default: 25,
       min: 1,
       max: 150,
+    },
+
+    walletBalance: {
+      type: Number,
+      default: 0,
+    },
+
+    strikesCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    reliabilityScore: {
+      type: Number,
+      default: 100,
+      min: 0,
+      max: 100,
     },
 
     bio: {

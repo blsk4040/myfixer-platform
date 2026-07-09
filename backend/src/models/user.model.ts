@@ -96,6 +96,8 @@ export interface IUserDocument extends Document {
     updatedAt?: Date | null;
   };
 
+  profileCompleted: boolean;
+
   countryCode: CountryCode;
   currency: CurrencyCode;
 
@@ -109,6 +111,8 @@ export interface IUserDocument extends Document {
   isActive: boolean;
 
   emailVerified: boolean;
+  isEmailVerified: boolean;
+  emailVerificationToken?: string;
   phoneVerified: boolean;
 
   lastLoginAt?: Date | null;
@@ -139,6 +143,62 @@ export const normalizeUserRole = (role: unknown): UserRole => {
 
   return UserRole.CUSTOMER;
 };
+
+const DefaultServiceAddressSchema = new Schema(
+  {
+    streetAddress: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    suburb: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    city: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    postalCode: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    countryCode: {
+      type: String,
+      enum: Object.values(CountryCode),
+      default: CountryCode.ZA,
+    },
+    fullAddress: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    coordinates: {
+      type: {
+        type: String,
+        enum: ['Point'],
+      },
+      coordinates: {
+        type: [Number],
+        validate: {
+          validator(value: number[]) {
+            return value === undefined || (Array.isArray(value) && value.length === 2 && value.every((item) => Number.isFinite(item)));
+          },
+          message: 'Default service address coordinates must be [longitude, latitude].',
+        },
+        default: undefined,
+      },
+    },
+    updatedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  { _id: false }
+);
 
 const UserSchema = new Schema<IUserDocument>(
   {
@@ -188,51 +248,14 @@ const UserSchema = new Schema<IUserDocument>(
     },
 
     defaultServiceAddress: {
-      streetAddress: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      suburb: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      city: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      postalCode: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      countryCode: {
-        type: String,
-        enum: Object.values(CountryCode),
-        default: CountryCode.ZA,
-      },
-      fullAddress: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      coordinates: {
-        type: {
-          type: String,
-          enum: ['Point'],
-          default: 'Point',
-        },
-        coordinates: {
-          type: [Number],
-          default: undefined,
-        },
-      },
-      updatedAt: {
-        type: Date,
-        default: null,
-      },
+      type: DefaultServiceAddressSchema,
+      default: null,
+    },
+
+    profileCompleted: {
+      type: Boolean,
+      default: true,
+      index: true,
     },
 
     countryCode: {
@@ -291,6 +314,19 @@ const UserSchema = new Schema<IUserDocument>(
     emailVerified: {
       type: Boolean,
       default: false,
+      index: true,
+    },
+
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    emailVerificationToken: {
+      type: String,
+      default: '',
+      select: false,
       index: true,
     },
 

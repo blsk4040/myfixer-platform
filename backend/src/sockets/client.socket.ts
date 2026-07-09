@@ -20,6 +20,25 @@ const isBookingPayload = (payload: unknown): payload is BookingRoomPayload => {
 };
 
 export const registerClientHandlers = (io: SocketIOServer, socket: Socket): void => {
+  const queryUserId = socket.handshake.query.userId;
+  const authUserId = socket.handshake.auth?.userId;
+  const candidateUserId = Array.isArray(queryUserId) ? queryUserId[0] : queryUserId || authUserId;
+  if (typeof candidateUserId === 'string' && candidateUserId.trim()) {
+    const customerId = candidateUserId.trim();
+    socket.data.customerId = customerId;
+    void socket.join(`customer:${customerId}`);
+  }
+
+  socket.on('join_customer_room', async (payload: { userId?: string } = {}) => {
+    const customerId = payload.userId?.trim() || (typeof socket.data.customerId === 'string' ? socket.data.customerId : '');
+    if (!customerId) {
+      socket.emit('join_customer_room_error', { message: 'Missing customer identity' });
+      return;
+    }
+    socket.data.customerId = customerId;
+    await socket.join(`customer:${customerId}`);
+    socket.emit('customer_room_joined', { userId: customerId, room: `customer:${customerId}` });
+  });
   
   // 1. Join Unified Live Tracking Room Context
   socket.on('join_booking_room', async (payload: unknown) => {

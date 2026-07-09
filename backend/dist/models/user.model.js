@@ -89,6 +89,58 @@ const normalizeUserRole = (role) => {
     return UserRole.CUSTOMER;
 };
 exports.normalizeUserRole = normalizeUserRole;
+const DefaultServiceAddressSchema = new mongoose_1.Schema({
+    streetAddress: {
+        type: String,
+        default: '',
+        trim: true,
+    },
+    suburb: {
+        type: String,
+        default: '',
+        trim: true,
+    },
+    city: {
+        type: String,
+        default: '',
+        trim: true,
+    },
+    postalCode: {
+        type: String,
+        default: '',
+        trim: true,
+    },
+    countryCode: {
+        type: String,
+        enum: Object.values(market_config_1.CountryCode),
+        default: market_config_1.CountryCode.ZA,
+    },
+    fullAddress: {
+        type: String,
+        default: '',
+        trim: true,
+    },
+    coordinates: {
+        type: {
+            type: String,
+            enum: ['Point'],
+        },
+        coordinates: {
+            type: [Number],
+            validate: {
+                validator(value) {
+                    return value === undefined || (Array.isArray(value) && value.length === 2 && value.every((item) => Number.isFinite(item)));
+                },
+                message: 'Default service address coordinates must be [longitude, latitude].',
+            },
+            default: undefined,
+        },
+    },
+    updatedAt: {
+        type: Date,
+        default: null,
+    },
+}, { _id: false });
 const UserSchema = new mongoose_1.Schema({
     name: {
         type: String,
@@ -131,51 +183,13 @@ const UserSchema = new mongoose_1.Schema({
         },
     },
     defaultServiceAddress: {
-        streetAddress: {
-            type: String,
-            default: '',
-            trim: true,
-        },
-        suburb: {
-            type: String,
-            default: '',
-            trim: true,
-        },
-        city: {
-            type: String,
-            default: '',
-            trim: true,
-        },
-        postalCode: {
-            type: String,
-            default: '',
-            trim: true,
-        },
-        countryCode: {
-            type: String,
-            enum: Object.values(market_config_1.CountryCode),
-            default: market_config_1.CountryCode.ZA,
-        },
-        fullAddress: {
-            type: String,
-            default: '',
-            trim: true,
-        },
-        coordinates: {
-            type: {
-                type: String,
-                enum: ['Point'],
-                default: 'Point',
-            },
-            coordinates: {
-                type: [Number],
-                default: undefined,
-            },
-        },
-        updatedAt: {
-            type: Date,
-            default: null,
-        },
+        type: DefaultServiceAddressSchema,
+        default: null,
+    },
+    profileCompleted: {
+        type: Boolean,
+        default: true,
+        index: true,
     },
     countryCode: {
         type: String,
@@ -225,6 +239,17 @@ const UserSchema = new mongoose_1.Schema({
     emailVerified: {
         type: Boolean,
         default: false,
+        index: true,
+    },
+    isEmailVerified: {
+        type: Boolean,
+        default: false,
+        index: true,
+    },
+    emailVerificationToken: {
+        type: String,
+        default: '',
+        select: false,
         index: true,
     },
     phoneVerified: {

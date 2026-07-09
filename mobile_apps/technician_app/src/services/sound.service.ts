@@ -3,12 +3,12 @@ import { Audio } from 'expo-av';
 type SoundKey = 'incoming-job' | 'job-accepted' | 'job-cancelled' | 'payment' | 'message' | 'arrival';
 
 const SOUND_ASSETS: Record<SoundKey, number> = {
-  'incoming-job': require('../../assets/sounds/incoming-job.mp3'),
-  'job-accepted': require('../../assets/sounds/job-accepted.mp3'),
-  'job-cancelled': require('../../assets/sounds/job-cancelled.mp3'),
-  payment: require('../../assets/sounds/payment.mp3'),
-  message: require('../../assets/sounds/message.mp3'),
-  arrival: require('../../assets/sounds/arrival.mp3'),
+  'incoming-job': require('../../assets/sounds/incoming-job.wav'),
+  'job-accepted': require('../../assets/sounds/job-accepted.wav'),
+  'job-cancelled': require('../../assets/sounds/job-cancelled.wav'),
+  payment: require('../../assets/sounds/payment.wav'),
+  message: require('../../assets/sounds/message.wav'),
+  arrival: require('../../assets/sounds/arrival.wav'),
 };
 
 export class SoundService {

@@ -36,7 +36,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.registerTechnician = exports.resetPassword = exports.forgotPassword = exports.bootstrapAdmin = exports.loginUser = exports.registerUser = exports.updateMyDefaultAddress = exports.getMyProfile = void 0;
+exports.registerTechnician = exports.resetPassword = exports.forgotPassword = exports.bootstrapAdmin = exports.completeGoogleClientProfile = exports.googleAuth = exports.verifyEmail = exports.loginUser = exports.registerUser = exports.updateMyDefaultAddress = exports.getMyProfile = void 0;
+// mobile_apps/backend/src/controllers/auth.controller.ts
+const google_auth_library_1 = require("google-auth-library");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const crypto_1 = __importDefault(require("crypto"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
@@ -58,6 +60,125 @@ const generateToken = (userId, role, email) => {
     return jsonwebtoken_1.default.sign({ id: userId, _id: userId, role, email }, secret, { expiresIn: '30d' });
 };
 const hashResetToken = (token) => crypto_1.default.createHash('sha256').update(token).digest('hex');
+const generateEmailVerificationToken = () => crypto_1.default.randomBytes(32).toString('hex');
+const getClientBaseUrl = (req) => (process.env.CLIENT_APP_URL || `${req.protocol}://${req.get('host') || ''}`).replace(/\/$/, '');
+const wantsJsonResponse = (req) => req.method !== 'GET' ||
+    req.query.format === 'json' ||
+    String(req.get('accept') || '').includes('application/json');
+const escapeHtml = (value) => value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+const renderEmailVerificationPage = (args) => {
+    const openAppUrl = args.openAppUrl || process.env.CLIENT_APP_DEEP_LINK || 'myfixerclient://email-verified';
+    const accent = args.status === 'success' ? '#00FF87' : '#F87171';
+    const safeTitle = escapeHtml(args.title);
+    const safeMessage = escapeHtml(args.message);
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle} | MyFixer</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #090D14;
+      color: #E2E8F0;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    main {
+      width: min(92vw, 440px);
+      padding: 32px 24px;
+      text-align: center;
+      background: #111827;
+      border: 1px solid #1E293B;
+      border-radius: 18px;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+    }
+    .mark {
+      width: 68px;
+      height: 68px;
+      margin: 0 auto 18px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      color: #090D14;
+      background: ${accent};
+      font-size: 34px;
+      font-weight: 900;
+    }
+    h1 {
+      margin: 0;
+      color: #FFFFFF;
+      font-size: 26px;
+      line-height: 1.2;
+    }
+    p {
+      margin: 12px 0 24px;
+      color: #94A3B8;
+      font-size: 15px;
+      line-height: 1.55;
+    }
+    a {
+      display: inline-flex;
+      min-height: 48px;
+      padding: 0 22px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 12px;
+      background: #00FF87;
+      color: #090D14;
+      font-weight: 900;
+      text-decoration: none;
+    }
+    small {
+      display: block;
+      margin-top: 16px;
+      color: #64748B;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark">${args.status === 'success' ? '&#10003;' : '!'}</div>
+    <h1>${safeTitle}</h1>
+    <p>${safeMessage}</p>
+    <a href="${escapeHtml(openAppUrl)}">Open MyFixer</a>
+    <small>If the app does not open automatically, return to MyFixer and tap "I've verified my email".</small>
+  </main>
+</body>
+</html>`;
+};
+const sendVerificationEmail = async (req, user) => {
+    if (!user.emailVerificationToken)
+        return false;
+    const verificationUrl = `${getClientBaseUrl(req)}/api/v1/auth/verify-email?token=${encodeURIComponent(user.emailVerificationToken)}`;
+    return email_service_1.EmailService.sendEmailVerificationEmail({
+        recipientEmail: user.email,
+        name: user.name,
+        verificationUrl,
+    });
+};
+const googleClient = new google_auth_library_1.OAuth2Client();
+const verifyGoogleIdToken = async (idToken) => {
+    const ticket = await googleClient.verifyIdToken({
+        idToken,
+        audience: [
+            process.env.GOOGLE_WEB_CLIENT_ID,
+            process.env.GOOGLE_ANDROID_CLIENT_ID,
+            process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+            process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+        ].filter(Boolean),
+    });
+    return ticket.getPayload();
+};
 const logAuthAudit = async (req, action, metadata = {}, success = true) => {
     await audit_log_model_1.default.create({
         actor: {
@@ -87,6 +208,28 @@ const toFiniteNumber = (value) => {
     const parsed = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(parsed) ? parsed : null;
 };
+const getClientLocalHour = (req) => {
+    const candidate = req.headers['x-client-local-hour'] ??
+        req.headers['x-local-hour'] ??
+        req.body?.clientLocalHour ??
+        req.body?.localHour;
+    const raw = Array.isArray(candidate) ? candidate[0] : candidate;
+    const parsed = typeof raw === 'number' ? raw : Number(raw);
+    return Number.isInteger(parsed) && parsed >= 0 && parsed <= 23
+        ? parsed
+        : new Date().getHours();
+};
+const getLocalizedGreeting = (req) => {
+    const hour = getClientLocalHour(req);
+    let greeting = 'Good Day';
+    if (hour < 12)
+        greeting = 'Good Morning';
+    else if (hour < 18)
+        greeting = 'Good Afternoon';
+    else
+        greeting = 'Good Evening';
+    return greeting;
+};
 const capabilityStatusFromApprovalStatus = (approvalStatus) => {
     switch (approvalStatus) {
         case technician_model_1.TechnicianApprovalStatus.APPROVED:
@@ -99,7 +242,48 @@ const capabilityStatusFromApprovalStatus = (approvalStatus) => {
             return technician_capability_model_1.CapabilityStatus.PENDING;
     }
 };
-const serializeCustomerProfile = async (user) => {
+const hasValidDefaultServiceAddress = (user) => {
+    const address = user?.defaultServiceAddress;
+    return Boolean(address &&
+        typeof address.fullAddress === 'string' &&
+        address.fullAddress.trim() &&
+        typeof address.city === 'string' &&
+        address.city.trim() &&
+        typeof address.suburb === 'string' &&
+        address.suburb.trim());
+};
+const isCustomerProfileComplete = (user) => {
+    if (!user || (0, user_model_1.normalizeUserRole)(user.role) !== user_model_1.UserRole.CUSTOMER)
+        return true;
+    if (user.profileCompleted === true)
+        return true;
+    return Boolean(typeof user.name === 'string' &&
+        user.name.trim() &&
+        typeof user.phone === 'string' &&
+        user.phone.trim() &&
+        user.countryCode &&
+        user.location?.city &&
+        user.location?.area &&
+        hasValidDefaultServiceAddress(user));
+};
+const buildSessionUser = (user, req) => ({
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    role: (0, user_model_1.normalizeUserRole)(user.role),
+    adminRole: (0, user_model_1.normalizeUserRole)(user.role) === user_model_1.UserRole.ADMIN ? user.adminRole || user_model_1.AdminRole.SUPER_ADMIN : undefined,
+    adminPermissions: (0, user_model_1.normalizeUserRole)(user.role) === user_model_1.UserRole.ADMIN ? user.adminPermissions || [] : [],
+    phone: user.phone,
+    profilePhotoUrl: user.profilePhotoUrl,
+    location: user.location,
+    defaultServiceAddress: user.defaultServiceAddress || null,
+    countryCode: user.countryCode,
+    currency: user.currency,
+    profileCompleted: isCustomerProfileComplete(user),
+    isEmailVerified: user.isEmailVerified || user.emailVerified,
+    greeting: req ? getLocalizedGreeting(req) : undefined,
+});
+const serializeCustomerProfile = async (user, req) => {
     const userId = user._id.toString();
     const [activeRequestCount, completedBookingCount] = await Promise.all([
         booking_model_1.default.countDocuments({
@@ -129,11 +313,14 @@ const serializeCustomerProfile = async (user) => {
         location: user.location,
         countryCode: user.countryCode,
         currency: user.currency,
+        profileCompleted: isCustomerProfileComplete(user),
+        isEmailVerified: user.isEmailVerified || user.emailVerified,
         defaultServiceAddress: user.defaultServiceAddress || null,
         stats: {
             activeRequestCount,
             completedBookingCount,
         },
+        greeting: req ? getLocalizedGreeting(req) : undefined,
     };
 };
 const getMyProfile = async (req, res) => {
@@ -149,7 +336,7 @@ const getMyProfile = async (req, res) => {
             res.status(404).json({ message: 'Profile not found.' });
             return;
         }
-        res.status(200).json({ success: true, profile: await serializeCustomerProfile(user) });
+        res.status(200).json({ success: true, profile: await serializeCustomerProfile(user, req) });
     }
     catch (error) {
         console.error('Failed to load profile:', error);
@@ -208,7 +395,7 @@ const updateMyDefaultAddress = async (req, res) => {
             res.status(404).json({ message: 'Profile not found.' });
             return;
         }
-        res.status(200).json({ success: true, profile: await serializeCustomerProfile(user) });
+        res.status(200).json({ success: true, profile: await serializeCustomerProfile(user, req) });
     }
     catch (error) {
         console.error('Failed to update default address:', error);
@@ -261,23 +448,19 @@ const registerUser = async (req, res) => {
             currency: market.currency,
             password: hashedPassword,
             role: user_model_1.UserRole.CUSTOMER,
+            profileCompleted: true,
+            emailVerified: false,
+            isEmailVerified: false,
+            emailVerificationToken: generateEmailVerificationToken(),
         });
+        const verificationEmailSent = await sendVerificationEmail(req, newUser);
         // 5. Auth Token Issuance Matrix
         const token = generateToken(newUser._id.toString(), newUser.role, newUser.email);
         res.status(201).json({
             status: 'success',
             token,
-            user: {
-                id: newUser._id,
-                name: newUser.name,
-                email: newUser.email,
-                role: newUser.role,
-                phone: newUser.phone,
-                location: newUser.location,
-                defaultServiceAddress: newUser.defaultServiceAddress || null,
-                countryCode: newUser.countryCode,
-                currency: newUser.currency,
-            },
+            user: buildSessionUser(newUser, req),
+            verificationEmailSent,
         });
     }
     catch (error) {
@@ -329,6 +512,13 @@ const loginUser = async (req, res) => {
                 res.status(403).json({ message: 'Technician profile is missing. Please contact support.' });
                 return;
             }
+            if (!(user.isEmailVerified || user.emailVerified)) {
+                res.status(403).json({
+                    code: 'EMAIL_VERIFICATION_REQUIRED',
+                    message: 'Please verify your email before accessing the technician dashboard.',
+                });
+                return;
+            }
             if (technicianProfile.approvalStatus !== technician_model_1.TechnicianApprovalStatus.APPROVED) {
                 res.status(403).json({
                     message: technicianProfile.approvalStatus === technician_model_1.TechnicianApprovalStatus.PENDING_REVIEW
@@ -343,20 +533,7 @@ const loginUser = async (req, res) => {
         res.status(200).json({
             status: 'success',
             token,
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: normalizedRole,
-                adminRole: normalizedRole === user_model_1.UserRole.ADMIN ? user.adminRole || user_model_1.AdminRole.SUPER_ADMIN : undefined,
-                adminPermissions: normalizedRole === user_model_1.UserRole.ADMIN ? user.adminPermissions || [] : [],
-                phone: user.phone,
-                profilePhotoUrl: user.profilePhotoUrl,
-                location: user.location,
-                defaultServiceAddress: user.defaultServiceAddress || null,
-                countryCode: user.countryCode,
-                currency: user.currency,
-            },
+            user: buildSessionUser(user, req),
             technician: technicianProfile
                 ? {
                     id: technicianProfile._id,
@@ -376,6 +553,316 @@ const loginUser = async (req, res) => {
     }
 };
 exports.loginUser = loginUser;
+const verifyEmail = async (req, res) => {
+    const shouldReturnJson = wantsJsonResponse(req);
+    try {
+        const token = typeof req.query.token === 'string'
+            ? req.query.token.trim()
+            : typeof req.body.token === 'string'
+                ? req.body.token.trim()
+                : '';
+        if (!token) {
+            if (shouldReturnJson) {
+                res.status(400).json({ message: 'Email verification token is required.' });
+                return;
+            }
+            res.status(400).send(renderEmailVerificationPage({
+                status: 'error',
+                title: 'Verification link missing',
+                message: 'This verification link is missing its security token. Please request a new verification email.',
+            }));
+            return;
+        }
+        const user = await user_model_1.default.findOne({ emailVerificationToken: token }).select('+emailVerificationToken');
+        if (!user) {
+            if (shouldReturnJson) {
+                res.status(400).json({ message: 'The verification link is invalid or has already been used.' });
+                return;
+            }
+            res.status(400).send(renderEmailVerificationPage({
+                status: 'error',
+                title: 'Link expired or already used',
+                message: 'This email verification link is invalid or has already been used. Open MyFixer and request a fresh verification email if needed.',
+            }));
+            return;
+        }
+        user.emailVerified = true;
+        user.isEmailVerified = true;
+        user.emailVerificationToken = '';
+        await user.save();
+        const verifiedRole = (0, user_model_1.normalizeUserRole)(user.role);
+        const openAppUrl = verifiedRole === user_model_1.UserRole.TECHNICIAN
+            ? process.env.TECHNICIAN_APP_DEEP_LINK || 'myfixertechnician://email-verified'
+            : process.env.CLIENT_APP_DEEP_LINK || 'myfixerclient://email-verified';
+        const successMessage = verifiedRole === user_model_1.UserRole.TECHNICIAN
+            ? 'Your MyFixer email is verified. You can return to the technician app while your application is reviewed.'
+            : 'Your MyFixer email is verified. You can return to the app and continue booking services.';
+        if (shouldReturnJson) {
+            res.status(200).json({ status: 'success', message: 'Email verified successfully.' });
+            return;
+        }
+        res.status(200).send(renderEmailVerificationPage({
+            status: 'success',
+            title: 'Email verified',
+            message: successMessage,
+            openAppUrl,
+        }));
+    }
+    catch (error) {
+        console.error('Email verification failed:', error);
+        if (shouldReturnJson) {
+            res.status(500).json({ message: 'Unable to verify email right now.' });
+            return;
+        }
+        res.status(500).send(renderEmailVerificationPage({
+            status: 'error',
+            title: 'Verification unavailable',
+            message: 'We could not verify your email right now. Please try the link again in a few minutes.',
+        }));
+    }
+};
+exports.verifyEmail = verifyEmail;
+const googleAuth = async (req, res) => {
+    try {
+        const idToken = typeof req.body.idToken === 'string'
+            ? req.body.idToken.trim()
+            : typeof req.body.googleToken === 'string'
+                ? req.body.googleToken.trim()
+                : '';
+        if (!idToken) {
+            res.status(400).json({ message: 'Google idToken is required.' });
+            return;
+        }
+        const payload = await verifyGoogleIdToken(idToken);
+        const email = typeof payload?.email === 'string' ? payload.email.toLowerCase().trim() : '';
+        const googleSubject = typeof payload?.sub === 'string' ? payload.sub : '';
+        const emailVerified = payload?.email_verified === true;
+        if (!email || !googleSubject || !emailVerified) {
+            res.status(401).json({ message: 'Google token payload is invalid or email is not verified.' });
+            return;
+        }
+        const name = (typeof payload?.name === 'string' && payload.name.trim()) ||
+            (typeof req.body.name === 'string' && req.body.name.trim()) ||
+            email.split('@')[0];
+        const user = await user_model_1.default.findOne({ email });
+        if (!user) {
+            res.status(200).json({
+                status: 'profile_required',
+                message: 'Complete your MyFixer profile to continue.',
+                googleProfile: {
+                    email,
+                    name,
+                    googleSubject,
+                },
+            });
+            return;
+        }
+        if (user.isActive === false) {
+            res.status(403).json({ message: 'This account has been deactivated. Please contact support.' });
+            return;
+        }
+        user.lastLoginAt = new Date();
+        user.metadata = {
+            ...(user.metadata || {}),
+            googleSubject,
+            authProvider: user.metadata?.authProvider || 'GOOGLE',
+        };
+        if (!user.name && name)
+            user.name = name;
+        await user.save();
+        const token = generateToken(user._id.toString(), (0, user_model_1.normalizeUserRole)(user.role), user.email);
+        const sessionUser = buildSessionUser(user, req);
+        const normalizedRole = (0, user_model_1.normalizeUserRole)(user.role);
+        let technicianProfile = null;
+        if (normalizedRole === user_model_1.UserRole.TECHNICIAN) {
+            technicianProfile = await technician_model_1.default.findOne({ userId: user._id });
+            if (technicianProfile && !(user.isEmailVerified || user.emailVerified)) {
+                res.status(200).json({
+                    status: 'email_verification_required',
+                    token,
+                    user: sessionUser,
+                    technician: {
+                        id: technicianProfile._id,
+                        approvalStatus: technicianProfile.approvalStatus,
+                        serviceCategories: technicianProfile.serviceCategories,
+                        city: technicianProfile.city,
+                        businessName: technicianProfile.businessName,
+                        yearsExperience: technicianProfile.yearsExperience,
+                        profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user.profilePhotoUrl,
+                    },
+                    message: 'Please verify your email before accessing the technician dashboard.',
+                });
+                return;
+            }
+            if (!technicianProfile || technicianProfile.approvalStatus !== technician_model_1.TechnicianApprovalStatus.APPROVED) {
+                res.status(403).json({
+                    message: technicianProfile?.approvalStatus === technician_model_1.TechnicianApprovalStatus.PENDING_REVIEW
+                        ? 'Your technician application is still under review.'
+                        : 'This technician account is not approved yet.',
+                    approvalStatus: technicianProfile?.approvalStatus,
+                });
+                return;
+            }
+        }
+        if (normalizedRole === user_model_1.UserRole.CUSTOMER && !sessionUser.profileCompleted) {
+            res.status(200).json({
+                status: 'profile_required',
+                token,
+                user: sessionUser,
+                googleProfile: { email, name, googleSubject },
+                message: 'Complete your MyFixer profile to continue.',
+            });
+            return;
+        }
+        if (normalizedRole === user_model_1.UserRole.CUSTOMER && !sessionUser.isEmailVerified) {
+            res.status(200).json({
+                status: 'email_verification_required',
+                token,
+                user: sessionUser,
+                message: 'Please verify your email before booking a service.',
+            });
+            return;
+        }
+        res.status(200).json({
+            status: 'success',
+            token,
+            user: sessionUser,
+            technician: technicianProfile
+                ? {
+                    id: technicianProfile._id,
+                    approvalStatus: technicianProfile.approvalStatus,
+                    serviceCategories: technicianProfile.serviceCategories,
+                    city: technicianProfile.city,
+                    businessName: technicianProfile.businessName,
+                    yearsExperience: technicianProfile.yearsExperience,
+                    profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user.profilePhotoUrl,
+                }
+                : undefined,
+        });
+    }
+    catch (error) {
+        console.error('Google auth failed:', error);
+        res.status(500).json({ message: 'Unable to authenticate with Google right now.' });
+    }
+};
+exports.googleAuth = googleAuth;
+const completeGoogleClientProfile = async (req, res) => {
+    try {
+        const idToken = typeof req.body.idToken === 'string' ? req.body.idToken.trim() : '';
+        const payload = idToken ? await verifyGoogleIdToken(idToken) : null;
+        const email = typeof payload?.email === 'string' ? payload.email.toLowerCase().trim() : '';
+        const googleSubject = typeof payload?.sub === 'string' ? payload.sub : '';
+        if (!email || !googleSubject || payload?.email_verified !== true) {
+            res.status(401).json({ message: 'Valid Google sign-in is required.' });
+            return;
+        }
+        const name = typeof req.body.name === 'string' && req.body.name.trim()
+            ? req.body.name.trim()
+            : typeof payload?.name === 'string' && payload.name.trim()
+                ? payload.name.trim()
+                : '';
+        const phone = typeof req.body.phone === 'string' ? req.body.phone.trim() : '';
+        const countryCode = (0, market_config_1.normalizeCountryCode)(req.body.countryCode ?? req.body.defaultServiceAddress?.countryCode);
+        const city = typeof req.body.city === 'string' ? req.body.city.trim() : '';
+        const area = typeof req.body.area === 'string' ? req.body.area.trim() : '';
+        const consent = req.body.consent === true;
+        const addressInput = req.body.defaultServiceAddress || {};
+        const streetAddress = typeof addressInput.streetAddress === 'string' ? addressInput.streetAddress.trim() : '';
+        const suburb = typeof addressInput.suburb === 'string' && addressInput.suburb.trim()
+            ? addressInput.suburb.trim()
+            : area;
+        const postalCode = typeof addressInput.postalCode === 'string' ? addressInput.postalCode.trim() : '';
+        const fullAddress = typeof addressInput.fullAddress === 'string' && addressInput.fullAddress.trim()
+            ? addressInput.fullAddress.trim()
+            : [streetAddress, suburb, city, postalCode].filter(Boolean).join(', ');
+        const latitude = toFiniteNumber(addressInput.latitude);
+        const longitude = toFiniteNumber(addressInput.longitude);
+        if (!name || !phone || !countryCode || !city || !area || !fullAddress || !consent) {
+            res.status(400).json({ message: 'Name, phone, country, city, area, service address, and consent are required.' });
+            return;
+        }
+        if ((latitude !== null && (latitude < -90 || latitude > 90)) || (longitude !== null && (longitude < -180 || longitude > 180))) {
+            res.status(400).json({ message: 'Invalid service address coordinates.' });
+            return;
+        }
+        const market = (0, market_config_1.getMarketByCountry)(countryCode);
+        const existingUser = await user_model_1.default.findOne({ email });
+        if (existingUser && (0, user_model_1.normalizeUserRole)(existingUser.role) !== user_model_1.UserRole.CUSTOMER) {
+            res.status(409).json({ message: 'This Google account is already linked to another MyFixer role.' });
+            return;
+        }
+        const defaultServiceAddress = {
+            streetAddress: streetAddress || fullAddress,
+            suburb,
+            city,
+            postalCode,
+            countryCode: market.countryCode,
+            fullAddress,
+            updatedAt: new Date(),
+        };
+        if (latitude !== null && longitude !== null) {
+            defaultServiceAddress.coordinates = {
+                type: 'Point',
+                coordinates: [longitude, latitude],
+            };
+        }
+        const emailVerificationToken = generateEmailVerificationToken();
+        const user = await user_model_1.default.findOneAndUpdate({ email }, {
+            $set: {
+                name,
+                phone,
+                location: {
+                    country: market.countryName,
+                    city,
+                    area,
+                },
+                defaultServiceAddress,
+                countryCode: market.countryCode,
+                currency: market.currency,
+                profileCompleted: true,
+                emailVerified: existingUser?.emailVerified || false,
+                isEmailVerified: existingUser?.isEmailVerified || false,
+                emailVerificationToken: existingUser?.isEmailVerified || existingUser?.emailVerified ? '' : emailVerificationToken,
+                lastLoginAt: new Date(),
+                'metadata.googleSubject': googleSubject,
+                'metadata.authProvider': 'GOOGLE',
+                'metadata.googleConsentAt': new Date(),
+            },
+            $setOnInsert: {
+                email,
+                password: crypto_1.default.randomBytes(24).toString('hex'),
+                role: user_model_1.UserRole.CUSTOMER,
+            },
+        }, { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true });
+        const verificationUser = user.isEmailVerified || user.emailVerified
+            ? null
+            : await user_model_1.default.findById(user._id).select('+emailVerificationToken');
+        const verificationEmailSent = verificationUser
+            ? await sendVerificationEmail(req, verificationUser)
+            : false;
+        const token = generateToken(user._id.toString(), user_model_1.UserRole.CUSTOMER, user.email);
+        const emailVerified = Boolean(user.isEmailVerified || user.emailVerified);
+        console.info('[auth.google.complete-profile] verification email result', {
+            email: user.email,
+            emailVerified,
+            verificationEmailSent,
+        });
+        res.status(200).json({
+            status: emailVerified ? 'success' : 'email_verification_required',
+            token,
+            user: buildSessionUser(user, req),
+            verificationEmailSent,
+            message: emailVerified
+                ? 'Profile completed.'
+                : 'Profile completed. Please verify your email before booking a service.',
+        });
+    }
+    catch (error) {
+        console.error('Google profile completion failed:', error);
+        res.status(500).json({ message: 'Unable to complete Google profile right now.' });
+    }
+};
+exports.completeGoogleClientProfile = completeGoogleClientProfile;
 const bootstrapAdmin = async (req, res) => {
     try {
         const setupKey = req.headers['x-admin-setup-key'] ?? req.body.setupKey;
@@ -585,7 +1072,11 @@ const registerTechnician = async (req, res) => {
             currency: market.currency,
             password: hashedPassword,
             role: user_model_1.UserRole.TECHNICIAN,
+            emailVerified: false,
+            isEmailVerified: false,
+            emailVerificationToken: generateEmailVerificationToken(),
         });
+        const verificationEmailSent = await sendVerificationEmail(req, user);
         const technician = await technician_model_1.default.create({
             userId: user._id,
             approvalStatus,
@@ -651,6 +1142,8 @@ const registerTechnician = async (req, res) => {
                     defaultServiceAddress: user.defaultServiceAddress || null,
                     countryCode: user.countryCode,
                     currency: user.currency,
+                    isEmailVerified: user.isEmailVerified,
+                    greeting: getLocalizedGreeting(req),
                 }
                 : null,
             technician: {
@@ -662,6 +1155,7 @@ const registerTechnician = async (req, res) => {
                 yearsExperience: technician.yearsExperience,
                 profilePhotoUrl: technician.documents?.profilePhotoUrl || user.profilePhotoUrl,
             },
+            verificationEmailSent,
         });
     }
     catch (error) {

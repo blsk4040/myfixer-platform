@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -8,7 +41,7 @@ exports.registerTechnicianHandlers = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const redis_1 = require("../config/redis");
-const technician_model_1 = __importDefault(require("../models/technician.model"));
+const technician_model_1 = __importStar(require("../models/technician.model"));
 const technician_telemetry_model_1 = __importDefault(require("../models/technician-telemetry.model"));
 const user_model_1 = require("../models/user.model");
 const matching_service_1 = __importDefault(require("../services/matching.service"));
@@ -78,7 +111,18 @@ const updateTechnicianOnlineState = async (technicianId, isOnline, latitude, lon
     if (location) {
         update.lastLocation = location;
     }
-    const technician = await technician_model_1.default.findOneAndUpdate({ userId: new mongoose_1.default.Types.ObjectId(technicianId) }, { $set: update }, { new: true }).select('_id lastLocation');
+    const existingTechnician = await technician_model_1.default.findOne({ userId: new mongoose_1.default.Types.ObjectId(technicianId) })
+        .select('_id approvalStatus lastLocation')
+        .lean();
+    if (!existingTechnician)
+        return;
+    if (isOnline && existingTechnician.approvalStatus === technician_model_1.TechnicianApprovalStatus.SUSPENDED) {
+        throw new Error('Suspended technicians cannot go online.');
+    }
+    const technician = await technician_model_1.default.findOneAndUpdate({
+        userId: new mongoose_1.default.Types.ObjectId(technicianId),
+        approvalStatus: { $ne: technician_model_1.TechnicianApprovalStatus.SUSPENDED },
+    }, { $set: update }, { new: true }).select('_id lastLocation');
     if (!technician)
         return;
     const telemetryLocation = location ?? technician.lastLocation ?? null;

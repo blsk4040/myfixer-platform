@@ -5,6 +5,7 @@ import { CountryCode, CurrencyCode } from '../config/market.config';
 
 export enum BookingStatus {
   PENDING = 'PENDING',
+  SCHEDULED = 'SCHEDULED',
   ACCEPTED = 'ACCEPTED',
   IN_ROUTE = 'IN_ROUTE',
   ARRIVED = 'ARRIVED',
@@ -66,6 +67,11 @@ export interface IBooking extends Document {
   status: BookingStatus;
 
   finalBilling?: IFinalBilling;
+  appointmentWindow?: {
+    isPreBook: boolean;
+    scheduledStartTime?: Date | null;
+    scheduledEndTime?: Date | null;
+  };
 
   acceptedAt?: Date | null;
   inRouteAt?: Date | null;
@@ -146,6 +152,26 @@ const CancellationSchema = new Schema(
       type: String,
       default: '',
       trim: true,
+    },
+  },
+  { _id: false }
+);
+
+const AppointmentWindowSchema = new Schema(
+  {
+    isPreBook: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    scheduledStartTime: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    scheduledEndTime: {
+      type: Date,
+      default: null,
     },
   },
   { _id: false }
@@ -310,6 +336,11 @@ const BookingSchema = new Schema<IBooking>(
       default: undefined,
     },
 
+    appointmentWindow: {
+      type: AppointmentWindowSchema,
+      default: undefined,
+    },
+
     acceptedAt: {
       type: Date,
       default: null,
@@ -385,6 +416,7 @@ BookingSchema.index({ customerLocation: '2dsphere' });
 BookingSchema.index({ status: 1, createdAt: -1 });
 BookingSchema.index({ customerId: 1, createdAt: -1 });
 BookingSchema.index({ technicianId: 1, status: 1 });
+BookingSchema.index({ technicianId: 1, 'appointmentWindow.scheduledStartTime': 1 });
 BookingSchema.index({ countryCode: 1, status: 1 });
 BookingSchema.index({ countryCode: 1, serviceKey: 1, status: 1 });
 BookingSchema.index({ generalArea: 1, status: 1 });

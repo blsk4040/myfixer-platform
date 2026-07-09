@@ -1,14 +1,15 @@
 // mobile_apps/client_app/src/screens/tracking/TrackingScreen.tsx
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   SafeAreaView,
   StyleSheet,
   Text,
   View,
   TouchableOpacity,
 } from 'react-native';
-import MapView, { Marker, Region } from 'react-native-maps';
+import { Camera, GeoJSONSource, Layer, Map as MapLibreMap, Marker, type StyleSpecification } from '@maplibre/maplibre-react-native';
 import { 
   Phone as LucidePhone, 
   MessageSquare as LucideMessageSquare, 
@@ -44,7 +45,23 @@ type LocationPayload = {
   coordinate?: { latitude?: unknown; longitude?: unknown };
 };
 
-const DEFAULT_REGION_DELTA = 0.012;
+const DEFAULT_CENTER: [number, number] = [28.0473, -26.2041];
+
+const OSM_RASTER_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [
+    { id: 'background', type: 'background', paint: { 'background-color': '#090D14' } },
+    { id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.92 } },
+  ],
+};
 
 const isCoordinate = (value: unknown): value is Coordinate => {
   if (!value || typeof value !== 'object') return false;
@@ -75,28 +92,15 @@ const getBookingCustomerCoordinate = (booking: BookingDetails): Coordinate | nul
   return null;
 };
 
-// Uber-Style Custom Premium Dark Map Aesthetics Configuration JSON
-const DARK_MAP_STYLE = [
-  { "elementType": "geometry", "stylers": [{ "color": "#090d14" }] },
-  { "elementType": "labels.text.fill", "stylers": [{ "color": "#475569" }] },
-  { "elementType": "labels.text.stroke", "stylers": [{ "color": "#090d14" }] },
-  { "featureType": "administrative.locality", "elementType": "labels.text.fill", "stylers": [{ "color": "#94a3b8" }] },
-  { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [{ "color": "#475569" }] },
-  { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#111827" }] },
-  { "featureType": "road", "elementType": "geometry.stroke", "stylers": [{ "color": "#1e293b" }] },
-  { "featureType": "road", "elementType": "labels.text.fill", "stylers": [{ "color": "#64748b" }] },
-  { "featureType": "road.highway", "elementType": "geometry", "stylers": [{ "color": "#1e293b" }] },
-  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#0f172a" }] }
-];
+const toLngLat = (coordinate: Coordinate): [number, number] => [coordinate.longitude, coordinate.latitude];
 
 export default function TrackingScreen({ bookingId, customerCoordinate, route }: TrackingScreenProps) {
   const resolvedBookingId = bookingId ?? route?.params?.bookingId ?? '';
   const initialCustomerCoordinate = customerCoordinate ?? route?.params?.customerCoordinate ?? null;
 
-  const mapRef = useRef<MapView | null>(null);
-
   const [customerLocation, setCustomerLocation] = useState<Coordinate | null>(initialCustomerCoordinate);
   const [technicianLocation, setTechnicianLocation] = useState<Coordinate | null>(null);
+  const [technician, setTechnician] = useState<BookingDetails['technician'] | null>(null);
   const [isLoadingBooking, setIsLoadingBooking] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -113,6 +117,9 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
         const bookingCustomerLocation = getBookingCustomerCoordinate(booking);
         if (isMounted && bookingCustomerLocation) {
           setCustomerLocation(bookingCustomerLocation);
+        }
+        if (isMounted) {
+          setTechnician(booking.technician || null);
         }
       } catch (error) {
         if (isMounted) setErrorMessage(error instanceof Error ? error.message : 'Unable to load booking.');
@@ -143,25 +150,33 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
     };
   }, [resolvedBookingId]);
 
-  useEffect(() => {
-    if (!mapRef.current || !customerLocation || !technicianLocation) return;
-    mapRef.current.fitToCoordinates([customerLocation, technicianLocation], {
-      edgePadding: { top: 140, right: 80, bottom: 280, left: 80 },
-      animated: true,
-    });
+  const mapCenter = useMemo<[number, number] | null>(() => {
+    if (!customerLocation) return null;
+    if (!technicianLocation) return toLngLat(customerLocation);
+    return [
+      (customerLocation.longitude + technicianLocation.longitude) / 2,
+      (customerLocation.latitude + technicianLocation.latitude) / 2,
+    ];
   }, [customerLocation, technicianLocation]);
 
-  const mapRegion = useMemo<Region | null>(() => {
-    if (!customerLocation) return null;
+  const routeGeoJson = useMemo(() => {
+    if (!customerLocation || !technicianLocation) return null;
     return {
-      latitude: customerLocation.latitude,
-      longitude: customerLocation.longitude,
-      latitudeDelta: DEFAULT_REGION_DELTA,
-      longitudeDelta: DEFAULT_REGION_DELTA,
-    };
-  }, [customerLocation]);
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'LineString',
+            coordinates: [toLngLat(customerLocation), toLngLat(technicianLocation)],
+          },
+        },
+      ],
+    } as any;
+  }, [customerLocation, technicianLocation]);
 
-  if (isLoadingBooking || !mapRegion) {
+  if (isLoadingBooking || !mapCenter || !customerLocation) {
     return (
       <SafeAreaView style={styles.centeredScreen}>
         <ActivityIndicator size="large" color="#00FF87" />
@@ -173,31 +188,34 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
 
   return (
     <View style={styles.container}>
-      <MapView
-        ref={mapRef}
-        style={styles.map}
-        initialRegion={mapRegion}
-        customMapStyle={DARK_MAP_STYLE}
-        showsUserLocation={false}
-        showsMyLocationButton={false}
-      >
-        {/* Customer Location Custom Pin */}
-        <Marker coordinate={customerLocation!}>
+      <MapLibreMap mapStyle={OSM_RASTER_STYLE} style={styles.map}>
+        <Camera center={mapCenter ?? DEFAULT_CENTER} zoom={technicianLocation ? 12 : 14} />
+
+        {routeGeoJson && (
+          <GeoJSONSource id="technician-route" data={routeGeoJson}>
+            <Layer
+              id="technician-route-line"
+              type="line"
+              paint={{ 'line-color': '#00FF87', 'line-width': 4, 'line-opacity': 0.9 }}
+            />
+          </GeoJSONSource>
+        )}
+
+        <Marker lngLat={toLngLat(customerLocation)}>
           <View style={styles.customerMarkerOuter}>
             <View style={styles.customerMarkerInner} />
           </View>
         </Marker>
 
-        {/* Technician Live Vector Map Marker */}
         {technicianLocation && (
-          <Marker coordinate={technicianLocation}>
+          <Marker lngLat={toLngLat(technicianLocation)}>
             <View style={styles.technicianMarker}>
               <View style={styles.technicianMarkerPulse} />
               <View style={styles.technicianMarkerDot} />
             </View>
           </Marker>
         )}
-      </MapView>
+      </MapLibreMap>
 
       {/* Floating Header Status Bar Indicator */}
       <View style={styles.topStatusIndicator}>
@@ -213,10 +231,14 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
         
         <View style={styles.profileRow}>
           <View style={styles.avatarPlaceholder}>
-            <Text style={styles.avatarInitial}>T</Text>
+            {technician?.profilePhotoUrl ? (
+              <Image source={{ uri: technician.profilePhotoUrl }} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.avatarInitial}>T</Text>
+            )}
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.providerName}>{technicianLocation ? "Assigned Professional" : "Securing Nearest Fixer"}</Text>
+            <Text style={styles.providerName}>{technician?.name || (technicianLocation ? "Assigned Professional" : "Securing Nearest Fixer")}</Text>
             <View style={styles.verificationBadgeRow}>
               <ShieldCheck color="#00FF87" size={14} />
               <Text style={styles.verificationText}>Verified MyFixer Pro</Text>
@@ -264,6 +286,7 @@ const styles = StyleSheet.create({
   panelHandle: { width: 36, height: 4, backgroundColor: '#1E293B', borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatarPlaceholder: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center' },
+  avatarImage: { width: '100%', height: '100%', borderRadius: 24 },
   avatarInitial: { color: '#64748B', fontSize: 18, fontWeight: '700' },
   providerName: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   verificationBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },

@@ -1,4 +1,4 @@
-import authService from './auth.service';
+import authService, { AuthSession } from './auth.service';
 import { assertConfiguredUrl, getApiBaseUrl } from '../config/runtime.config';
 
 const API_BASE_URL = getApiBaseUrl();
@@ -12,6 +12,7 @@ export interface TechnicianRecord {
   id: string;
   name?: string;
   phone?: string;
+  profilePhotoUrl?: string;
   lastLocation?: Coordinate | null;
   [key: string]: unknown;
 }
@@ -51,6 +52,9 @@ export interface CreateBookingRequest {
   serviceKey?: string;
   category?: string;
   saveAsDefaultAddress?: boolean;
+  isForSomeoneElse?: boolean;
+  contactName?: string;
+  contactPhone?: string;
 }
 
 export interface DefaultServiceAddress {
@@ -81,9 +85,44 @@ export interface CustomerProfile {
     area?: string;
   };
   defaultServiceAddress?: DefaultServiceAddress | null;
+  profileCompleted?: boolean;
+  isEmailVerified?: boolean;
   stats?: {
     activeRequestCount: number;
     completedBookingCount: number;
+  };
+}
+
+export interface GoogleAuthResponse {
+  status: 'success' | 'profile_required' | 'email_verification_required';
+  token?: string;
+  user?: AuthSession['user'];
+  googleProfile?: {
+    email: string;
+    name?: string;
+    googleSubject?: string;
+  };
+  message?: string;
+  verificationEmailSent?: boolean;
+}
+
+export interface CompleteGoogleProfilePayload {
+  idToken: string;
+  name: string;
+  phone: string;
+  countryCode: string;
+  city: string;
+  area: string;
+  consent: boolean;
+  defaultServiceAddress: {
+    streetAddress?: string;
+    suburb: string;
+    city: string;
+    postalCode?: string;
+    countryCode?: string;
+    fullAddress: string;
+    latitude?: number;
+    longitude?: number;
   };
 }
 
@@ -111,6 +150,7 @@ export interface BookingHistoryItem {
   cancelledAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  technician?: TechnicianRecord | null;
   invoice?: {
     id: string;
     invoiceNumber: string;
@@ -137,6 +177,35 @@ export interface JobQuote {
   totalAmount: number;
   totalAmountMinor: number;
   technicianNotes?: string;
+}
+
+export interface JobMediaRecord {
+  id: string;
+  bookingId: string;
+  uploadedByUserId: string;
+  uploadedByRole: 'CUSTOMER' | 'TECHNICIAN' | 'ADMIN' | 'SYSTEM';
+  mediaType: 'IMAGE';
+  purpose: string;
+  url: string;
+  thumbnailUrl: string;
+  mimeType: string;
+  fileName?: string;
+  fileSize?: number;
+  width?: number;
+  height?: number;
+  retentionExpiresAt?: string;
+  createdAt: string;
+}
+
+export interface BookingChatMessage {
+  id: string;
+  bookingId: string;
+  senderId: string;
+  senderRole: 'CUSTOMER' | 'TECHNICIAN' | 'ADMIN' | 'SYSTEM';
+  messageType: 'TEXT' | 'IMAGE' | 'SYSTEM';
+  text: string;
+  media: JobMediaRecord[];
+  createdAt: string;
 }
 
 export interface ServiceAvailabilityItem {
@@ -280,7 +349,24 @@ class ApiService {
         service_key: payload.serviceKey,
         category: payload.category,
         save_as_default_address: payload.saveAsDefaultAddress,
+        is_for_someone_else: payload.isForSomeoneElse,
+        onsite_contact_name: payload.contactName,
+        onsite_contact_phone: payload.contactPhone,
       }),
+    });
+  }
+
+  signInWithGoogle(idToken: string): Promise<GoogleAuthResponse> {
+    return this.request<GoogleAuthResponse>('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ idToken }),
+    });
+  }
+
+  completeGoogleProfile(payload: CompleteGoogleProfilePayload): Promise<GoogleAuthResponse> {
+    return this.request<GoogleAuthResponse>('/auth/google/complete-profile', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   }
 
@@ -400,6 +486,32 @@ class ApiService {
     return this.request(`/quotes/${encodeURIComponent(quoteId)}/reject`, {
       method: 'POST',
       body: JSON.stringify({ note }),
+    });
+  }
+
+  getBookingMessages(bookingId: string): Promise<{ success: boolean; messages: BookingChatMessage[] }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/messages`);
+  }
+
+  uploadBookingMedia(bookingId: string, payload: {
+    dataUri: string;
+    fileName?: string;
+    mimeType?: string;
+    purpose?: 'CHAT' | 'BEFORE_WORK' | 'AFTER_WORK' | 'PROOF_OF_COMPLETION' | 'QUOTE_PART' | 'DISPUTE';
+  }): Promise<{ success: boolean; media: JobMediaRecord }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/media`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  sendBookingMessage(bookingId: string, payload: {
+    text?: string;
+    mediaIds?: string[];
+  }): Promise<{ success: boolean; message: BookingChatMessage }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   }
 

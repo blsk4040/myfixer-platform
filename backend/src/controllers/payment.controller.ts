@@ -213,7 +213,7 @@ export class PaymentController {
         userId: booking.customerId,
         email: req.user.email,
         name: '',
-        channels: [NotificationChannel.IN_APP],
+        channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
         type: 'PAYMENT_CONFIRMED',
         title: 'Payment confirmed',
         message: `Payment for your ${booking.applianceType} booking has been confirmed.`,

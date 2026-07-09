@@ -37,14 +37,15 @@ const Sprout = LucideSprout as any;
 const Hammer = LucideHammer as any;
 
 // 📁 Asset registrations
-const FridgeIcon = require('../assets/Fridge.png');
-const MechanicIcon = require('../assets/Sedan-160-temp.png');
-const CleaningIcon = require('../assets/cleaning_1.png');
-const ElectricalIcon = require('../assets/electrical-repair-icon.png');
-const PlumberIcon = require('../assets/plumbing.png');
-const PainterIcon = require('../assets/painting-icon.png');
-const GardeningIcon = require('../assets/FM_2.png');
-const MaintenanceIcon = require('../assets/info-icon-1.png');
+const FridgeIcon = require('../../assets/services/appliance-repair.png');
+const MechanicIcon = require('../../assets/services/mechanic-callout.png');
+const CleaningIcon = require('../../assets/services/cleaning-service.png');
+const ElectricalIcon = require('../../assets/services/electrical-repair.png');
+const PlumberIcon = require('../../assets/services/plumbing-service.png');
+const PainterIcon = require('../../assets/services/painting-service.png');
+const GardeningIcon = require('../../assets/services/gardening-service.png');
+const MaintenanceIcon = require('../../assets/services/maintenance-service.png');
+const ManagedCollectionIcon = require('../../assets/services/managed-collection.png');
 
 const { width, height } = Dimensions.get('window');
 const GRID_SIZE = (width - 52) / 2; 
@@ -55,6 +56,8 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
   const [availability, setAvailability] = useState<ServiceAvailabilityItem[]>([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState('');
+  const session = authService.getSession();
+  const mustVerifyEmail = session?.user.role === 'CUSTOMER' && session.user.isEmailVerified === false;
 
   const serviceCatalog: Record<string, any> = {
     appliance_repair: {
@@ -185,7 +188,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
       title: 'Managed Collection Services',
       subtitle: 'General waste collection setup',
       icon: Hammer,
-      imageSource: MaintenanceIcon,
+      imageSource: ManagedCollectionIcon,
       isCustomImage: true,
       color: '#38BDF8',
       subCategories: [
@@ -236,6 +239,15 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
   }, [availability]);
 
   const handleCategoryPress = (category: any) => {
+    if (mustVerifyEmail) {
+      Alert.alert(
+        'Verify Your Email',
+        'Please verify your email before booking a service.'
+      );
+      navigation.navigate('VerifyEmailNotice');
+      return;
+    }
+
     if (!category.canBook) {
       if (category.availabilityStatus === 'COMING_SOON') {
         handleJoinWaitlist(category);
@@ -304,15 +316,26 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
 
         <View style={styles.heroCard}>
           <View style={styles.heroContent}>
-            <Text style={styles.heroTitle}>Professional help, dispatched instantly.</Text>
-            <Text style={styles.heroSubtitle}>Verified service specialists at your doorstep.</Text>
+            <Text style={styles.heroTitle}>What do you need fixed today?</Text>
+            <Text style={styles.heroSubtitle}>Verified specialists, clear call-out fees, and repair quotes before extra work starts.</Text>
           </View>
           <View style={styles.heroBadge}>
-            <Text style={styles.heroBadgeText}>24/7 Service</Text>
+            <Text style={styles.heroBadgeText}>Verified help</Text>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Select a Core Service</Text>
+        {mustVerifyEmail && (
+          <TouchableOpacity
+            style={styles.verifyBanner}
+            activeOpacity={0.86}
+            onPress={() => navigation.navigate('VerifyEmailNotice')}
+          >
+            <Text style={styles.verifyBannerTitle}>Verify your email</Text>
+            <Text style={styles.verifyBannerText}>Please verify your email before booking a service.</Text>
+          </TouchableOpacity>
+        )}
+
+        <Text style={styles.sectionTitle}>Choose a service</Text>
         {availabilityLoading && (
           <View style={styles.availabilityNotice}>
             <ActivityIndicator size="small" color="#00FF87" />
@@ -354,6 +377,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
                 )}
                 <Text style={styles.tileTitle} numberOfLines={1}>{item.title}</Text>
                 <Text style={styles.tileSubtitle} numberOfLines={2}>{item.subtitle}</Text>
+                <Text style={styles.tileFeeText}>Call-out fee shown before booking</Text>
               </View>
             </TouchableOpacity>
           ))}
@@ -364,7 +388,10 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         <Pressable style={styles.modalOverlay} onPress={() => setModalVisible(false)}>
           <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Specialization</Text>
+              <View style={styles.modalTitleWrap}>
+                <Text style={styles.modalTitle}>What do you need help with?</Text>
+                <Text style={styles.modalSubtitle}>The amount shown is the call-out fee. Repairs and parts are quoted after diagnosis.</Text>
+              </View>
               <TouchableOpacity style={styles.closeBtn} onPress={() => setModalVisible(false)}>
                 <X color="#64748B" size={20} />
               </TouchableOpacity>
@@ -379,9 +406,11 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
                 >
                   <View>
                     <Text style={styles.subItemName}>{sub.name}</Text>
-                    <Text style={styles.subItemEstimate}>Estimated base rate setup</Text>
+                    <Text style={styles.subItemEstimate}>Call-out fee for visit and diagnosis</Text>
                   </View>
-                  <Text style={[styles.subItemPrice, { color: selectedCategory.color }]}>R{sub.basePrice}</Text>
+                  <View style={styles.subItemFeePill}>
+                    <Text style={[styles.subItemPrice, { color: selectedCategory.color }]}>R{sub.basePrice}</Text>
+                  </View>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -403,12 +432,15 @@ const styles = StyleSheet.create({
   brandText: { color: '#FFFFFF', fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
   proAccent: { color: '#00FF87' },
   profileAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center' },
-  heroCard: { backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 16, padding: 20, marginBottom: 28, position: 'relative', overflow: 'hidden' },
-  heroContent: { maxWidth: '85%' },
+  heroCard: { backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 16, padding: 20, marginBottom: 22, position: 'relative', overflow: 'hidden' },
+  heroContent: { maxWidth: '88%' },
   heroTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '700', lineHeight: 24 },
-  heroSubtitle: { color: '#64748B', fontSize: 13, marginTop: 6, lineHeight: 18 },
+  heroSubtitle: { color: '#94A3B8', fontSize: 13, marginTop: 6, lineHeight: 19 },
   heroBadge: { position: 'absolute', right: -15, top: 10, backgroundColor: '#1E293B', paddingHorizontal: 18, paddingVertical: 4, transform: [{ rotate: '12deg' }] },
   heroBadgeText: { color: '#00FF87', fontSize: 9, fontWeight: '700', textTransform: 'uppercase' },
+  verifyBanner: { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#FBBF24', borderRadius: 12, padding: 14, marginBottom: 18 },
+  verifyBannerTitle: { color: '#FBBF24', fontSize: 14, fontWeight: '900', marginBottom: 4 },
+  verifyBannerText: { color: '#E2E8F0', fontSize: 12, fontWeight: '600', lineHeight: 18 },
   sectionTitle: { color: '#E2E8F0', fontSize: 15, fontWeight: '700', marginBottom: 16, letterSpacing: 0.3 },
   availabilityNotice: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, padding: 12, marginBottom: 12 },
   availabilityNoticeText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
@@ -444,17 +476,28 @@ const styles = StyleSheet.create({
   },
   tileTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   tileSubtitle: { color: '#64748B', fontSize: 11, marginTop: 3, lineHeight: 15 },
+  tileFeeText: { color: '#00FF87', fontSize: 10, fontWeight: '800', marginTop: 7 },
   serviceStatusBadge: { alignSelf: 'flex-start', fontSize: 9, fontWeight: '800', borderRadius: 999, paddingHorizontal: 7, paddingVertical: 3, marginBottom: 5, overflow: 'hidden' },
   statusSoon: { color: '#FBBF24', backgroundColor: '#FBBF2420' },
   statusPaused: { color: '#F87171', backgroundColor: '#EF444420' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#111827', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderTopWidth: 1, borderColor: '#1E293B', maxHeight: height * 0.6 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20 },
+  modalTitleWrap: { flex: 1 },
   modalTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
+  modalSubtitle: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 6 },
   closeBtn: { backgroundColor: '#1E293B', padding: 8, borderRadius: 20, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   modalScrollBody: { paddingBottom: 24 },
-  subItemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderColor: '#1E293B' },
+  subItemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 14, paddingVertical: 16, borderBottomWidth: 1, borderColor: '#1E293B' },
   subItemName: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
   subItemEstimate: { color: '#64748B', fontSize: 12, marginTop: 2 },
-  subItemPrice: { fontSize: 16, fontWeight: '700' }
+  subItemFeePill: { minWidth: 76, minHeight: 38, borderRadius: 10, backgroundColor: '#090D14', borderWidth: 1, borderColor: '#1E293B', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  subItemPrice: { fontSize: 16, fontWeight: '800' }
 });
+
+
+
+
+
+
+

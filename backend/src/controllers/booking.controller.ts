@@ -18,12 +18,13 @@ import {
 import { normalizeUserRole, UserRole } from '../models/user.model';
 import User from '../models/user.model';
 import JobQuote, { QuoteLineItemType, QuoteStatus } from '../models/quote.model';
-import TechnicianModel, { TechnicianApprovalStatus } from '../models/technician.model';
+import TechnicianModel, { TechnicianApprovalStatus, VerificationStatus } from '../models/technician.model';
 import TechnicianCapability, { CapabilityStatus } from '../models/technician-capability.model';
 import ServiceWaitlist, {
   ServiceWaitlistSource,
   ServiceWaitlistStatus,
 } from '../models/service-waitlist.model';
+import MarketSetting, { MarketStatus } from '../models/market-setting.model';
 import { logAuditEvent } from '../services/audit.service';
 import {
   CountryCode,
@@ -64,6 +65,10 @@ interface CreateBookingRequestBody {
   fallback_preference?: unknown;
   scheduledAt?: unknown;
   scheduled_at?: unknown;
+  scheduledStartTime?: unknown;
+  scheduled_start_time?: unknown;
+  scheduledEndTime?: unknown;
+  scheduled_end_time?: unknown;
   email?: unknown;
   phone?: unknown;
 }
@@ -101,6 +106,52 @@ type DispatchFallbackPreference = 'STANDBY' | 'SCHEDULED' | 'WAITLIST';
 const normalizeFallbackPreference = (value: unknown): DispatchFallbackPreference => {
   const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
   return normalized === 'SCHEDULED' || normalized === 'WAITLIST' ? normalized : 'STANDBY';
+};
+
+const parseDateInput = (value: unknown): Date | null =>
+  typeof value === 'string' || value instanceof Date ? new Date(value) : null;
+
+const isValidDate = (value: Date | null): value is Date =>
+  Boolean(value && !Number.isNaN(value.getTime()));
+
+const isMarketServiceExplicitlyActive = async (countryCode: string, serviceKey: string): Promise<boolean> => {
+  const setting = await MarketSetting.findOne({ 'identity.countryCode': countryCode })
+    .select('identity.countryCode coverage.serviceCategories coverage.cityServiceAvailability')
+    .lean();
+
+  if (!setting) return false;
+
+  const normalizeEntry = (entry: unknown): { serviceKey: string; status: MarketStatus } | null => {
+    if (typeof entry === 'string') {
+      return { serviceKey: normalizeDispatchServiceKey(entry), status: MarketStatus.ACTIVE };
+    }
+    if (!entry || typeof entry !== 'object') return null;
+    const record = entry as Record<string, unknown>;
+    return {
+      serviceKey: normalizeDispatchServiceKey(record.serviceKey ?? record.key ?? record.value ?? record.label),
+      status: Object.values(MarketStatus).includes(record.status as MarketStatus)
+        ? (record.status as MarketStatus)
+        : MarketStatus.DISABLED,
+    };
+  };
+
+  const matches = [
+    ...((setting.coverage?.serviceCategories || []).map(normalizeEntry)),
+    ...((setting.coverage?.cityServiceAvailability || []).flatMap((city) => {
+      const record = city as Record<string, unknown>;
+      const services = Array.isArray(record.services) ? record.services : [];
+      const areas = Array.isArray(record.areas) ? record.areas : [];
+      return [
+        ...services.map(normalizeEntry),
+        ...areas.flatMap((area) => {
+          const areaRecord = area as Record<string, unknown>;
+          return Array.isArray(areaRecord.services) ? areaRecord.services.map(normalizeEntry) : [];
+        }),
+      ];
+    })),
+  ].filter((entry): entry is { serviceKey: string; status: MarketStatus } => Boolean(entry?.serviceKey));
+
+  return matches.some((entry) => entry.serviceKey === serviceKey && entry.status === MarketStatus.ACTIVE);
 };
 
 const getAuthenticatedUser = (request: Request) =>
@@ -217,15 +268,15 @@ const createCustomerBookingNotification = async (
   title: string,
   message: string,
   metadata: Record<string, unknown> = {}
-): Promise<void> => {
+): Promise<any[]> => {
   const customerId = String(booking.customerId || '').trim();
-  if (!mongoose.Types.ObjectId.isValid(customerId)) return;
+  if (!mongoose.Types.ObjectId.isValid(customerId)) return [];
 
-  await createNotifications({
+  return createNotifications({
     userId: customerId,
     email: booking.customerEmail || '',
     name: booking.customerName || 'Client',
-    channels: [NotificationChannel.IN_APP],
+    channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
     type: eventType,
     title,
     message,
@@ -234,6 +285,34 @@ const createCustomerBookingNotification = async (
       applianceType: booking.applianceType || '',
       status: booking.status || '',
       ...metadata,
+    },
+  });
+};
+
+const createTechnicianJobNotification = async (
+  technicianId: string,
+  booking: {
+    id?: string;
+    _id?: unknown;
+    applianceType?: string;
+    generalArea?: string;
+    priceMinor?: number;
+    currency?: string;
+  }
+): Promise<any[]> => {
+  if (!mongoose.Types.ObjectId.isValid(technicianId)) return [];
+
+  return createNotifications({
+    userId: technicianId,
+    channels: [NotificationChannel.PUSH],
+    type: 'NEW_JOB_REQUEST',
+    title: 'New job request',
+    message: `${booking.applianceType || 'Service request'} in ${booking.generalArea || 'your area'}.`,
+    metadata: {
+      bookingId: typeof booking.id === 'string' ? booking.id : String(booking._id || ''),
+      applianceType: booking.applianceType || '',
+      priceMinor: booking.priceMinor,
+      currency: booking.currency,
     },
   });
 };
@@ -318,10 +397,11 @@ const canTechnicianClaimOpenBooking = async (
     userId: new mongoose.Types.ObjectId(technicianUserId),
     approvalStatus: TechnicianApprovalStatus.APPROVED,
   })
-    .select('_id countryCode serviceCategories')
+    .select('_id countryCode serviceCategories documents.profilePhotoStatus')
     .lean();
 
   if (!technician) return false;
+  if (technician.documents?.profilePhotoStatus !== VerificationStatus.VERIFIED) return false;
   if (booking.countryCode && technician.countryCode !== booking.countryCode) return false;
 
   const capability = await TechnicianCapability.findOne({
@@ -339,6 +419,27 @@ const canTechnicianClaimOpenBooking = async (
     : [];
 
   return legacyCategories.includes(categorySlug);
+};
+
+const hasValidDefaultServiceAddress = (user: any): boolean => {
+  const address = user?.defaultServiceAddress;
+  return Boolean(address?.fullAddress && address?.city && address?.suburb);
+};
+
+const isCustomerReadyToBook = (user: any): boolean => {
+  if (!user || normalizeUserRole(user.role) !== UserRole.CUSTOMER) return true;
+  if (user.profileCompleted === true && (user.isEmailVerified === true || user.emailVerified === true)) return true;
+
+  const legacyProfileComplete = Boolean(
+    user.name &&
+    user.phone &&
+    user.countryCode &&
+    user.location?.city &&
+    user.location?.area &&
+    hasValidDefaultServiceAddress(user)
+  );
+
+  return legacyProfileComplete && (user.isEmailVerified === true || user.emailVerified === true);
 };
 
 export const createBooking = async (
@@ -370,19 +471,20 @@ export const createBooking = async (
           : '';
   const requestedServiceKey = normalizeDispatchServiceKey(body.service_key ?? body.category ?? body.general_area ?? applianceType);
   const fallbackPreference = normalizeFallbackPreference(body.fallbackPreference ?? body.fallback_preference);
-  const scheduledAtInput = body.scheduledAt ?? body.scheduled_at;
-  const scheduledAt =
-    typeof scheduledAtInput === 'string' || scheduledAtInput instanceof Date
-      ? new Date(scheduledAtInput)
-      : null;
+  const scheduledAtInput = body.scheduledStartTime ?? body.scheduled_start_time ?? body.scheduledAt ?? body.scheduled_at;
+  const scheduledAt = parseDateInput(scheduledAtInput);
+  const scheduledEndAt = parseDateInput(body.scheduledEndTime ?? body.scheduled_end_time);
+  const isPreBook = isValidDate(scheduledAt) && scheduledAt.getTime() > Date.now();
   
   const latitude = toFiniteNumber(body.latitude);
   const longitude = toFiniteNumber(body.longitude);
 
   let countryCode = CountryCode.ZA;
-  let customer: { countryCode?: unknown; location?: { country?: unknown; city?: string; area?: string } } | null = null;
+  let customer: any = null;
   if (mongoose.Types.ObjectId.isValid(customerId)) {
-    customer = await User.findById(customerId).select('countryCode location').lean();
+    customer = await User.findById(customerId)
+      .select('name phone role countryCode location defaultServiceAddress profileCompleted isEmailVerified emailVerified')
+      .lean();
     countryCode = normalizeCountryCode(body.country_code ?? customer?.countryCode ?? customer?.location?.country);
   } else {
     countryCode = normalizeCountryCode(body.country_code);
@@ -402,13 +504,31 @@ export const createBooking = async (
     return;
   }
 
+  if (!customer) {
+    response.status(404).json({ message: 'Customer profile not found.' });
+    return;
+  }
+
+  if (normalizeUserRole(customer.role) === UserRole.CUSTOMER && !isCustomerReadyToBook(customer)) {
+    response.status(403).json({
+      message: 'Please complete your profile and verify your email before booking a service.',
+      code: customer.profileCompleted === true ? 'EMAIL_VERIFICATION_REQUIRED' : 'PROFILE_REQUIRED',
+    });
+    return;
+  }
+
   if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 || callOutFee < 0) {
     response.status(400).json({ message: 'Invalid location or pricing metrics input' });
     return;
   }
 
-  if (fallbackPreference === 'SCHEDULED' && scheduledAt && Number.isNaN(scheduledAt.getTime())) {
+  if ((fallbackPreference === 'SCHEDULED' || scheduledAtInput) && !isValidDate(scheduledAt)) {
     response.status(400).json({ message: 'Invalid scheduled booking date.' });
+    return;
+  }
+
+  if (scheduledEndAt && (!isValidDate(scheduledEndAt) || (isValidDate(scheduledAt) && scheduledEndAt <= scheduledAt))) {
+    response.status(400).json({ message: 'Invalid scheduled booking end date.' });
     return;
   }
 
@@ -437,6 +557,16 @@ export const createBooking = async (
     return;
   }
 
+  const explicitlyActive = await isMarketServiceExplicitlyActive(market.countryCode, requestedServiceKey);
+  if (!explicitlyActive) {
+    response.status(409).json({
+      message: 'This service is not active in the selected market coverage settings.',
+      serviceStatus: MarketStatus.DISABLED,
+      serviceKey: requestedServiceKey,
+    });
+    return;
+  }
+
   try {
     // 1. Save directly into MongoDB Atlas with updated keys
     const booking = await Booking.create({
@@ -453,6 +583,18 @@ export const createBooking = async (
       fullAddress,
       complexDetails,
       generalArea,
+      status: isPreBook ? BookingStatus.SCHEDULED : BookingStatus.PENDING,
+      appointmentWindow: isPreBook
+        ? {
+            isPreBook: true,
+            scheduledStartTime: scheduledAt,
+            scheduledEndTime: isValidDate(scheduledEndAt) ? scheduledEndAt : null,
+          }
+        : {
+            isPreBook: false,
+            scheduledStartTime: null,
+            scheduledEndTime: null,
+          },
       metadata: {
         streetAddress,
         suburb,
@@ -460,14 +602,14 @@ export const createBooking = async (
         postalCode,
         serviceKey: requestedServiceKey,
         fallbackPreference,
-        scheduledAt: scheduledAt && !Number.isNaN(scheduledAt.getTime()) ? scheduledAt : null,
+        scheduledAt: isValidDate(scheduledAt) ? scheduledAt : null,
       },
       priceMinor,
       countryCode: market.countryCode,
       currency: market.currency,
       dispatch: {
-        status: BookingDispatchStatus.BROADCASTING,
-        expiresAt: matchingService.getDispatchExpiry({ createdAt: new Date() }),
+        status: isPreBook ? BookingDispatchStatus.SCHEDULED : BookingDispatchStatus.BROADCASTING,
+        expiresAt: isPreBook ? null : matchingService.getDispatchExpiry({ createdAt: new Date() }),
         sentToTechnicians: [],
         declinedByTechnicians: [],
       },
@@ -504,7 +646,7 @@ export const createBooking = async (
     
     // 2. Broadcast the open request to every eligible online approved technician.
     const eligibleTechnicianIds =
-      fallbackPreference === 'SCHEDULED'
+      fallbackPreference === 'SCHEDULED' || isPreBook
         ? []
         : await matchingService.findEligibleOnlineTechniciansForBooking(bookingId);
 
@@ -528,7 +670,7 @@ export const createBooking = async (
       };
       await booking.save();
     } else {
-      if (fallbackPreference === 'SCHEDULED') {
+      if (fallbackPreference === 'SCHEDULED' || isPreBook) {
         booking.dispatch = {
           ...(booking.dispatch ?? {
             sentToTechnicians: [],
@@ -542,7 +684,7 @@ export const createBooking = async (
         booking.metadata = {
           ...(booking.metadata ?? {}),
           fallbackPreference,
-          scheduledAt: scheduledAt && !Number.isNaN(scheduledAt.getTime()) ? scheduledAt : null,
+          scheduledAt: isValidDate(scheduledAt) ? scheduledAt : null,
           queue: 'UPCOMING',
         };
         await booking.save();
@@ -630,6 +772,11 @@ export const createBooking = async (
         )
       );
       await Promise.all(
+        eligibleTechnicianIds.map((technicianId) =>
+          createTechnicianJobNotification(technicianId, booking)
+        )
+      );
+      await Promise.all(
         eligibleTechnicianIds.map(async (technicianId) => {
           const jobs = await matchingService.findNearbyPendingBookingsForTechnician(technicianId);
           io.to(`technician:${technicianId}`).emit('available_jobs', jobs.map((job) => ({
@@ -690,8 +837,11 @@ export const getBookingById = async (
       ? await User.findById(booking.technicianId).select('name phone profilePhotoUrl').lean()
       : null;
     const technicianProfile = booking.technicianId && mongoose.Types.ObjectId.isValid(booking.technicianId)
-      ? await TechnicianModel.findOne({ userId: booking.technicianId }).select('lastLocation documents.profilePhotoUrl updatedAt').lean()
+      ? await TechnicianModel.findOne({ userId: booking.technicianId }).select('lastLocation documents.profilePhotoUrl documents.profilePhotoStatus updatedAt').lean()
       : null;
+    const approvedTechnicianPhotoUrl = technicianProfile?.documents?.profilePhotoStatus === VerificationStatus.VERIFIED
+      ? technicianProfile.documents.profilePhotoUrl
+      : '';
 
     response.status(200).json({
       id: booking.id,
@@ -716,7 +866,7 @@ export const getBookingById = async (
         id: String(booking.technicianId),
         name: technicianUser.name,
         phone: technicianUser.phone,
-        profilePhotoUrl: technicianUser.profilePhotoUrl || technicianProfile?.documents?.profilePhotoUrl || '',
+        profilePhotoUrl: technicianUser.profilePhotoUrl || approvedTechnicianPhotoUrl || '',
         lastLocation: technicianProfile?.lastLocation ? {
           longitude: technicianProfile.lastLocation.coordinates[0],
           latitude: technicianProfile.lastLocation.coordinates[1],
@@ -750,6 +900,7 @@ export const getMyActiveBooking = async (
       status: {
         $in: [
           BookingStatus.PENDING,
+          BookingStatus.SCHEDULED,
           BookingStatus.ACCEPTED,
           BookingStatus.IN_ROUTE,
           BookingStatus.ARRIVED,
@@ -769,8 +920,11 @@ export const getMyActiveBooking = async (
       ? await User.findById(booking.technicianId).select('name phone profilePhotoUrl').lean()
       : null;
     const technicianProfile = booking.technicianId && mongoose.Types.ObjectId.isValid(booking.technicianId)
-      ? await TechnicianModel.findOne({ userId: booking.technicianId }).select('lastLocation documents.profilePhotoUrl updatedAt').lean()
+      ? await TechnicianModel.findOne({ userId: booking.technicianId }).select('lastLocation documents.profilePhotoUrl documents.profilePhotoStatus updatedAt').lean()
       : null;
+    const approvedTechnicianPhotoUrl = technicianProfile?.documents?.profilePhotoStatus === VerificationStatus.VERIFIED
+      ? technicianProfile.documents.profilePhotoUrl
+      : '';
 
     response.status(200).json({
       active: true,
@@ -794,7 +948,7 @@ export const getMyActiveBooking = async (
           id: String(booking.technicianId),
           name: technicianUser.name,
           phone: technicianUser.phone,
-          profilePhotoUrl: technicianUser.profilePhotoUrl || technicianProfile?.documents?.profilePhotoUrl || '',
+          profilePhotoUrl: technicianUser.profilePhotoUrl || approvedTechnicianPhotoUrl || '',
           lastLocation: technicianProfile?.lastLocation ? {
             longitude: technicianProfile.lastLocation.coordinates[0],
             latitude: technicianProfile.lastLocation.coordinates[1],
@@ -826,7 +980,20 @@ export const getMyBookingHistory = async (
   try {
     const bookings = await Booking.find({
       customerId,
-      status: { $in: [BookingStatus.COMPLETED, BookingStatus.CANCELLED] },
+      $or: [
+        {
+          status: {
+            $in: [
+              BookingStatus.PENDING,
+              BookingStatus.SCHEDULED,
+              BookingStatus.ACCEPTED,
+              BookingStatus.COMPLETED,
+              BookingStatus.CANCELLED,
+            ],
+          },
+        },
+        { 'dispatch.status': BookingDispatchStatus.STANDBY },
+      ],
     })
       .sort({ updatedAt: -1 })
       .limit(100)
@@ -835,11 +1002,33 @@ export const getMyBookingHistory = async (
     const bookingIds = bookings.map((booking) => booking._id);
     const invoices = await Invoice.find({ bookingId: { $in: bookingIds } }).lean();
     const invoiceByBookingId = new Map(invoices.map((invoice) => [String(invoice.bookingId), invoice]));
+    const technicianUserIds = Array.from(
+      new Set(
+        bookings
+          .map((booking) => booking.technicianId)
+          .filter((id): id is mongoose.Types.ObjectId => Boolean(id && mongoose.Types.ObjectId.isValid(id)))
+          .map((id) => id.toString())
+      )
+    );
+    const [technicianUsers, technicianProfiles] = await Promise.all([
+      User.find({ _id: { $in: technicianUserIds } }).select('name phone profilePhotoUrl').lean(),
+      TechnicianModel.find({ userId: { $in: technicianUserIds } })
+        .select('userId documents.profilePhotoUrl documents.profilePhotoStatus')
+        .lean(),
+    ]);
+    const technicianUserById = new Map(technicianUsers.map((user) => [String(user._id), user]));
+    const technicianProfileByUserId = new Map(technicianProfiles.map((profile) => [String(profile.userId), profile]));
 
     response.status(200).json({
       success: true,
       bookings: bookings.map((booking) => {
         const invoice = invoiceByBookingId.get(String(booking._id));
+        const technicianUserId = booking.technicianId ? String(booking.technicianId) : '';
+        const technicianUser = technicianUserById.get(technicianUserId);
+        const technicianProfile = technicianProfileByUserId.get(technicianUserId);
+        const approvedTechnicianPhotoUrl = technicianProfile?.documents?.profilePhotoStatus === VerificationStatus.VERIFIED
+          ? technicianProfile.documents.profilePhotoUrl
+          : '';
         return {
           id: String(booking._id),
           applianceType: booking.applianceType,
@@ -853,6 +1042,12 @@ export const getMyBookingHistory = async (
           cancelledAt: booking.cancelledAt,
           createdAt: booking.createdAt,
           updatedAt: booking.updatedAt,
+          technician: technicianUser ? {
+            id: technicianUserId,
+            name: technicianUser.name,
+            phone: technicianUser.phone,
+            profilePhotoUrl: technicianUser.profilePhotoUrl || approvedTechnicianPhotoUrl || '',
+          } : null,
           invoice: invoice ? {
             id: String(invoice._id),
             invoiceNumber: invoice.invoiceNumber,
@@ -915,13 +1110,13 @@ export const acceptBooking = async (
       return;
     }
 
-    if (existingBooking.status !== BookingStatus.PENDING) {
+    if (![BookingStatus.PENDING, BookingStatus.SCHEDULED].includes(existingBooking.status)) {
       response.status(409).json({ message: `Booking cannot be accepted from ${existingBooking.status} status.` });
       return;
     }
 
     const expiresAt = matchingService.getDispatchExpiry(existingBooking);
-    if (expiresAt.getTime() <= Date.now()) {
+    if (existingBooking.dispatch?.status !== BookingDispatchStatus.SCHEDULED && expiresAt.getTime() <= Date.now()) {
       await Booking.updateOne(
         { _id: id, status: BookingStatus.PENDING },
         { $set: { 'dispatch.status': BookingDispatchStatus.EXPIRED } }
@@ -934,7 +1129,7 @@ export const acceptBooking = async (
       ? await TechnicianModel.findOne({
           userId: new mongoose.Types.ObjectId(technicianId),
         })
-          .select('_id approvalStatus')
+          .select('_id approvalStatus documents.profilePhotoStatus')
           .lean()
       : null;
 
@@ -950,11 +1145,14 @@ export const acceptBooking = async (
     const sentToTechnicians = existingBooking.dispatch?.sentToTechnicians ?? [];
     const isOpenPoolClaim =
       existingBooking.status === BookingStatus.PENDING ||
+      existingBooking.status === BookingStatus.SCHEDULED ||
       existingBooking.dispatch?.status === BookingDispatchStatus.STANDBY ||
+      existingBooking.dispatch?.status === BookingDispatchStatus.SCHEDULED ||
       String(existingBooking.dispatch?.status || '') === 'PENDING' ||
       sentToTechnicians.length === 0;
     const hasApprovedTechnicianProfile =
-      technician?.approvalStatus === TechnicianApprovalStatus.APPROVED;
+      technician?.approvalStatus === TechnicianApprovalStatus.APPROVED &&
+      technician.documents?.profilePhotoStatus === VerificationStatus.VERIFIED;
 
     const isEligible =
       role === UserRole.ADMIN ||
@@ -971,8 +1169,9 @@ export const acceptBooking = async (
     const booking = await Booking.findOneAndUpdate(
       {
         _id: id,
-        status: BookingStatus.PENDING,
+        status: { $in: [BookingStatus.PENDING, BookingStatus.SCHEDULED] },
         $or: [
+          { 'dispatch.status': BookingDispatchStatus.SCHEDULED },
           { 'dispatch.expiresAt': { $gt: now } },
           { 'dispatch.expiresAt': { $exists: false }, createdAt: { $gte: new Date(now.getTime() - 30 * 60 * 1000) } },
         ],
@@ -1008,13 +1207,16 @@ export const acceptBooking = async (
       acceptedAt: booking.acceptedAt,
     });
 
-    await createCustomerBookingNotification(
+    const inboxMessages = await createCustomerBookingNotification(
       booking,
       'TECHNICIAN_ACCEPTED',
       'Technician accepted your request',
       `A technician has accepted your ${booking.applianceType} request.`,
       { technicianId }
     );
+    inboxMessages.forEach((message) => {
+      io?.to(`customer:${booking.customerId.toString()}`).emit('new_inbox_message', message);
+    });
 
     const previouslySentTechnicianIds = (booking.dispatch?.sentToTechnicians || [])
       .map((targetId) => targetId.toString())
@@ -1471,13 +1673,16 @@ export const finalizeJobInvoice = async (
       status: booking.status,
       updatedAt: booking.updatedAt,
     });
-    await createCustomerBookingNotification(
+    const invoiceInboxMessages = await createCustomerBookingNotification(
       booking,
       'INVOICE_GENERATED',
       'Invoice generated',
       `Your invoice for ${booking.applianceType} has been generated.`,
       { totalAmountMinor, currency: booking.currency }
     );
+    invoiceInboxMessages.forEach((message) => {
+      io?.to(`customer:${booking.customerId.toString()}`).emit('new_inbox_message', message);
+    });
     if (booking.technicianId) {
       io?.to(`technician:${booking.technicianId.toString()}`).emit('payment_confirmed', {
         bookingId: booking.id,

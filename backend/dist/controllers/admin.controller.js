@@ -41,6 +41,8 @@ const bcrypt_1 = __importDefault(require("bcrypt"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const booking_model_1 = __importStar(require("../models/booking.model"));
 const quote_model_1 = __importStar(require("../models/quote.model"));
+const chat_message_model_1 = __importDefault(require("../models/chat-message.model"));
+const job_media_model_1 = __importDefault(require("../models/job-media.model"));
 const technician_model_1 = __importStar(require("../models/technician.model"));
 const technician_capability_model_1 = __importStar(require("../models/technician-capability.model"));
 const billing_model_1 = require("../models/billing.model");
@@ -379,17 +381,19 @@ const getAdminBookingById = async (req, res) => {
         return;
     }
     try {
-        const [booking, quotes, invoices, ledger] = await Promise.all([
+        const [booking, quotes, invoices, ledger, media, messages] = await Promise.all([
             booking_model_1.default.findById(id),
             quote_model_1.default.find({ bookingId: id }).sort({ createdAt: -1 }),
             billing_model_1.Invoice.find({ bookingId: id }).sort({ createdAt: -1 }),
             billing_model_1.WalletTransaction.find({ bookingId: id }).sort({ createdAt: -1 }),
+            job_media_model_1.default.find({ bookingId: id }).sort({ createdAt: -1 }),
+            chat_message_model_1.default.find({ bookingId: id }).sort({ createdAt: 1 }).limit(300),
         ]);
         if (!booking) {
             res.status(404).json({ message: 'Booking not found.' });
             return;
         }
-        res.status(200).json({ success: true, booking, quotes, invoices, ledger });
+        res.status(200).json({ success: true, booking, quotes, invoices, ledger, media, messages });
     }
     catch (error) {
         res.status(500).json({ success: false, message: 'Failed to fetch booking.' });

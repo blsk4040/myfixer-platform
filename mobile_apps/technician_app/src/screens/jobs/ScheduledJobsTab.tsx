@@ -1,6 +1,7 @@
 // src/screens/jobs/ScheduledJobsTab.tsx
 import React from 'react';
-import { StyleSheet, View, Text, ScrollView } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+
 import { useJobStore } from '../../store/useJobStore';
 
 export function ScheduledJobsTab(): React.JSX.Element {
@@ -9,7 +10,8 @@ export function ScheduledJobsTab(): React.JSX.Element {
   if (scheduledJobs.length === 0) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.emptyText}>No upcoming bookings scheduled.</Text>
+        <Text style={styles.emptyTitle}>No scheduled jobs</Text>
+        <Text style={styles.emptyText}>Future bookings will appear here once clients schedule ahead.</Text>
       </View>
     );
   }
@@ -19,12 +21,12 @@ export function ScheduledJobsTab(): React.JSX.Element {
       {scheduledJobs.map((job) => (
         <View key={job.id} style={styles.jobCard}>
           <View style={styles.timeRow}>
-            <Text style={styles.timeText}>{job.scheduledTime || 'Scheduled Assignment'}</Text>
+            <Text style={styles.timeText}>{job.scheduledTime || 'Scheduled job'}</Text>
             <Text style={styles.priceText}>{job.currency} {job.price}</Text>
           </View>
-          
+
           <Text style={styles.applianceText}>{job.applianceType}</Text>
-          <Text style={styles.areaText}>📍 {job.generalArea || 'Local Area'} ({job.distance || '— km'})</Text>
+          <Text style={styles.areaText}>{job.generalArea || 'Local area'} • {job.distance || 'Nearby'}</Text>
         </View>
       ))}
     </ScrollView>
@@ -34,7 +36,8 @@ export function ScheduledJobsTab(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { padding: 20 },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
-  emptyText: { color: '#64748B', fontSize: 14, textAlign: 'center' },
+  emptyTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 6 },
+  emptyText: { color: '#64748B', fontSize: 14, textAlign: 'center', lineHeight: 20 },
   jobCard: { backgroundColor: '#111827', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#1E293B', marginBottom: 12 },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   timeText: { color: '#00FF87', fontSize: 12, fontWeight: '700' },

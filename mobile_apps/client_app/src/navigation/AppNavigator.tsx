@@ -16,6 +16,8 @@ import TrackingScreen from '../screens/map_tracking/TrackingScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { RegisterScreen } from '../screens/auth/RegisterScreen';
 import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
+import { CompleteClientProfileScreen } from '../screens/auth/CompleteClientProfileScreen';
+import { VerifyEmailNoticeScreen } from '../screens/auth/VerifyEmailNoticeScreen';
 import { DashboardScreen } from '../screens/dashboard/DashboardScreen';
 import { LiveTrackScreen } from '../screens/tracking/LiveTrackScreen';
 import { ProfileScreen } from '../screens/profile/ProfileScreen';
@@ -31,6 +33,15 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;
+  CompleteClientProfile: {
+    idToken: string;
+    googleProfile?: {
+      email?: string;
+      name?: string;
+      googleSubject?: string;
+    };
+  };
+  VerifyEmailNotice: { autoCheck?: boolean } | undefined;
   MainTabs: undefined;
   BookingWizard: {
     category: string;
@@ -65,6 +76,20 @@ export type TabParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
+
+const linking = {
+  prefixes: ['myfixerclient://'],
+  config: {
+    screens: {
+      VerifyEmailNotice: {
+        path: 'email-verified',
+        parse: {
+          autoCheck: () => true,
+        },
+      },
+    },
+  },
+};
 
 function MainTabNavigator() {
   return (
@@ -146,7 +171,7 @@ function MainTabNavigator() {
 export function AppNavigator(): React.JSX.Element {
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
+      <NavigationContainer linking={linking}>
         <Stack.Navigator
           initialRouteName="Login"
           screenOptions={{
@@ -180,6 +205,18 @@ export function AppNavigator(): React.JSX.Element {
           <Stack.Screen
             name="ForgotPassword"
             component={ForgotPasswordScreen}
+            options={{ headerShown: false }}
+          />
+
+          <Stack.Screen
+            name="CompleteClientProfile"
+            component={CompleteClientProfileScreen}
+            options={{ headerShown: false }}
+          />
+
+          <Stack.Screen
+            name="VerifyEmailNotice"
+            component={VerifyEmailNoticeScreen}
             options={{ headerShown: false }}
           />
 

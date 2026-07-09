@@ -3,7 +3,9 @@ import bcrypt from 'bcrypt';
 import mongoose from 'mongoose';
 import Booking, { BookingStatus } from '../models/booking.model';
 import JobQuote, { QuoteStatus } from '../models/quote.model';
-import Technician, { TechnicianApprovalStatus } from '../models/technician.model';
+import ChatMessage from '../models/chat-message.model';
+import JobMedia from '../models/job-media.model';
+import Technician, { TechnicianApprovalStatus, VerificationStatus } from '../models/technician.model';
 import TechnicianCapability, { CapabilityStatus } from '../models/technician-capability.model';
 import { Invoice, WalletTransaction } from '../models/billing.model';
 import User, { AdminPermission, AdminRole, UserRole } from '../models/user.model';
@@ -401,11 +403,13 @@ export const getAdminBookingById = async (req: Request, res: Response): Promise<
   }
 
   try {
-    const [booking, quotes, invoices, ledger] = await Promise.all([
+    const [booking, quotes, invoices, ledger, media, messages] = await Promise.all([
       Booking.findById(id),
       JobQuote.find({ bookingId: id }).sort({ createdAt: -1 }),
       Invoice.find({ bookingId: id }).sort({ createdAt: -1 }),
       WalletTransaction.find({ bookingId: id }).sort({ createdAt: -1 }),
+      JobMedia.find({ bookingId: id }).sort({ createdAt: -1 }),
+      ChatMessage.find({ bookingId: id }).sort({ createdAt: 1 }).limit(300),
     ]);
 
     if (!booking) {
@@ -413,7 +417,39 @@ export const getAdminBookingById = async (req: Request, res: Response): Promise<
       return;
     }
 
-    res.status(200).json({ success: true, booking, quotes, invoices, ledger });
+    const [customer, technicianUser, technicianProfile] = await Promise.all([
+      booking.customerId && mongoose.Types.ObjectId.isValid(booking.customerId)
+        ? User.findById(booking.customerId).select('name email phone profilePhotoUrl').lean()
+        : null,
+      booking.technicianId && mongoose.Types.ObjectId.isValid(booking.technicianId)
+        ? User.findById(booking.technicianId).select('name email phone profilePhotoUrl').lean()
+        : null,
+      booking.technicianId && mongoose.Types.ObjectId.isValid(booking.technicianId)
+        ? Technician.findOne({ userId: booking.technicianId }).select('documents.profilePhotoUrl documents.profilePhotoStatus approvalStatus').lean()
+        : null,
+    ]);
+    const approvedTechnicianPhotoUrl = technicianProfile?.documents?.profilePhotoStatus === VerificationStatus.VERIFIED
+      ? technicianProfile.documents.profilePhotoUrl
+      : '';
+
+    res.status(200).json({
+      success: true,
+      booking,
+      participants: {
+        customer,
+        technician: technicianUser ? {
+          ...technicianUser,
+          profilePhotoUrl: technicianUser.profilePhotoUrl || approvedTechnicianPhotoUrl || '',
+          photoStatus: technicianProfile?.documents?.profilePhotoStatus || 'NOT_SUBMITTED',
+          approvalStatus: technicianProfile?.approvalStatus || '',
+        } : null,
+      },
+      quotes,
+      invoices,
+      ledger,
+      media,
+      messages,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch booking.' });
   }

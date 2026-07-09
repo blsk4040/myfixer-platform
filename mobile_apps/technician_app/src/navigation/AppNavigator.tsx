@@ -19,6 +19,7 @@ import { MapScreen } from '../map/MapScreen';
 import { EarningsScreen } from '../screens/earnings/EarningsScreen';
 import { ProfileScreen } from '../screens/profile/ProfileScreen';
 import { BankingInvoiceScreen } from '../screens/profile/BankingInvoiceScreen';
+import { ProfilePictureUploadScreen } from '../screens/profile/ProfilePictureUploadScreen';
 
 // Clean type casting for Lucide icons to eliminate SVGSVGElement type errors
 const HomeIcon = Home as any;
@@ -47,6 +48,17 @@ function ProfileStackScreen({ setIsAuthenticated }: AppNavigatorProps) {
         options={{
           headerShown: true,
           title: 'Banking & Invoices',
+          headerStyle: { backgroundColor: '#090D14' },
+          headerTintColor: '#FFFFFF',
+          headerShadowVisible: false,
+        }}
+      />
+      <ProfileStack.Screen
+        name="ProfilePictureUpload"
+        component={ProfilePictureUploadScreen}
+        options={{
+          headerShown: true,
+          title: 'Profile Photo',
           headerStyle: { backgroundColor: '#090D14' },
           headerTintColor: '#FFFFFF',
           headerShadowVisible: false,

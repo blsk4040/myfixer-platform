@@ -33,7 +33,7 @@ const NotificationPreferenceSchema = new Schema<INotificationPreferenceDocument>
       },
       push: {
         type: Boolean,
-        default: false,
+        default: true,
       },
       sms: {
         type: Boolean,

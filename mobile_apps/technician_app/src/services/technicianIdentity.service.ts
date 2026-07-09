@@ -12,6 +12,7 @@ export interface TechnicianIdentity {
   serviceCategories: string[];
   businessName: string;
   profilePhotoUrl: string;
+  profilePhotoStatus: string;
 }
 
 const clean = (value: unknown): string =>
@@ -38,6 +39,7 @@ export const getTechnicianIdentity = (session: AuthSession | null = authService.
   const city = clean(profile?.city) || clean(user?.location?.city) || 'City not set';
   const approvalStatus = clean(profile?.approvalStatus) || 'UNKNOWN';
   const profilePhotoUrl = clean(profile?.profilePhotoUrl) || clean(user?.profilePhotoUrl);
+  const profilePhotoStatus = clean(profile?.profilePhotoStatus) || 'NOT_SUBMITTED';
   const serviceCategories = Array.isArray(profile?.serviceCategories)
     ? profile.serviceCategories.map(clean).filter(Boolean)
     : [];
@@ -54,5 +56,6 @@ export const getTechnicianIdentity = (session: AuthSession | null = authService.
     serviceCategories,
     businessName: clean(profile?.businessName),
     profilePhotoUrl,
+    profilePhotoStatus: titleCaseStatus(profilePhotoStatus),
   };
 };

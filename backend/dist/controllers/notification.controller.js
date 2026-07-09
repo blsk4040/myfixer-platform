@@ -98,8 +98,8 @@ const listAdminNotifications = async (req, res) => {
             meta: {
                 statuses: Object.values(notification_model_1.NotificationStatus),
                 channels: Object.values(notification_model_1.NotificationChannel),
-                enabledChannels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.EMAIL],
-                disabledChannels: [notification_model_1.NotificationChannel.PUSH, notification_model_1.NotificationChannel.SMS, notification_model_1.NotificationChannel.WHATSAPP],
+                enabledChannels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.EMAIL, notification_model_1.NotificationChannel.PUSH],
+                disabledChannels: [notification_model_1.NotificationChannel.SMS, notification_model_1.NotificationChannel.WHATSAPP],
                 types: Object.values(notification_model_1.NotificationType),
             },
         });
@@ -265,7 +265,7 @@ const getMyNotificationPreferences = async (req, res) => {
             channels: {
                 inApp: true,
                 email: true,
-                push: false,
+                push: true,
                 sms: false,
                 whatsapp: false,
             },
