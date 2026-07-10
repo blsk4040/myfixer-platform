@@ -13,7 +13,124 @@ const paymentVault_model_2 = require("../models/paymentVault.model");
 const audit_service_1 = require("../services/audit.service");
 const notification_service_1 = require("../services/notification.service");
 const notification_model_1 = require("../models/notification.model");
+const payment_workflow_service_1 = require("../services/payment-workflow.service");
+const settlement_service_1 = require("../services/settlement.service");
+const paystack_service_2 = require("../services/paystack.service");
+const payment_transaction_model_1 = __importDefault(require("../models/payment-transaction.model"));
 class PaymentController {
+    static async initializePayment(req, res) {
+        try {
+            const { bookingId, quoteId, callbackUrl } = req.body || {};
+            const idempotencyKey = String(req.headers['idempotency-key'] || req.body?.idempotencyKey || '').trim();
+            const result = await (0, payment_workflow_service_1.initializeBookingPayment)({
+                bookingId: String(bookingId || '').trim(),
+                quoteId: quoteId ? String(quoteId).trim() : undefined,
+                idempotencyKey: idempotencyKey || undefined,
+                callbackUrl: typeof callbackUrl === 'string' ? callbackUrl.trim() : undefined,
+            }, req.user, req);
+            const io = req.app.get('io');
+            io?.to(`booking:${result.transaction.bookingId.toString()}`).emit(result.reused ? 'payment_pending' : 'payment_initialized', {
+                bookingId: result.transaction.bookingId.toString(),
+                amountMinor: result.transaction.amountMinor,
+                currency: result.transaction.currency,
+                reference: (0, payment_workflow_service_1.maskPaymentReference)(result.transaction.reference),
+                status: result.transaction.status,
+            });
+            res.status(result.reused ? 200 : 201).json({
+                success: true,
+                payment: result.response,
+                reused: result.reused,
+            });
+        }
+        catch (error) {
+            if (error instanceof payment_workflow_service_1.PaymentWorkflowError) {
+                res.status(error.statusCode).json({ message: error.message, code: error.code });
+                return;
+            }
+            console.error('Failed to initialize payment:', error);
+            res.status(500).json({ message: 'Unable to initialize secure payment.' });
+        }
+    }
+    static async getPaymentStatus(req, res) {
+        try {
+            const bookingId = String(req.params.bookingId || '').trim();
+            const userId = String(req.user.id ?? req.user._id);
+            const booking = await booking_model_1.default.findById(bookingId).lean();
+            if (!booking) {
+                res.status(404).json({ message: 'Booking not found.' });
+                return;
+            }
+            const role = String(req.user.role || '').toUpperCase();
+            const allowed = role === 'ADMIN' ||
+                String(booking.customerId) === userId ||
+                String(booking.technicianId || '') === userId;
+            if (!allowed) {
+                res.status(403).json({ message: 'Not authorized to view payment status.' });
+                return;
+            }
+            const transaction = await payment_transaction_model_1.default.findOne({ bookingId: booking._id }).sort({ createdAt: -1 }).lean();
+            res.status(200).json({
+                success: true,
+                paymentStatus: booking.paymentStatus,
+                transaction: transaction ? {
+                    reference: (0, payment_workflow_service_1.maskPaymentReference)(transaction.reference),
+                    status: transaction.status,
+                    amountMinor: transaction.amountMinor,
+                    currency: transaction.currency,
+                    paidAt: transaction.paidAt,
+                    verifiedAt: transaction.verifiedAt,
+                } : null,
+            });
+        }
+        catch (error) {
+            res.status(500).json({ message: 'Unable to load payment status.' });
+        }
+    }
+    static async handlePaystackWebhook(req, res) {
+        const rawBody = req.rawBody instanceof Buffer
+            ? req.rawBody
+            : Buffer.from(JSON.stringify(req.body || {}));
+        const signature = String(req.headers['x-paystack-signature'] || '');
+        if (!(0, paystack_service_2.verifyPaystackSignature)(rawBody, signature)) {
+            try {
+                await (0, audit_service_1.logAuditEvent)(req, {
+                    action: 'payment.webhook.invalid_signature',
+                    module: 'PAYMENTS',
+                    resourceType: 'PaymentWebhookEvent',
+                    metadata: { provider: 'PAYSTACK' },
+                    success: false,
+                });
+            }
+            catch {
+                // Audit failure must not leak details to webhook caller.
+            }
+            res.status(401).json({ message: 'Invalid webhook signature.' });
+            return;
+        }
+        try {
+            await (0, audit_service_1.logAuditEvent)(req, {
+                action: 'payment.webhook.received',
+                module: 'PAYMENTS',
+                resourceType: 'PaymentWebhookEvent',
+                metadata: {
+                    provider: 'PAYSTACK',
+                    eventType: req.body?.event,
+                    reference: req.body?.data?.reference ? (0, payment_workflow_service_1.maskPaymentReference)(String(req.body.data.reference)) : '',
+                },
+            });
+            if (String(req.body?.event || '').startsWith('transfer.')) {
+                await (0, settlement_service_1.processPaystackTransferWebhookPayload)(req.body, req);
+            }
+            else {
+                await (0, payment_workflow_service_1.processPaystackWebhookPayload)(req.body, rawBody, req);
+            }
+            res.status(200).json({ received: true });
+        }
+        catch (error) {
+            console.error('Failed to process Paystack webhook:', error);
+            res.status(200).json({ received: true });
+        }
+    }
     static async getCards(req, res) {
         try {
             const userId = req.user._id;
@@ -47,6 +164,15 @@ class PaymentController {
                 return;
             }
             const { authorization, customer } = paystackData.data;
+            if (!authorization?.authorization_code ||
+                !authorization.signature ||
+                !authorization.last4 ||
+                !authorization.exp_month ||
+                !authorization.exp_year ||
+                !customer?.customer_code) {
+                res.status(400).json({ error: 'Payment provider did not return reusable card authorization details.' });
+                return;
+            }
             if (!authorization.reusable) {
                 res.status(400).json({ error: 'Payment card method cannot be saved for recurring access operations.' });
                 return;
@@ -81,13 +207,13 @@ class PaymentController {
                 authorizationCode: authorization.authorization_code,
                 signature: authorization.signature,
                 reusable: authorization.reusable,
-                brand: authorization.brand,
-                bank: authorization.bank,
-                countryCode: authorization.country_code,
+                brand: authorization.brand || '',
+                bank: authorization.bank || '',
+                countryCode: authorization.country_code || '',
                 last4: authorization.last4,
                 expiryMonth: authorization.exp_month,
                 expiryYear: authorization.exp_year,
-                cardType: authorization.card_type,
+                cardType: authorization.card_type || '',
                 isDefault: vault.paymentMethods.length === 0,
                 status: paymentVault_model_2.PaymentMethodStatus.ACTIVE,
                 createdAt: new Date(),
@@ -174,7 +300,7 @@ class PaymentController {
             });
             const io = req.app.get('io');
             if (booking.technicianId) {
-                io?.to(`technician:${booking.technicianId.toString()}`).emit('payment_confirmed', {
+                io?.to(`technician:${booking.technicianId.toString()}`).emit('payment_pending', {
                     bookingId: booking.id,
                     reference: uniqueReference,
                     amountMinor: normalizedAmount,
@@ -186,9 +312,9 @@ class PaymentController {
                 email: req.user.email,
                 name: '',
                 channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
-                type: 'PAYMENT_CONFIRMED',
-                title: 'Payment confirmed',
-                message: `Payment for your ${booking.applianceType} booking has been confirmed.`,
+                type: 'PAYMENT_PENDING',
+                title: 'Payment submitted',
+                message: `Payment for your ${booking.applianceType} booking was submitted and still needs provider verification.`,
                 metadata: {
                     bookingId: booking.id,
                     reference: uniqueReference,

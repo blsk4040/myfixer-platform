@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
-import Booking from '../models/booking.model';
+import Booking, { BookingStatus, InspectionStatus } from '../models/booking.model';
 import ChatMessage, { ChatMessageType } from '../models/chat-message.model';
 import JobMedia, { JobMediaPurpose } from '../models/job-media.model';
 import { NotificationChannel } from '../models/notification.model';
@@ -107,6 +107,20 @@ export const uploadBookingMedia = async (req: Request, res: Response): Promise<v
 
     const dataUri = assertDataUriImage(req.body?.dataUri);
     const purpose = getPurpose(req.body?.purpose);
+    if (purpose === JobMediaPurpose.INSPECTION) {
+      if (role !== UserRole.TECHNICIAN && role !== UserRole.ADMIN) {
+        res.status(403).json({ message: 'Only the assigned technician can upload inspection evidence.' });
+        return;
+      }
+      if (role !== UserRole.ADMIN && String(booking.technicianId || '') !== userId) {
+        res.status(403).json({ message: 'Only the assigned technician can upload inspection evidence.' });
+        return;
+      }
+      if (booking.status !== BookingStatus.ARRIVED || booking.inspection?.status !== InspectionStatus.IN_PROGRESS) {
+        res.status(409).json({ message: 'Inspection evidence can be uploaded only during an active inspection.' });
+        return;
+      }
+    }
     const mimeType = typeof req.body?.mimeType === 'string' ? req.body.mimeType : getMimeTypeFromDataUri(dataUri);
     const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName.trim() : '';
     const publicId = `${booking.id}-${Date.now()}-${Math.round(Math.random() * 100000)}`;
@@ -138,6 +152,13 @@ export const uploadBookingMedia = async (req: Request, res: Response): Promise<v
         format: uploaded.format,
       },
     });
+
+    if (purpose === JobMediaPurpose.INSPECTION) {
+      await Booking.updateOne(
+        { _id: booking._id, technicianId: booking.technicianId, 'inspection.status': InspectionStatus.IN_PROGRESS },
+        { $addToSet: { 'inspection.evidenceMediaIds': media._id } }
+      );
+    }
 
     res.status(201).json({ success: true, media: serializeMedia(media) });
   } catch (error: any) {

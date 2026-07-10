@@ -308,6 +308,7 @@ const getAdminOverview = async (_req, res) => {
                         booking_model_1.BookingStatus.ACCEPTED,
                         booking_model_1.BookingStatus.IN_ROUTE,
                         booking_model_1.BookingStatus.ARRIVED,
+                        booking_model_1.BookingStatus.IN_PROGRESS,
                         booking_model_1.BookingStatus.DIAGNOSTIC_DONE,
                     ],
                 },
@@ -393,7 +394,38 @@ const getAdminBookingById = async (req, res) => {
             res.status(404).json({ message: 'Booking not found.' });
             return;
         }
-        res.status(200).json({ success: true, booking, quotes, invoices, ledger, media, messages });
+        const [customer, technicianUser, technicianProfile] = await Promise.all([
+            booking.customerId && mongoose_1.default.Types.ObjectId.isValid(booking.customerId)
+                ? user_model_1.default.findById(booking.customerId).select('name email phone profilePhotoUrl').lean()
+                : null,
+            booking.technicianId && mongoose_1.default.Types.ObjectId.isValid(booking.technicianId)
+                ? user_model_1.default.findById(booking.technicianId).select('name email phone profilePhotoUrl').lean()
+                : null,
+            booking.technicianId && mongoose_1.default.Types.ObjectId.isValid(booking.technicianId)
+                ? technician_model_1.default.findOne({ userId: booking.technicianId }).select('documents.profilePhotoUrl documents.profilePhotoStatus approvalStatus').lean()
+                : null,
+        ]);
+        const approvedTechnicianPhotoUrl = technicianProfile?.documents?.profilePhotoStatus === technician_model_1.VerificationStatus.VERIFIED
+            ? technicianProfile.documents.profilePhotoUrl
+            : '';
+        res.status(200).json({
+            success: true,
+            booking,
+            participants: {
+                customer,
+                technician: technicianUser ? {
+                    ...technicianUser,
+                    profilePhotoUrl: technicianUser.profilePhotoUrl || approvedTechnicianPhotoUrl || '',
+                    photoStatus: technicianProfile?.documents?.profilePhotoStatus || 'NOT_SUBMITTED',
+                    approvalStatus: technicianProfile?.approvalStatus || '',
+                } : null,
+            },
+            quotes,
+            invoices,
+            ledger,
+            media,
+            messages,
+        });
     }
     catch (error) {
         res.status(500).json({ success: false, message: 'Failed to fetch booking.' });

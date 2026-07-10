@@ -36,229 +36,207 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.rejectJobQuote = exports.approveJobQuote = exports.getBookingQuotes = exports.createJobQuote = void 0;
+exports.requestQuoteClarification = exports.rejectJobQuote = exports.approveJobQuote = exports.getBookingQuotes = exports.submitJobQuote = exports.createJobQuote = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
 const booking_model_1 = __importStar(require("../models/booking.model"));
 const quote_model_1 = __importStar(require("../models/quote.model"));
-const user_model_1 = require("../models/user.model");
-const market_config_1 = require("../config/market.config");
-const audit_service_1 = require("../services/audit.service");
-const email_service_1 = require("../services/email/email.service");
-const notification_service_1 = require("../services/notification.service");
 const notification_model_1 = require("../models/notification.model");
-const getAuthenticatedUser = (request) => request.user;
-const toFiniteNumber = (value) => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-};
-const isLineItemType = (value) => typeof value === 'string' && Object.values(quote_model_1.QuoteLineItemType).includes(value);
+const user_model_1 = require("../models/user.model");
+const notification_service_1 = require("../services/notification.service");
+const audit_service_1 = require("../services/audit.service");
+const quote_workflow_service_1 = require("../services/quote-workflow.service");
+const getAuthUser = (request) => request.user;
+const getUserId = (request) => String(getAuthUser(request)?.id ?? getAuthUser(request)?._id ?? '').trim();
+const isOwnerOrAdmin = (booking, userId, role) => role === user_model_1.UserRole.ADMIN || String(booking.customerId) === userId;
+const isAssignedTechnicianOrAdmin = (booking, userId, role) => role === user_model_1.UserRole.ADMIN || String(booking.technicianId || '') === userId;
+const isQuoteSubmittedStatus = (status) => [quote_model_1.QuoteStatus.SUBMITTED, quote_model_1.QuoteStatus.SENT_TO_CLIENT].includes(status);
 const serializeQuote = (quote) => ({
-    id: quote.id,
-    bookingId: quote.bookingId,
-    customerId: quote.customerId,
-    technicianId: quote.technicianId,
+    id: quote._id?.toString?.() ?? quote.id,
+    bookingId: quote.bookingId?.toString?.() ?? quote.bookingId,
+    customerId: quote.customerId?.toString?.() ?? quote.customerId,
+    technicianId: quote.technicianId?.toString?.() ?? quote.technicianId,
     countryCode: quote.countryCode,
     currency: quote.currency,
     status: quote.status,
-    lineItems: quote.lineItems,
-    subtotalAmount: quote.subtotalAmount,
+    version: quote.version ?? 1,
+    parentQuoteId: quote.parentQuoteId?.toString?.() ?? quote.parentQuoteId ?? null,
+    isCurrent: quote.isCurrent !== false,
+    lineItems: (quote.lineItems || []).map((item) => ({
+        type: item.type,
+        label: item.label,
+        description: item.label,
+        quantity: item.quantity,
+        unitAmountMinor: item.unitAmountMinor,
+        unitAmount: item.unitAmountMinor / 100,
+        totalAmountMinor: item.totalAmountMinor,
+        totalAmount: item.totalAmountMinor / 100,
+        notes: item.notes || '',
+        taxable: item.taxable === true,
+    })),
     subtotalAmountMinor: quote.subtotalAmountMinor,
-    discountAmount: quote.discountAmount,
+    subtotalAmount: quote.subtotalAmountMinor / 100,
     discountAmountMinor: quote.discountAmountMinor,
-    totalAmount: quote.totalAmount,
+    discountAmount: quote.discountAmountMinor / 100,
     totalAmountMinor: quote.totalAmountMinor,
-    technicianNotes: quote.technicianNotes,
-    clientDecisionNote: quote.clientDecisionNote,
+    totalAmount: quote.totalAmountMinor / 100,
+    technicianNotes: quote.technicianNotes || '',
+    clientDecisionNote: quote.clientDecisionNote || '',
     sentAt: quote.sentAt,
+    submittedAt: quote.submittedAt,
     approvedAt: quote.approvedAt,
     rejectedAt: quote.rejectedAt,
+    clarificationRequestedAt: quote.clarificationRequestedAt,
+    supersededAt: quote.supersededAt,
+    expiresAt: quote.expiresAt,
     createdAt: quote.createdAt,
     updatedAt: quote.updatedAt,
 });
+const emitQuoteEvent = (request, event, quote) => {
+    const io = request.app.get('io');
+    io?.to(`booking:${quote.bookingId.toString()}`).emit(event, serializeQuote(quote));
+};
+const defaultExpiry = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+const parseExpiry = (value) => {
+    if (!value)
+        return defaultExpiry();
+    const parsed = new Date(String(value));
+    if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+        throw new quote_workflow_service_1.QuoteWorkflowError('Quote expiry must be a future timestamp.', 'INVALID_QUOTE_EXPIRY');
+    }
+    return parsed;
+};
 const createJobQuote = async (request, response) => {
     const { bookingId } = request.params;
     const body = request.body;
-    const authUser = getAuthenticatedUser(request);
-    const role = (0, user_model_1.normalizeUserRole)(authUser?.role);
-    const userId = String(authUser?.id ?? authUser?._id ?? '');
-    if (role !== user_model_1.UserRole.TECHNICIAN && role !== user_model_1.UserRole.ADMIN) {
-        response.status(403).json({ message: 'Only technician or admin accounts can create quotes.' });
-        return;
-    }
-    if (!mongoose_1.default.Types.ObjectId.isValid(bookingId)) {
-        response.status(400).json({ message: 'Invalid booking id.' });
-        return;
-    }
+    const userId = getUserId(request);
+    const role = (0, user_model_1.normalizeUserRole)(getAuthUser(request)?.role);
     try {
+        if (!mongoose_1.default.Types.ObjectId.isValid(bookingId)) {
+            response.status(400).json({ message: 'Invalid booking id.' });
+            return;
+        }
+        if (role !== user_model_1.UserRole.TECHNICIAN && role !== user_model_1.UserRole.ADMIN) {
+            response.status(403).json({ message: 'Only the assigned technician can create a quote.' });
+            return;
+        }
         const booking = await booking_model_1.default.findById(bookingId);
         if (!booking) {
             response.status(404).json({ message: 'Booking not found.' });
             return;
         }
-        if (!booking.technicianId) {
-            response.status(409).json({ message: 'A technician must accept the booking before quoting.' });
+        if (!isAssignedTechnicianOrAdmin(booking, userId, role)) {
+            response.status(403).json({ message: 'Only the assigned technician can create a quote for this booking.' });
             return;
         }
-        if (role !== user_model_1.UserRole.ADMIN && String(booking.technicianId || '') !== userId) {
-            response.status(403).json({ message: 'Only the assigned technician can quote this booking.' });
-            return;
-        }
-        if (!Array.isArray(body.lineItems) || body.lineItems.length === 0) {
-            response.status(400).json({ message: 'At least one quote line item is required.' });
-            return;
-        }
-        const lineItems = body.lineItems.map((item) => {
-            if (!isLineItemType(item.type)) {
-                throw new Error('Invalid quote line item type.');
+        const shouldSubmit = body.submit !== false && body.draft !== true;
+        const parentQuoteId = typeof body.parentQuoteId === 'string' ? body.parentQuoteId.trim() : '';
+        let version = 1;
+        let parentQuote = null;
+        if (parentQuoteId) {
+            if (!mongoose_1.default.Types.ObjectId.isValid(parentQuoteId)) {
+                response.status(400).json({ message: 'Invalid parent quote id.' });
+                return;
             }
-            const label = typeof item.label === 'string' ? item.label.trim() : '';
-            const quantity = toFiniteNumber(item.quantity) ?? 1;
-            const unitAmount = toFiniteNumber(item.unitAmount);
-            if (!label || unitAmount === null || quantity <= 0 || unitAmount < 0) {
-                throw new Error('Invalid quote line item values.');
+            parentQuote = await quote_model_1.default.findOne({ _id: parentQuoteId, bookingId: booking._id });
+            if (!parentQuote) {
+                response.status(404).json({ message: 'Parent quote not found.' });
+                return;
             }
-            const rawTotal = quantity * unitAmount;
-            const signedTotal = item.type === quote_model_1.QuoteLineItemType.DISCOUNT ? -rawTotal : rawTotal;
-            return {
-                type: item.type,
-                label,
-                quantity,
-                unitAmountMinor: (0, market_config_1.toMinorUnits)(unitAmount, booking.currency),
-                totalAmountMinor: (0, market_config_1.toMinorUnits)(signedTotal, booking.currency),
-                notes: typeof item.notes === 'string' ? item.notes.trim() : '',
-            };
-        });
-        const subtotalAmountMinor = lineItems
-            .filter((item) => item.type !== quote_model_1.QuoteLineItemType.DISCOUNT)
-            .reduce((sum, item) => sum + item.totalAmountMinor, 0);
-        const discountAmountMinor = Math.abs(lineItems
-            .filter((item) => item.type === quote_model_1.QuoteLineItemType.DISCOUNT)
-            .reduce((sum, item) => sum + item.totalAmountMinor, 0));
-        const totalAmountMinor = Math.max(subtotalAmountMinor - discountAmountMinor, 0);
+            if (parentQuote.status === quote_model_1.QuoteStatus.APPROVED) {
+                response.status(409).json({ message: 'Approved quotes cannot be revised.' });
+                return;
+            }
+            version = Number(parentQuote.version || 1) + 1;
+        }
+        else {
+            const latest = await quote_model_1.default.findOne({ bookingId: booking._id }).sort({ version: -1, createdAt: -1 }).lean();
+            version = latest ? Number(latest.version || 1) + 1 : 1;
+        }
+        const totals = (0, quote_workflow_service_1.calculateQuoteTotals)(Array.isArray(body.lineItems) ? body.lineItems : [], booking.currency);
+        const now = new Date();
+        const status = shouldSubmit ? quote_model_1.QuoteStatus.SUBMITTED : quote_model_1.QuoteStatus.DRAFT;
         const quote = await quote_model_1.default.create({
             bookingId: booking._id,
-            customerId: new mongoose_1.default.Types.ObjectId(booking.customerId),
-            technicianId: new mongoose_1.default.Types.ObjectId(booking.technicianId),
+            customerId: booking.customerId,
+            technicianId: booking.technicianId,
             countryCode: booking.countryCode,
             currency: booking.currency,
-            status: quote_model_1.QuoteStatus.SENT_TO_CLIENT,
-            lineItems,
-            subtotalAmountMinor,
-            discountAmountMinor,
-            totalAmountMinor,
-            technicianNotes: typeof body.technicianNotes === 'string' ? body.technicianNotes.trim() : '',
-            sentAt: new Date(),
+            status,
+            version,
+            parentQuoteId: parentQuote?._id ?? null,
+            isCurrent: true,
+            lineItems: totals.lineItems,
+            subtotalAmountMinor: totals.subtotalAmountMinor,
+            discountAmountMinor: totals.discountAmountMinor,
+            totalAmountMinor: totals.totalAmountMinor,
+            technicianNotes: typeof body.technicianNotes === 'string' ? body.technicianNotes.trim().slice(0, 4000) : '',
+            sentAt: shouldSubmit ? now : null,
+            submittedAt: shouldSubmit ? now : null,
+            submittedBy: shouldSubmit ? new mongoose_1.default.Types.ObjectId(userId) : undefined,
+            createdBy: new mongoose_1.default.Types.ObjectId(userId),
+            expiresAt: shouldSubmit ? parseExpiry(body.expiresAt) : null,
+            metadata: {},
         });
-        booking.metadata = {
-            ...(booking.metadata ?? {}),
-            latestQuoteId: quote.id,
-            latestQuoteTotalAmountMinor: totalAmountMinor,
-            latestQuoteSentAt: quote.sentAt,
-        };
-        if (booking.status === booking_model_1.BookingStatus.ARRIVED) {
-            booking.status = booking_model_1.BookingStatus.DIAGNOSTIC_DONE;
+        if (shouldSubmit) {
+            await quote_model_1.default.updateMany({
+                _id: { $ne: quote._id },
+                bookingId: booking._id,
+                isCurrent: true,
+                status: { $in: [quote_model_1.QuoteStatus.SUBMITTED, quote_model_1.QuoteStatus.SENT_TO_CLIENT, quote_model_1.QuoteStatus.CLARIFICATION_REQUESTED, quote_model_1.QuoteStatus.REJECTED] },
+            }, {
+                $set: {
+                    status: quote_model_1.QuoteStatus.SUPERSEDED,
+                    isCurrent: false,
+                    supersededAt: now,
+                },
+            });
+            booking.set('metadata.latestQuoteId', quote._id.toString());
+            booking.set('metadata.latestQuoteVersion', quote.version);
+            booking.set('metadata.latestQuoteTotal', quote.totalAmountMinor);
+            booking.set('metadata.latestQuoteSentAt', now.toISOString());
+            booking.set('workAuthorization.status', booking_model_1.WorkAuthorizationStatus.AWAITING_QUOTE_APPROVAL);
+            booking.set('workAuthorization.reasonCode', 'QUOTE_NOT_APPROVED');
+            booking.set('workAuthorization.evaluatedAt', now);
+            await booking.save();
         }
-        await booking.save();
-        const serializedQuote = serializeQuote(quote);
-        const invoicePayload = {
-            bookingId: booking.id,
-            customerName: booking.customerName,
-            customerEmail: booking.customerEmail,
-            currency: booking.currency,
-            totalAmountMinor,
-            totalAmount: totalAmountMinor / 100,
-            lineItems: quote.lineItems,
-        };
-        const io = request.app.get('io');
-        io?.to(`booking:${booking.id}`).emit('quote_sent', {
-            ...serializedQuote,
-            invoice: invoicePayload,
-        });
-        const emailSent = await email_service_1.EmailService.sendQuoteEmail({
-            recipientEmail: booking.customerEmail,
-            customerName: booking.customerName || 'Client',
-            bookingId: booking.id,
-            totalAmount: totalAmountMinor / 100,
-            currency: booking.currency,
-            lineItems: quote.lineItems.map((item) => ({
-                label: item.label,
-                quantity: item.quantity,
-                totalAmountMinor: item.totalAmountMinor,
-            })),
-        });
-        const inboxMessages = await (0, notification_service_1.createNotifications)({
-            userId: booking.customerId,
-            email: booking.customerEmail,
-            name: booking.customerName,
-            channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
-            type: 'QUOTE_SENT',
-            title: 'Quote sent for approval',
-            message: `A quote for ${booking.applianceType} is ready for your review.`,
+        emitQuoteEvent(request, shouldSubmit ? (version > 1 ? 'quote_revised' : 'quote_submitted') : 'quote_draft_saved', quote);
+        if (shouldSubmit) {
+            await (0, notification_service_1.createNotifications)({
+                userId: booking.customerId,
+                channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
+                type: 'QUOTE_SUBMITTED',
+                title: 'Quote ready for review',
+                message: `Review the MyFixer quote for ${booking.applianceType}. Only pay through MyFixer.`,
+                metadata: { bookingId: booking.id, quoteId: quote.id, version: quote.version },
+            });
+        }
+        await (0, audit_service_1.logAuditEvent)(request, {
+            action: shouldSubmit ? (version > 1 ? 'quote.revised_submitted' : 'quote.submitted') : 'quote.draft_saved',
+            module: 'BOOKINGS',
+            resourceType: 'JobQuote',
+            resourceId: quote.id,
             metadata: {
                 bookingId: booking.id,
-                quoteId: quote.id,
-                totalAmountMinor,
-                currency: booking.currency,
+                version: quote.version,
+                totalAmountMinor: quote.totalAmountMinor,
             },
         });
-        inboxMessages.forEach((message) => {
-            io?.to(`customer:${booking.customerId.toString()}`).emit('new_inbox_message', message);
-        });
-        response.status(201).json({ success: true, quote: serializedQuote, invoice: invoicePayload, emailSent });
+        response.status(201).json({ success: true, quote: serializeQuote(quote) });
     }
     catch (error) {
-        response.status(400).json({ message: error.message || 'Failed to create quote.' });
+        if (error instanceof quote_workflow_service_1.QuoteWorkflowError) {
+            response.status(error.statusCode).json({ message: error.message, code: error.code });
+            return;
+        }
+        console.error('Failed to create job quote:', error);
+        response.status(500).json({ message: 'Failed to create quote.' });
     }
 };
 exports.createJobQuote = createJobQuote;
-const getBookingQuotes = async (request, response) => {
-    const { bookingId } = request.params;
-    const authUser = getAuthenticatedUser(request);
-    const role = (0, user_model_1.normalizeUserRole)(authUser?.role);
-    const userId = String(authUser?.id ?? authUser?._id ?? '');
-    if (!mongoose_1.default.Types.ObjectId.isValid(bookingId)) {
-        response.status(400).json({ message: 'Invalid booking id.' });
-        return;
-    }
-    try {
-        const booking = await booking_model_1.default.findById(bookingId);
-        if (!booking) {
-            response.status(404).json({ message: 'Booking not found.' });
-            return;
-        }
-        const canView = role === user_model_1.UserRole.ADMIN ||
-            String(booking.customerId) === userId ||
-            String(booking.technicianId || '') === userId;
-        if (!canView) {
-            response.status(403).json({ message: 'This account cannot view quotes for this booking.' });
-            return;
-        }
-        const quotes = await quote_model_1.default.find({ bookingId }).sort({ createdAt: -1 });
-        response.status(200).json({ success: true, quotes: quotes.map(serializeQuote) });
-    }
-    catch (error) {
-        response.status(500).json({ message: 'Failed to fetch quotes.' });
-    }
-};
-exports.getBookingQuotes = getBookingQuotes;
-const approveJobQuote = async (request, response) => {
-    await decideJobQuote(request, response, quote_model_1.QuoteStatus.APPROVED);
-};
-exports.approveJobQuote = approveJobQuote;
-const rejectJobQuote = async (request, response) => {
-    await decideJobQuote(request, response, quote_model_1.QuoteStatus.REJECTED);
-};
-exports.rejectJobQuote = rejectJobQuote;
-const decideJobQuote = async (request, response, decision) => {
+const submitJobQuote = async (request, response) => {
     const { quoteId } = request.params;
-    const body = request.body;
-    const authUser = getAuthenticatedUser(request);
-    const role = (0, user_model_1.normalizeUserRole)(authUser?.role);
-    const userId = String(authUser?.id ?? authUser?._id ?? '');
-    if (!mongoose_1.default.Types.ObjectId.isValid(quoteId)) {
-        response.status(400).json({ message: 'Invalid quote id.' });
-        return;
-    }
+    const userId = getUserId(request);
+    const role = (0, user_model_1.normalizeUserRole)(getAuthUser(request)?.role);
     try {
         const quote = await quote_model_1.default.findById(quoteId);
         if (!quote) {
@@ -270,78 +248,208 @@ const decideJobQuote = async (request, response, decision) => {
             response.status(404).json({ message: 'Booking not found.' });
             return;
         }
-        if (role !== user_model_1.UserRole.ADMIN && String(booking.customerId || '') !== userId) {
-            response.status(403).json({ message: 'Only the client or admin can decide this quote.' });
+        if (!isAssignedTechnicianOrAdmin(booking, userId, role)) {
+            response.status(403).json({ message: 'Only the assigned technician can submit this quote.' });
             return;
         }
-        if (quote.status !== quote_model_1.QuoteStatus.SENT_TO_CLIENT) {
-            response.status(409).json({ message: `Quote is already ${quote.status}.` });
+        if (quote.status !== quote_model_1.QuoteStatus.DRAFT) {
+            response.status(409).json({ message: 'Only draft quotes can be submitted.' });
             return;
         }
-        const before = {
-            status: quote.status,
-            clientDecisionNote: quote.clientDecisionNote,
-            approvedAt: quote.approvedAt,
-            rejectedAt: quote.rejectedAt,
-        };
-        quote.status = decision;
-        quote.clientDecisionNote = typeof body.note === 'string' ? body.note.trim() : '';
-        if (decision === quote_model_1.QuoteStatus.APPROVED)
-            quote.approvedAt = new Date();
-        if (decision === quote_model_1.QuoteStatus.REJECTED)
-            quote.rejectedAt = new Date();
-        if (mongoose_1.default.Types.ObjectId.isValid(userId))
-            quote.decisionBy = new mongoose_1.default.Types.ObjectId(userId);
+        const now = new Date();
+        quote.status = quote_model_1.QuoteStatus.SUBMITTED;
+        quote.sentAt = now;
+        quote.submittedAt = now;
+        quote.submittedBy = new mongoose_1.default.Types.ObjectId(userId);
+        quote.expiresAt = parseExpiry(request.body?.expiresAt);
         await quote.save();
-        if (decision === quote_model_1.QuoteStatus.APPROVED) {
-            await quote_model_1.default.updateMany({
-                bookingId: quote.bookingId,
-                _id: { $ne: quote._id },
-                status: quote_model_1.QuoteStatus.SENT_TO_CLIENT,
-            }, { $set: { status: quote_model_1.QuoteStatus.CANCELLED } });
-        }
-        const io = request.app.get('io');
-        io?.to(`booking:${booking.id}`).emit(decision === quote_model_1.QuoteStatus.APPROVED ? 'quote_approved' : 'quote_rejected', serializeQuote(quote));
-        await (0, notification_service_1.createNotifications)({
-            userId: booking.customerId,
-            email: booking.customerEmail,
-            name: booking.customerName,
-            channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
-            type: decision === quote_model_1.QuoteStatus.APPROVED ? 'QUOTE_APPROVED' : 'QUOTE_REJECTED',
-            title: decision === quote_model_1.QuoteStatus.APPROVED ? 'Quote approved' : 'Quote rejected',
-            message: decision === quote_model_1.QuoteStatus.APPROVED
-                ? `You approved the quote for ${booking.applianceType}.`
-                : `You rejected the quote for ${booking.applianceType}.`,
-            metadata: {
-                bookingId: booking.id,
-                quoteId: quote.id,
-                status: quote.status,
-            },
-        });
-        await (0, audit_service_1.logAuditEvent)(request, {
-            action: decision === quote_model_1.QuoteStatus.APPROVED ? 'quote.approve' : 'quote.reject',
-            module: 'BOOKINGS',
-            resourceType: 'JobQuote',
-            resourceId: quote.id,
-            changes: {
-                before,
-                after: {
-                    status: quote.status,
-                    clientDecisionNote: quote.clientDecisionNote,
-                    approvedAt: quote.approvedAt,
-                    rejectedAt: quote.rejectedAt,
-                    decisionBy: quote.decisionBy,
-                },
-            },
-            metadata: {
-                bookingId: booking.id,
-                totalAmountMinor: quote.totalAmountMinor,
-            },
-        });
+        await quote_model_1.default.updateMany({
+            _id: { $ne: quote._id },
+            bookingId: booking._id,
+            isCurrent: true,
+            status: { $in: [quote_model_1.QuoteStatus.SUBMITTED, quote_model_1.QuoteStatus.SENT_TO_CLIENT, quote_model_1.QuoteStatus.CLARIFICATION_REQUESTED, quote_model_1.QuoteStatus.REJECTED] },
+        }, { $set: { status: quote_model_1.QuoteStatus.SUPERSEDED, isCurrent: false, supersededAt: now } });
+        booking.set('workAuthorization.status', booking_model_1.WorkAuthorizationStatus.AWAITING_QUOTE_APPROVAL);
+        booking.set('workAuthorization.reasonCode', 'QUOTE_NOT_APPROVED');
+        booking.set('workAuthorization.evaluatedAt', now);
+        await booking.save();
+        emitQuoteEvent(request, quote.version > 1 ? 'quote_revised' : 'quote_submitted', quote);
         response.status(200).json({ success: true, quote: serializeQuote(quote) });
     }
     catch (error) {
-        response.status(500).json({ message: 'Failed to update quote.' });
+        response.status(500).json({ message: 'Failed to submit quote.' });
     }
 };
+exports.submitJobQuote = submitJobQuote;
+const getBookingQuotes = async (request, response) => {
+    const { bookingId } = request.params;
+    const userId = getUserId(request);
+    const role = (0, user_model_1.normalizeUserRole)(getAuthUser(request)?.role);
+    if (!mongoose_1.default.Types.ObjectId.isValid(bookingId)) {
+        response.status(400).json({ message: 'Invalid booking id.' });
+        return;
+    }
+    const booking = await booking_model_1.default.findById(bookingId).lean();
+    if (!booking) {
+        response.status(404).json({ message: 'Booking not found.' });
+        return;
+    }
+    if (!isOwnerOrAdmin(booking, userId, role) && !isAssignedTechnicianOrAdmin(booking, userId, role)) {
+        response.status(403).json({ message: 'Not authorized to view quotes for this booking.' });
+        return;
+    }
+    const quotes = await quote_model_1.default.find({ bookingId: booking._id }).sort({ version: -1, createdAt: -1 }).lean();
+    response.status(200).json({ success: true, quotes: quotes.map(serializeQuote) });
+};
+exports.getBookingQuotes = getBookingQuotes;
+const decideJobQuote = async (request, response, decision) => {
+    const { quoteId } = request.params;
+    const body = request.body;
+    const userId = getUserId(request);
+    const role = (0, user_model_1.normalizeUserRole)(getAuthUser(request)?.role);
+    const note = typeof body.note === 'string' ? body.note.trim() : '';
+    if (decision === quote_model_1.QuoteStatus.REJECTED && !note) {
+        response.status(400).json({ message: 'A rejection reason is required.' });
+        return;
+    }
+    const quote = await quote_model_1.default.findById(quoteId);
+    if (!quote) {
+        response.status(404).json({ message: 'Quote not found.' });
+        return;
+    }
+    const booking = await booking_model_1.default.findById(quote.bookingId);
+    if (!booking) {
+        response.status(404).json({ message: 'Booking not found.' });
+        return;
+    }
+    if (!isOwnerOrAdmin(booking, userId, role)) {
+        response.status(403).json({ message: 'Only the booking owner can respond to this quote.' });
+        return;
+    }
+    if (!isQuoteSubmittedStatus(quote.status)) {
+        response.status(409).json({ message: 'Only submitted quotes can be approved or rejected.' });
+        return;
+    }
+    if (quote.expiresAt && quote.expiresAt.getTime() < Date.now()) {
+        quote.status = quote_model_1.QuoteStatus.EXPIRED;
+        quote.expiredAt = new Date();
+        quote.isCurrent = false;
+        await quote.save();
+        response.status(409).json({ message: 'This quote has expired.', code: 'QUOTE_EXPIRED' });
+        return;
+    }
+    const now = new Date();
+    const updated = await quote_model_1.default.findOneAndUpdate({
+        _id: quote._id,
+        status: { $in: [quote_model_1.QuoteStatus.SUBMITTED, quote_model_1.QuoteStatus.SENT_TO_CLIENT] },
+        isCurrent: { $ne: false },
+    }, {
+        $set: {
+            status: decision,
+            clientDecisionNote: note,
+            decisionBy: new mongoose_1.default.Types.ObjectId(userId),
+            ...(decision === quote_model_1.QuoteStatus.APPROVED ? { approvedAt: now } : { rejectedAt: now }),
+        },
+    }, { new: true });
+    if (!updated) {
+        response.status(409).json({ message: 'Quote state changed before it could be updated.' });
+        return;
+    }
+    if (decision === quote_model_1.QuoteStatus.APPROVED) {
+        await quote_model_1.default.updateMany({ _id: { $ne: updated._id }, bookingId: booking._id, isCurrent: true }, { $set: { status: quote_model_1.QuoteStatus.SUPERSEDED, isCurrent: false, supersededAt: now } });
+        booking.paymentStatus = booking_model_1.BookingPaymentStatus.PENDING;
+        booking.set('workAuthorization.status', booking_model_1.WorkAuthorizationStatus.AWAITING_PAYMENT);
+        booking.set('workAuthorization.reasonCode', 'PAYMENT_NOT_SECURED');
+        booking.set('workAuthorization.evaluatedAt', now);
+        await booking.save();
+    }
+    const event = decision === quote_model_1.QuoteStatus.APPROVED ? 'quote_approved' : 'quote_rejected';
+    emitQuoteEvent(request, event, updated);
+    await (0, notification_service_1.createNotifications)({
+        userId: booking.technicianId,
+        channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
+        type: decision === quote_model_1.QuoteStatus.APPROVED ? 'QUOTE_APPROVED' : 'QUOTE_REJECTED',
+        title: decision === quote_model_1.QuoteStatus.APPROVED ? 'Quote approved' : 'Quote rejected',
+        message: decision === quote_model_1.QuoteStatus.APPROVED
+            ? 'The client approved the quote. Payment is still required before work can begin.'
+            : 'The client rejected the quote. Create a revision if appropriate.',
+        metadata: { bookingId: booking.id, quoteId: updated.id, version: updated.version },
+    });
+    await (0, audit_service_1.logAuditEvent)(request, {
+        action: decision === quote_model_1.QuoteStatus.APPROVED ? 'quote.approved' : 'quote.rejected',
+        module: 'BOOKINGS',
+        resourceType: 'JobQuote',
+        resourceId: updated.id,
+        metadata: { bookingId: booking.id, version: updated.version },
+    });
+    response.status(200).json({ success: true, quote: serializeQuote(updated) });
+};
+const approveJobQuote = async (request, response) => {
+    await decideJobQuote(request, response, quote_model_1.QuoteStatus.APPROVED);
+};
+exports.approveJobQuote = approveJobQuote;
+const rejectJobQuote = async (request, response) => {
+    await decideJobQuote(request, response, quote_model_1.QuoteStatus.REJECTED);
+};
+exports.rejectJobQuote = rejectJobQuote;
+const requestQuoteClarification = async (request, response) => {
+    const { quoteId } = request.params;
+    const userId = getUserId(request);
+    const role = (0, user_model_1.normalizeUserRole)(getAuthUser(request)?.role);
+    const body = request.body;
+    const message = typeof body.message === 'string' ? body.message.trim() : typeof body.note === 'string' ? body.note.trim() : '';
+    if (!message) {
+        response.status(400).json({ message: 'Clarification message is required.' });
+        return;
+    }
+    const quote = await quote_model_1.default.findById(quoteId);
+    if (!quote) {
+        response.status(404).json({ message: 'Quote not found.' });
+        return;
+    }
+    const booking = await booking_model_1.default.findById(quote.bookingId);
+    if (!booking) {
+        response.status(404).json({ message: 'Booking not found.' });
+        return;
+    }
+    if (!isOwnerOrAdmin(booking, userId, role)) {
+        response.status(403).json({ message: 'Only the booking owner can request quote clarification.' });
+        return;
+    }
+    if (!isQuoteSubmittedStatus(quote.status)) {
+        response.status(409).json({ message: 'Only submitted quotes can receive clarification requests.' });
+        return;
+    }
+    const now = new Date();
+    const updated = await quote_model_1.default.findOneAndUpdate({ _id: quote._id, status: { $in: [quote_model_1.QuoteStatus.SUBMITTED, quote_model_1.QuoteStatus.SENT_TO_CLIENT] }, isCurrent: { $ne: false } }, {
+        $set: {
+            status: quote_model_1.QuoteStatus.CLARIFICATION_REQUESTED,
+            clarificationRequestedAt: now,
+            clientDecisionNote: message.slice(0, 1000),
+            decisionBy: new mongoose_1.default.Types.ObjectId(userId),
+        },
+    }, { new: true });
+    if (!updated) {
+        response.status(409).json({ message: 'Quote state changed before clarification could be requested.' });
+        return;
+    }
+    emitQuoteEvent(request, 'quote_clarification_requested', updated);
+    await (0, notification_service_1.createNotifications)({
+        userId: booking.technicianId,
+        channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
+        type: 'QUOTE_CLARIFICATION_REQUESTED',
+        title: 'Client requested clarification',
+        message: 'The client requested clarification. Create a revised quote instead of editing the submitted quote.',
+        metadata: { bookingId: booking.id, quoteId: updated.id, version: updated.version },
+    });
+    await (0, audit_service_1.logAuditEvent)(request, {
+        action: 'quote.clarification_requested',
+        module: 'BOOKINGS',
+        resourceType: 'JobQuote',
+        resourceId: updated.id,
+        metadata: { bookingId: booking.id, version: updated.version },
+    });
+    response.status(200).json({ success: true, quote: serializeQuote(updated) });
+};
+exports.requestQuoteClarification = requestQuoteClarification;
 //# sourceMappingURL=quote.controller.js.map

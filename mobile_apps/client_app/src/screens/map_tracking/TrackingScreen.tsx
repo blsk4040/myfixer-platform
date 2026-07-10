@@ -9,7 +9,7 @@ import {
   View,
   TouchableOpacity,
 } from 'react-native';
-import { Camera, GeoJSONSource, Layer, Map as MapLibreMap, Marker, type StyleSpecification } from '@maplibre/maplibre-react-native';
+import { Camera, Map as MapLibreMap, Marker, type StyleSpecification } from '@maplibre/maplibre-react-native';
 import { 
   Phone as LucidePhone, 
   MessageSquare as LucideMessageSquare, 
@@ -18,6 +18,10 @@ import {
 } from 'lucide-react-native';
 import apiService, { BookingDetails, Coordinate } from '../../services/api.service';
 import socketService from '../../services/socket.service';
+import { RouteLine } from '../../components/maps/RouteLine';
+import { useJobRoute } from '../../hooks/useJobRoute';
+import { distanceMetersBetween } from '../../utils/distance';
+import { formatEta, formatTravelTime } from '../../utils/formatEta';
 
 // ✅ Clean type bypass declarations to silence strict SVGSVGElement type checking
 const Phone = LucidePhone as any;
@@ -103,6 +107,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
   const [technician, setTechnician] = useState<BookingDetails['technician'] | null>(null);
   const [isLoadingBooking, setIsLoadingBooking] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastLocationUpdatedAt, setLastLocationUpdatedAt] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -137,7 +142,13 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
     const socket = socketService.initializeConnection();
     const handleTechnicianLocationUpdated = (payload: LocationPayload) => {
       const nextLocation = toCoordinate(payload);
-      if (nextLocation) setTechnicianLocation(nextLocation);
+      if (nextLocation) {
+        setTechnicianLocation(nextLocation);
+        const updatedAt = typeof (payload as { updatedAt?: unknown }).updatedAt === 'string'
+          ? (payload as { updatedAt: string }).updatedAt
+          : new Date().toISOString();
+        setLastLocationUpdatedAt(updatedAt);
+      }
     };
 
     socketService.joinBookingRoom(resolvedBookingId);
@@ -158,23 +169,36 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
       (customerLocation.latitude + technicianLocation.latitude) / 2,
     ];
   }, [customerLocation, technicianLocation]);
-
-  const routeGeoJson = useMemo(() => {
+  const cameraBounds = useMemo<[number, number, number, number] | null>(() => {
     if (!customerLocation || !technicianLocation) return null;
-    return {
-      type: 'FeatureCollection',
-      features: [
-        {
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'LineString',
-            coordinates: [toLngLat(customerLocation), toLngLat(technicianLocation)],
-          },
-        },
-      ],
-    } as any;
+    return [
+      Math.min(customerLocation.longitude, technicianLocation.longitude),
+      Math.min(customerLocation.latitude, technicianLocation.latitude),
+      Math.max(customerLocation.longitude, technicianLocation.longitude),
+      Math.max(customerLocation.latitude, technicianLocation.latitude),
+    ];
   }, [customerLocation, technicianLocation]);
+
+  const routeState = useJobRoute({
+    bookingId: resolvedBookingId,
+    origin: technicianLocation,
+    destination: customerLocation,
+    enabled: Boolean(resolvedBookingId && technicianLocation && customerLocation),
+  });
+
+  const eta = routeState.route ? formatEta(routeState.route.durationSeconds, routeState.route.estimatedArrivalAt) : null;
+  const approximateDistanceMeters = technicianLocation && customerLocation
+    ? distanceMetersBetween(technicianLocation, customerLocation)
+    : null;
+  const distanceText = routeState.route
+    ? `${routeState.route.distanceKilometers.toFixed(1)} km`
+    : approximateDistanceMeters !== null
+      ? `Approx. ${(approximateDistanceMeters / 1000).toFixed(1)} km`
+      : 'Distance pending';
+  const travelTimeText = eta?.travelTime ?? (routeState.route ? formatTravelTime(routeState.route.durationSeconds) : 'Calculating...');
+  const lastUpdatedText = lastLocationUpdatedAt
+    ? new Date(lastLocationUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : 'Waiting';
 
   if (isLoadingBooking || !mapCenter || !customerLocation) {
     return (
@@ -189,17 +213,13 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
   return (
     <View style={styles.container}>
       <MapLibreMap mapStyle={OSM_RASTER_STYLE} style={styles.map}>
-        <Camera center={mapCenter ?? DEFAULT_CENTER} zoom={technicianLocation ? 12 : 14} />
-
-        {routeGeoJson && (
-          <GeoJSONSource id="technician-route" data={routeGeoJson}>
-            <Layer
-              id="technician-route-line"
-              type="line"
-              paint={{ 'line-color': '#00FF87', 'line-width': 4, 'line-opacity': 0.9 }}
-            />
-          </GeoJSONSource>
+        {cameraBounds ? (
+          <Camera bounds={cameraBounds} padding={{ top: 110, right: 42, bottom: 260, left: 42 }} />
+        ) : (
+          <Camera center={mapCenter ?? DEFAULT_CENTER} zoom={technicianLocation ? 12 : 14} />
         )}
+
+        <RouteLine id="technician-route" geometry={routeState.route?.geometry} />
 
         <Marker lngLat={toLngLat(customerLocation)}>
           <View style={styles.customerMarkerOuter}>
@@ -250,9 +270,18 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
 
         <View style={styles.etaContainer}>
           <MapPin color="#64748B" size={18} />
-          <Text style={styles.etaText}>
-            {technicianLocation ? "En route to your location details" : "Awaiting transmission response links..."}
-          </Text>
+          <View style={styles.etaTextBlock}>
+            <Text style={styles.etaText}>
+              {technicianLocation ? `Estimated travel time: ${travelTimeText}` : "Awaiting technician location..."}
+            </Text>
+            <Text style={styles.etaSubText}>
+              {routeState.isLoading ? 'Calculating road route...' : `${distanceText} • Last update ${lastUpdatedText}`}
+            </Text>
+            {eta?.arrivalTime ? <Text style={styles.etaSubText}>{eta.arrivalTime}</Text> : null}
+            {routeState.errorMessage ? (
+              <Text style={styles.routeErrorText}>The road route is temporarily unavailable.</Text>
+            ) : null}
+          </View>
         </View>
 
         <View style={styles.actionRow}>
@@ -295,6 +324,9 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: '#1E293B', marginVertical: 18 },
   etaContainer: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 },
   etaText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },
+  etaTextBlock: { flex: 1 },
+  etaSubText: { color: '#64748B', fontSize: 12, fontWeight: '600', marginTop: 3 },
+  routeErrorText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', marginTop: 5 },
 
   actionRow: { flexDirection: 'row', gap: 12 },
   iconActionBtn: { width: 50, height: 50, borderRadius: 14, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', justifyContent: 'center', alignItems: 'center' },

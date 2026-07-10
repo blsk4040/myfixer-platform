@@ -38,7 +38,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendBookingMessage = exports.getBookingMessages = exports.uploadBookingMedia = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
-const booking_model_1 = __importDefault(require("../models/booking.model"));
+const booking_model_1 = __importStar(require("../models/booking.model"));
 const chat_message_model_1 = __importStar(require("../models/chat-message.model"));
 const job_media_model_1 = __importStar(require("../models/job-media.model"));
 const notification_model_1 = require("../models/notification.model");
@@ -136,6 +136,20 @@ const uploadBookingMedia = async (req, res) => {
         }
         const dataUri = assertDataUriImage(req.body?.dataUri);
         const purpose = getPurpose(req.body?.purpose);
+        if (purpose === job_media_model_1.JobMediaPurpose.INSPECTION) {
+            if (role !== user_model_1.UserRole.TECHNICIAN && role !== user_model_1.UserRole.ADMIN) {
+                res.status(403).json({ message: 'Only the assigned technician can upload inspection evidence.' });
+                return;
+            }
+            if (role !== user_model_1.UserRole.ADMIN && String(booking.technicianId || '') !== userId) {
+                res.status(403).json({ message: 'Only the assigned technician can upload inspection evidence.' });
+                return;
+            }
+            if (booking.status !== booking_model_1.BookingStatus.ARRIVED || booking.inspection?.status !== booking_model_1.InspectionStatus.IN_PROGRESS) {
+                res.status(409).json({ message: 'Inspection evidence can be uploaded only during an active inspection.' });
+                return;
+            }
+        }
         const mimeType = typeof req.body?.mimeType === 'string' ? req.body.mimeType : getMimeTypeFromDataUri(dataUri);
         const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName.trim() : '';
         const publicId = `${booking.id}-${Date.now()}-${Math.round(Math.random() * 100000)}`;
@@ -166,6 +180,9 @@ const uploadBookingMedia = async (req, res) => {
                 format: uploaded.format,
             },
         });
+        if (purpose === job_media_model_1.JobMediaPurpose.INSPECTION) {
+            await booking_model_1.default.updateOne({ _id: booking._id, technicianId: booking.technicianId, 'inspection.status': booking_model_1.InspectionStatus.IN_PROGRESS }, { $addToSet: { 'inspection.evidenceMediaIds': media._id } });
+        }
         res.status(201).json({ success: true, media: serializeMedia(media) });
     }
     catch (error) {

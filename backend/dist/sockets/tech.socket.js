@@ -41,10 +41,12 @@ exports.registerTechnicianHandlers = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const redis_1 = require("../config/redis");
+const booking_model_1 = __importDefault(require("../models/booking.model"));
 const technician_model_1 = __importStar(require("../models/technician.model"));
 const technician_telemetry_model_1 = __importDefault(require("../models/technician-telemetry.model"));
 const user_model_1 = require("../models/user.model");
 const matching_service_1 = __importDefault(require("../services/matching.service"));
+const booking_privacy_service_1 = require("../services/booking-privacy.service");
 const TECHNICIAN_LOCATIONS_KEY = 'technicians:locations';
 const isSocketDebugEnabled = () => process.env.NODE_ENV !== 'production' || process.env.SOCKET_DEBUG === 'true';
 const logSocketDebug = (message, metadata) => {
@@ -156,19 +158,19 @@ const emitAvailableJobs = async (io, targetTechnicianId) => {
     await matching_service_1.default.markBookingsSentToTechnician(targetTechnicianId, jobs.map((job) => job.id));
     const payload = jobs.map((job) => ({
         bookingId: job.id,
+        id: job.id,
         applianceType: job.applianceType,
         faultDescription: job.faultDescription,
-        fullAddress: job.fullAddress,
-        complexDetails: job.complexDetails,
         generalArea: job.generalArea,
+        approximateArea: job.approximateArea,
         priceMinor: job.priceMinor,
+        callOutFee: job.callOutFee,
         currency: job.currency,
         countryCode: job.countryCode,
-        latitude: job.latitude,
-        longitude: job.longitude,
         distanceKm: job.distanceKm,
-        distanceText: `${job.distanceKm.toFixed(1)} km`,
+        distanceText: job.distanceText,
         categoryMatch: job.categoryMatch,
+        hasPreciseLocation: false,
     }));
     io.to(`technician:${targetTechnicianId}`).emit('available_jobs', payload);
 };
@@ -190,15 +192,33 @@ const registerTechnicianHandlers = (io, socket) => {
         });
     }
     socket.on('join_booking_room', async (payload) => {
-        if (!payload?.bookingId)
+        const bookingId = payload?.bookingId?.trim();
+        const technicianIdForRoom = typeof socket.data.technicianId === 'string' ? socket.data.technicianId : '';
+        if (!bookingId || !technicianIdForRoom || !mongoose_1.default.Types.ObjectId.isValid(bookingId)) {
+            socket.emit('join_booking_room_error', { message: 'Invalid booking room request' });
             return;
-        await socket.join(`booking:${payload.bookingId}`);
+        }
+        const booking = await booking_model_1.default.findById(bookingId).select('technicianId status customerId').lean();
+        if (!booking || !(0, booking_privacy_service_1.canJoinPrivateBookingRoom)(booking, technicianIdForRoom, user_model_1.UserRole.TECHNICIAN)) {
+            socket.emit('join_booking_room_error', { message: 'Not authorized for this booking room' });
+            return;
+        }
+        await socket.join(`booking:${bookingId}`);
         console.info(`👨‍🔧 Specialist locked into active job map loop: booking:${payload.bookingId}`);
     });
     socket.on('join_chat_room', async (payload) => {
-        if (!payload?.bookingId)
+        const bookingId = payload?.bookingId?.trim();
+        const technicianIdForRoom = typeof socket.data.technicianId === 'string' ? socket.data.technicianId : '';
+        if (!bookingId || !technicianIdForRoom || !mongoose_1.default.Types.ObjectId.isValid(bookingId)) {
+            socket.emit('join_chat_room_error', { message: 'Invalid chat room request' });
             return;
-        await socket.join(`chat:${payload.bookingId}`);
+        }
+        const booking = await booking_model_1.default.findById(bookingId).select('technicianId status customerId').lean();
+        if (!booking || !(0, booking_privacy_service_1.canJoinPrivateBookingRoom)(booking, technicianIdForRoom, user_model_1.UserRole.TECHNICIAN)) {
+            socket.emit('join_chat_room_error', { message: 'Not authorized for this chat room' });
+            return;
+        }
+        await socket.join(`chat:${bookingId}`);
     });
     socket.on('technician_status_change', async (payload) => {
         const targetTechnicianId = socket.data.technicianId;
@@ -274,6 +294,11 @@ const registerTechnicianHandlers = (io, socket) => {
             return;
         }
         try {
+            const booking = await booking_model_1.default.findById(bookingId).select('technicianId status customerId').lean();
+            if (!booking || !(0, booking_privacy_service_1.canJoinPrivateBookingRoom)(booking, technicianId, user_model_1.UserRole.TECHNICIAN)) {
+                socket.emit('location_update_error', { message: 'Not authorized to update this booking location' });
+                return;
+            }
             const redisClient = await (0, redis_1.connectRedis)();
             if (redisClient) {
                 await redisClient.geoadd(TECHNICIAN_LOCATIONS_KEY, longitude, latitude, technicianId);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import apiService, { ProviderPayoutMethodRecord } from '../../services/api.service';
 
 interface InvoiceItem {
   id: string;
@@ -34,6 +35,14 @@ export function BankingInvoiceScreen(): React.JSX.Element {
   const [mobileMoneyNumber, setMobileMoneyNumber] = useState('');
   const [taxNumber, setTaxNumber] = useState('');
   const [businessName, setBusinessName] = useState('');
+  const [methods, setMethods] = useState<ProviderPayoutMethodRecord[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiService.getPayoutMethods()
+      .then((response) => setMethods(response.methods || []))
+      .catch(() => undefined);
+  }, []);
 
   const formatMoney = (amount: number, currencyCode: string) => {
     try {
@@ -46,7 +55,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
     }
   };
 
-  const handleSaveBankingDetails = () => {
+  const handleSaveBankingDetails = async () => {
     if (!accountHolder.trim()) {
       Alert.alert('Account Holder Required', 'Please enter the name on the bank or wallet account.');
       return;
@@ -62,10 +71,42 @@ export function BankingInvoiceScreen(): React.JSX.Element {
       return;
     }
 
-    Alert.alert(
-      'Bank Details Saved',
-      'Your payout details have been saved. MyFixer will use these details when payouts are ready.'
-    );
+    try {
+      setSaving(true);
+      if (selectedRegion === 'EA') {
+        const response = await apiService.addMobileMoneyPayoutMethod({
+          countryCode: 'GH',
+          currency: 'GHS',
+          operatorCode: bankName.trim(),
+          phoneNumber: mobileMoneyNumber.trim(),
+          accountName: accountHolder.trim(),
+          makeDefault: true,
+        });
+        setMethods((prev) => [response.method, ...prev.filter((item) => item.id !== response.method.id)]);
+      } else {
+        const response = await apiService.addBankPayoutMethod({
+          countryCode: selectedRegion === 'ZA' ? 'ZA' : 'NG',
+          currency: selectedRegion === 'ZA' ? 'ZAR' : 'NGN',
+          accountHolderName: accountHolder.trim(),
+          bankName: bankName.trim(),
+          bankCode: selectedRegion === 'ZA' ? branchCode.trim() : sortCode.trim(),
+          accountNumber: accountNumber.trim(),
+          makeDefault: true,
+        });
+        setMethods((prev) => [response.method, ...prev.filter((item) => item.id !== response.method.id)]);
+      }
+
+      Alert.alert(
+        'Payout Method Saved',
+        'Your details were saved for admin-approved payouts. Full account details will not be shown again.'
+      );
+      setAccountNumber('');
+      setMobileMoneyNumber('');
+    } catch (error) {
+      Alert.alert('Payout Method Not Saved', error instanceof Error ? error.message : 'Unable to save payout method.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSaveTaxDetails = () => {
@@ -130,7 +171,12 @@ export function BankingInvoiceScreen(): React.JSX.Element {
 
           <View style={styles.statusCard}>
             <Text style={styles.statusTitle}>Payout status</Text>
-            <Text style={styles.statusText}>Not ready yet. Add your details below so payouts can be reviewed.</Text>
+            <Text style={styles.statusText}>Your earnings become eligible for payout only after the job is completed, confirmed and approved.</Text>
+            {methods.map((method) => (
+              <Text key={method.id} style={styles.statusText}>
+                {method.isDefault ? 'Default: ' : ''}{method.maskedDestination} - {method.status}
+              </Text>
+            ))}
           </View>
 
           <Text style={styles.inputLabel}>Country / payout type</Text>
@@ -217,8 +263,8 @@ export function BankingInvoiceScreen(): React.JSX.Element {
             )}
           </View>
 
-          <TouchableOpacity style={styles.saveButton} activeOpacity={0.8} onPress={handleSaveBankingDetails}>
-            <Text style={styles.saveButtonText}>Save Bank Details</Text>
+          <TouchableOpacity style={[styles.saveButton, saving && { opacity: 0.6 }]} activeOpacity={0.8} onPress={handleSaveBankingDetails} disabled={saving}>
+            <Text style={styles.saveButtonText}>{saving ? 'Saving...' : 'Save Payout Method'}</Text>
           </TouchableOpacity>
 
           <View style={styles.taxSection}>

@@ -26,6 +26,7 @@ import { useSocketConnection } from '../../context/SocketContext';
 import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
 import { useJobStore } from '../../store/useJobStore';
 import apiService from '../../services/api.service';
+import { acceptBookingWorkflow, normalizeJobPayload } from '../../services/jobWorkflow.service';
 
 const BriefcaseIcon = Briefcase as any;
 const CheckCircleIcon = CheckCircle2 as any;
@@ -51,8 +52,10 @@ const getStageLabel = (status?: string) => {
       return 'On my way';
     case 'ARRIVED':
       return 'Arrived';
+    case 'IN_PROGRESS':
+      return 'In progress';
     case 'DIAGNOSTIC_DONE':
-      return 'Diagnosis done';
+      return 'In progress';
     case 'COMPLETED':
       return 'Completed';
     default:
@@ -82,20 +85,7 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
 
         if (Array.isArray(response.jobs)) {
           useJobStore.setState({
-            incomingJobs: response.jobs.map((job: any) => ({
-              id: String(job.bookingId || job.id || ''),
-              applianceType: job.applianceType,
-              faultDescription: job.faultDescription || '',
-              price: Number(job.priceMinor || 0) / 100,
-              distance: job.distanceText || 'Nearby',
-              generalArea: job.generalArea || 'Local area',
-              customerName: job.customerName || 'Client',
-              fullAddress: job.fullAddress || '',
-              complexDetails: job.complexDetails || '',
-              currency: job.currency || 'ZAR',
-              latitude: Number(job.latitude),
-              longitude: Number(job.longitude),
-            })) as any,
+            incomingJobs: response.jobs.map(normalizeJobPayload),
           });
         }
       } catch (error) {
@@ -108,12 +98,7 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
 
   const handleAcceptJob = async (job: any) => {
     try {
-      await apiService.acceptBooking(job.id);
-      useJobStore.getState().acceptJob({
-        ...job,
-        latitude: Number(job.latitude),
-        longitude: Number(job.longitude),
-      });
+      await acceptBookingWorkflow(job, technicianIdentity.userId);
 
       Alert.alert('Job accepted', 'You can now open the job and start your next step.');
       navigation.navigate('Jobs', { jobId: job.id });

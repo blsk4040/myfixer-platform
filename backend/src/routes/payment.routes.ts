@@ -7,9 +7,13 @@ import { UserRole } from '../models/user.model';
 const router = Router();
 const paymentHandler = (handler: typeof PaymentController.getCards): RequestHandler => handler as RequestHandler;
 
-// Protect the entire payment domain space under JWT validations
+router.post('/webhooks/paystack', paymentHandler(PaymentController.handlePaystackWebhook as any));
+
+// Protect the rest of the payment domain space under JWT validations
 router.use(authenticateToken);
 
+router.post('/initialize', requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), paymentHandler(PaymentController.initializePayment as any));
+router.get('/booking/:bookingId/status', requireRole([UserRole.CUSTOMER, UserRole.TECHNICIAN, UserRole.ADMIN]), paymentHandler(PaymentController.getPaymentStatus as any));
 router.get('/cards', requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), paymentHandler(PaymentController.getCards));
 router.post('/save-card', requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), paymentHandler(PaymentController.saveCard));
 router.post('/charge-saved-card', requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), paymentHandler(PaymentController.chargeSavedCard));

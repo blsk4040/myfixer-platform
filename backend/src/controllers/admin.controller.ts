@@ -325,6 +325,7 @@ export const getAdminOverview = async (_req: Request, res: Response): Promise<vo
             BookingStatus.ACCEPTED,
             BookingStatus.IN_ROUTE,
             BookingStatus.ARRIVED,
+            BookingStatus.IN_PROGRESS,
             BookingStatus.DIAGNOSTIC_DONE,
           ],
         },

@@ -3,10 +3,12 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { connectRedis } from '../config/redis';
+import Booking from '../models/booking.model';
 import TechnicianModel, { TechnicianApprovalStatus } from '../models/technician.model';
 import TechnicianTelemetry from '../models/technician-telemetry.model';
 import { normalizeUserRole, UserRole } from '../models/user.model';
 import matchingService from '../services/matching.service';
+import { canJoinPrivateBookingRoom } from '../services/booking-privacy.service';
 
 const TECHNICIAN_LOCATIONS_KEY = 'technicians:locations';
 
@@ -165,19 +167,19 @@ const emitAvailableJobs = async (io: SocketIOServer, targetTechnicianId: string)
   );
   const payload = jobs.map((job) => ({
     bookingId: job.id,
+    id: job.id,
     applianceType: job.applianceType,
     faultDescription: job.faultDescription,
-    fullAddress: job.fullAddress,
-    complexDetails: job.complexDetails,
     generalArea: job.generalArea,
+    approximateArea: job.approximateArea,
     priceMinor: job.priceMinor,
+    callOutFee: job.callOutFee,
     currency: job.currency,
     countryCode: job.countryCode,
-    latitude: job.latitude,
-    longitude: job.longitude,
     distanceKm: job.distanceKm,
-    distanceText: `${job.distanceKm.toFixed(1)} km`,
+    distanceText: job.distanceText,
     categoryMatch: job.categoryMatch,
+    hasPreciseLocation: false,
   }));
 
   io.to(`technician:${targetTechnicianId}`).emit('available_jobs', payload);
@@ -204,14 +206,38 @@ export const registerTechnicianHandlers = (io: SocketIOServer, socket: Socket): 
   }
 
   socket.on('join_booking_room', async (payload: { bookingId: string }) => {
-    if (!payload?.bookingId) return;
-    await socket.join(`booking:${payload.bookingId}`);
+    const bookingId = payload?.bookingId?.trim();
+    const technicianIdForRoom = typeof socket.data.technicianId === 'string' ? socket.data.technicianId : '';
+    if (!bookingId || !technicianIdForRoom || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      socket.emit('join_booking_room_error', { message: 'Invalid booking room request' });
+      return;
+    }
+
+    const booking = await Booking.findById(bookingId).select('technicianId status customerId').lean();
+    if (!booking || !canJoinPrivateBookingRoom(booking, technicianIdForRoom, UserRole.TECHNICIAN)) {
+      socket.emit('join_booking_room_error', { message: 'Not authorized for this booking room' });
+      return;
+    }
+
+    await socket.join(`booking:${bookingId}`);
     console.info(`👨‍🔧 Specialist locked into active job map loop: booking:${payload.bookingId}`);
   });
 
   socket.on('join_chat_room', async (payload: { bookingId: string }) => {
-    if (!payload?.bookingId) return;
-    await socket.join(`chat:${payload.bookingId}`);
+    const bookingId = payload?.bookingId?.trim();
+    const technicianIdForRoom = typeof socket.data.technicianId === 'string' ? socket.data.technicianId : '';
+    if (!bookingId || !technicianIdForRoom || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      socket.emit('join_chat_room_error', { message: 'Invalid chat room request' });
+      return;
+    }
+
+    const booking = await Booking.findById(bookingId).select('technicianId status customerId').lean();
+    if (!booking || !canJoinPrivateBookingRoom(booking, technicianIdForRoom, UserRole.TECHNICIAN)) {
+      socket.emit('join_chat_room_error', { message: 'Not authorized for this chat room' });
+      return;
+    }
+
+    await socket.join(`chat:${bookingId}`);
   });
 
   socket.on('technician_status_change', async (payload: { technicianId?: string; status?: string }) => {
@@ -301,6 +327,12 @@ export const registerTechnicianHandlers = (io: SocketIOServer, socket: Socket): 
     }
 
     try {
+      const booking = await Booking.findById(bookingId).select('technicianId status customerId').lean();
+      if (!booking || !canJoinPrivateBookingRoom(booking, technicianId, UserRole.TECHNICIAN)) {
+        socket.emit('location_update_error', { message: 'Not authorized to update this booking location' });
+        return;
+      }
+
       const redisClient = await connectRedis();
 
       if (redisClient) {

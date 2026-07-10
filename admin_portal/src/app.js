@@ -55,6 +55,7 @@ const state = {
     quotes: [],
     invoices: [],
     ledger: [],
+    settlements: [],
     markets: [],
     adminUsers: [],
     auditLogs: [],
@@ -83,6 +84,7 @@ const views = [
   { id: 'subscriptions', label: 'Subscriptions', icon: 'R', permission: 'finance.read' },
   { id: 'quotes', label: 'Quotes', icon: 'Q', permission: 'bookings.read' },
   { id: 'invoices', label: 'Invoices', icon: '$', permission: 'finance.read' },
+  { id: 'settlements', label: 'Settlements', icon: 'P', permission: 'finance.read' },
   { id: 'ledger', label: 'Wallet Ledger', icon: 'L', permission: 'finance.read' },
   { id: 'adminUsers', label: 'Admin Users', icon: 'A', permission: 'admins.read' },
   { id: 'settings', label: 'Settings', icon: 'S', permission: 'markets.read' },
@@ -398,13 +400,14 @@ async function loadAllData() {
       subscriptions: hasPermission('finance.read') ? api('/admin/managed-collection-subscriptions') : Promise.resolve({ plans: [], subscriptions: [], invoices: [], reports: {}, meta: {} }),
       quotes: hasPermission('bookings.read') ? api('/admin/quotes?limit=100') : Promise.resolve({ quotes: [] }),
       invoices: hasPermission('finance.read') ? api('/admin/invoices?limit=100') : Promise.resolve({ invoices: [] }),
+      settlements: hasPermission('finance.read') ? api('/admin/settlements') : Promise.resolve({ settlements: [] }),
       ledger: hasPermission('finance.read') ? api('/admin/wallet-transactions?limit=100') : Promise.resolve({ transactions: [] }),
       markets: hasPermission('markets.read') ? api('/admin/markets') : Promise.resolve({ markets: [], availableStatuses: [], availablePaymentProviders: [], defaultServiceCategories: [], availableMarkets: [] }),
       adminUsers: hasPermission('admins.read') ? api('/admin/users') : Promise.resolve({ admins: [], roles: [], permissionsByRole: {} }),
       auditLogs: hasPermission('admins.read') ? api('/admin/audit-logs?limit=100') : Promise.resolve({ logs: [] }),
     };
 
-    const [overview, technicians, bookings, managedCollections, collectionOperations, notifications, subscriptions, quotes, invoices, ledger, markets, adminUsers, auditLogs] = await Promise.all(Object.values(requests));
+    const [overview, technicians, bookings, managedCollections, collectionOperations, notifications, subscriptions, quotes, invoices, settlements, ledger, markets, adminUsers, auditLogs] = await Promise.all(Object.values(requests));
 
     state.data.overview = overview.overview;
     state.data.technicians = technicians.technicians || [];
@@ -435,6 +438,7 @@ async function loadAllData() {
     };
     state.data.quotes = quotes.quotes || [];
     state.data.invoices = invoices.invoices || [];
+    state.data.settlements = settlements.settlements || [];
     state.data.ledger = ledger.transactions || [];
     state.data.markets = markets.markets || [];
     state.data.marketMeta = {
@@ -882,6 +886,7 @@ function renderActiveView() {
   if (state.activeView === 'subscriptions') return renderSubscriptions();
   if (state.activeView === 'quotes') return renderQuotes();
   if (state.activeView === 'invoices') return renderInvoices();
+  if (state.activeView === 'settlements') return renderSettlements();
   if (state.activeView === 'ledger') return renderLedger();
   if (state.activeView === 'adminUsers') return renderAdminUsers();
   if (state.activeView === 'settings') return renderSettings();
@@ -1642,6 +1647,75 @@ function renderInvoices() {
       ])}
     </section>
   `;
+}
+
+function renderSettlements() {
+  const rows = state.data.settlements || [];
+  return `
+    <section class="panel">
+      <div class="panel-header"><h2>Settlement Centre</h2><span>${rows.length} latest</span></div>
+      ${renderGenericTable(rows, ['Settlement', 'Booking', 'Currency', 'Gross', 'Commission', 'Net', 'Status', 'Payout', 'Actions'], (settlement) => [
+        escapeHtml(settlement.id || settlement._id || '-'),
+        escapeHtml(settlement.bookingId || '-'),
+        escapeHtml(settlement.currency || '-'),
+        moneyFromMinor(settlement.grossAmountMinor || 0, settlement.currency || 'ZAR'),
+        moneyFromMinor(settlement.commissionAmountMinor || 0, settlement.currency || 'ZAR'),
+        moneyFromMinor(settlement.netAmountMinor || 0, settlement.currency || 'ZAR'),
+        `<span class="status ${statusClass(settlement.status)}">${escapeHtml(settlement.status || '-')}</span>`,
+        escapeHtml(settlement.metadata?.payoutDestinationSnapshot?.maskedDestination || 'Not selected'),
+        renderSettlementActions(settlement),
+      ])}
+    </section>
+  `;
+}
+
+function renderSettlementActions(settlement) {
+  const id = settlement.id || settlement._id;
+  if (!id || !canMutate('finance.read')) return '<span class="status info">Read only</span>';
+  const status = settlement.status || '';
+  const approve = ['APPROVAL_REQUIRED', 'READY_FOR_PAYOUT', 'PAYOUT_FAILED'].includes(status)
+    ? `<button class="ghost-button compact" onclick="approveSettlement('${id}')">Approve</button>`
+    : '';
+  const hold = !['PAID', 'PAYOUT_PROCESSING'].includes(status)
+    ? `<button class="ghost-button compact" onclick="holdSettlement('${id}')">Hold</button>`
+    : '';
+  const release = status === 'ON_HOLD'
+    ? `<button class="ghost-button compact" onclick="releaseSettlementHold('${id}')">Release</button>`
+    : '';
+  const retry = status === 'PAYOUT_FAILED'
+    ? `<button class="ghost-button compact" onclick="retrySettlementPayout('${id}')">Retry</button>`
+    : '';
+  return `<div class="inline-actions">${approve}${hold}${release}${retry}</div>`;
+}
+
+async function approveSettlement(id) {
+  const reason = window.prompt('Approval note for payout review');
+  if (!reason) return;
+  await api(`/admin/settlements/${id}/approve`, { method: 'POST', body: JSON.stringify({ reason }) });
+  await loadAllData();
+  render();
+}
+
+async function holdSettlement(id) {
+  const reason = window.prompt('Reason for settlement hold');
+  if (!reason) return;
+  await api(`/admin/settlements/${id}/hold`, { method: 'POST', body: JSON.stringify({ reason }) });
+  await loadAllData();
+  render();
+}
+
+async function releaseSettlementHold(id) {
+  const reason = window.prompt('Reason for releasing hold') || 'Reviewed';
+  await api(`/admin/settlements/${id}/release-hold`, { method: 'POST', body: JSON.stringify({ reason }) });
+  await loadAllData();
+  render();
+}
+
+async function retrySettlementPayout(id) {
+  const reason = window.prompt('Reason for payout retry') || 'Retry reviewed payout';
+  await api(`/admin/settlements/${id}/retry-payout`, { method: 'POST', body: JSON.stringify({ reason }) });
+  await loadAllData();
+  render();
 }
 
 function renderLedger() {

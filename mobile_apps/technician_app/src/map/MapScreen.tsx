@@ -1,14 +1,21 @@
 // src/screens/map/MapScreen.tsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Linking, Platform } from 'react-native';
+import { Alert, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera, GeoJSONSource, Layer, Map as MapLibreMap, Marker, UserLocation, type StyleSpecification } from '@maplibre/maplibre-react-native';
+import { Camera, Map as MapLibreMap, Marker, UserLocation, type StyleSpecification } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
-import { EyeOff } from 'lucide-react-native';
+import { Crosshair, EyeOff, RefreshCw } from 'lucide-react-native';
 import { useJobStore } from '../store/useJobStore';
 import { useSocketConnection } from '../context/SocketContext';
+import { RouteLine } from '../components/maps/RouteLine';
+import { useJobRoute } from '../hooks/useJobRoute';
+import { distanceMetersBetween, isWithinArrivalRadius } from '../utils/distance';
+import { formatEta } from '../utils/formatEta';
+import apiService from '../services/api.service';
 
 const EyeOffIcon = EyeOff as any;
+const RefreshCwIcon = RefreshCw as any;
+const CrosshairIcon = Crosshair as any;
 
 const DEFAULT_CENTER: [number, number] = [28.0473, -26.1200];
 
@@ -19,7 +26,7 @@ const OSM_RASTER_STYLE: StyleSpecification = {
       type: 'raster',
       tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
       tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
+      attribution: 'Â© OpenStreetMap contributors',
     },
   },
   layers: [
@@ -29,14 +36,21 @@ const OSM_RASTER_STYLE: StyleSpecification = {
 };
 
 const toLngLat = (latitude: number, longitude: number): [number, number] => [longitude, latitude];
+const ARRIVAL_RADIUS_METERS = 100;
+const MAX_ARRIVAL_ACCURACY_METERS = 50;
 
 export function MapScreen(): React.JSX.Element {
   const { isOnDuty, toggleDutyStatus } = useSocketConnection();
   const incomingJobs = useJobStore((state) => state.incomingJobs || []);
   const activeJobs = useJobStore((state) => state.activeJobs || []);
+  const updateJobStatus = useJobStore((state) => state.updateJobStatus);
 
   const [selectedJob, setSelectedJob] = useState<any | null>(activeJobs[0] || null);
   const [technicianLocation, setTechnicianLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
+  const [lastLocationRecordedAt, setLastLocationRecordedAt] = useState<string | null>(null);
+  const [hasShownArrivalPrompt, setHasShownArrivalPrompt] = useState(false);
+  const [isConfirmingArrival, setIsConfirmingArrival] = useState(false);
 
   useEffect(() => {
     let subscription: Location.LocationSubscription | null = null;
@@ -49,6 +63,8 @@ export function MapScreen(): React.JSX.Element {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
         });
+        setLocationAccuracy(location.coords.accuracy ?? null);
+        setLastLocationRecordedAt(new Date(location.timestamp).toISOString());
       }
     ).then((nextSubscription) => {
       subscription = nextSubscription;
@@ -59,41 +75,105 @@ export function MapScreen(): React.JSX.Element {
     };
   }, [isOnDuty]);
 
-  const routeGeoJson = useMemo(() => {
-    if (!technicianLocation || !selectedJob) return null;
+  const destination = useMemo(() => {
+    if (!selectedJob) return null;
     const destination = {
       latitude: Number(selectedJob.latitude),
       longitude: Number(selectedJob.longitude),
     };
     if (!Number.isFinite(destination.latitude) || !Number.isFinite(destination.longitude)) return null;
+    return destination;
+  }, [selectedJob]);
 
-    return {
-      type: 'FeatureCollection',
-      features: [
-        {
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'LineString',
-            coordinates: [
-              toLngLat(technicianLocation.latitude, technicianLocation.longitude),
-              toLngLat(destination.latitude, destination.longitude),
-            ],
-          },
-        },
-      ],
-    } as any;
-  }, [selectedJob, technicianLocation]);
+  const bookingId = selectedJob ? String(selectedJob.bookingId || selectedJob.id || '') : '';
 
-  const openNativeMaps = (lat: number, lng: number, label: string) => {
-    const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=' });
-    const latLng = `${lat},${lng}`;
-    const url = Platform.select({
-      ios: `${scheme}${label}@${latLng}`,
-      android: `${scheme}${latLng}(${label})`,
-    });
-    if (url) Linking.openURL(url);
+  const routeState = useJobRoute({
+    bookingId,
+    origin: technicianLocation,
+    destination,
+    enabled: Boolean(bookingId && technicianLocation && destination && selectedJob?.jobStatus !== 'COMPLETED'),
+  });
+
+  const eta = routeState.route ? formatEta(routeState.route.durationSeconds, routeState.route.estimatedArrivalAt) : null;
+  const fallbackDistanceMeters = technicianLocation && destination ? distanceMetersBetween(technicianLocation, destination) : null;
+  const distanceText = routeState.route
+    ? `${routeState.route.distanceKilometers.toFixed(1)} km`
+    : fallbackDistanceMeters !== null
+      ? `Approx. ${(fallbackDistanceMeters / 1000).toFixed(1)} km`
+      : 'Distance pending';
+  const cameraBounds = useMemo<[number, number, number, number] | null>(() => {
+    if (!technicianLocation || !destination) return null;
+    return [
+      Math.min(technicianLocation.longitude, destination.longitude),
+      Math.min(technicianLocation.latitude, destination.latitude),
+      Math.max(technicianLocation.longitude, destination.longitude),
+      Math.max(technicianLocation.latitude, destination.latitude),
+    ];
+  }, [destination, technicianLocation]);
+
+  useEffect(() => {
+    setHasShownArrivalPrompt(false);
+  }, [bookingId]);
+
+  const isInArrivalArea = Boolean(
+    technicianLocation &&
+      destination &&
+      selectedJob?.jobStatus === 'IN_ROUTE' &&
+      locationAccuracy !== null &&
+      locationAccuracy <= MAX_ARRIVAL_ACCURACY_METERS &&
+      isWithinArrivalRadius(technicianLocation, destination, ARRIVAL_RADIUS_METERS)
+  );
+
+  const handleConfirmArrival = async (): Promise<void> => {
+    if (!bookingId || !technicianLocation || locationAccuracy === null) {
+      Alert.alert('Arrival unavailable', 'Your current GPS reading is unavailable. Please retry when location is active.');
+      return;
+    }
+
+    try {
+      setIsConfirmingArrival(true);
+      const result = await apiService.confirmArrival(bookingId, {
+        latitude: technicianLocation.latitude,
+        longitude: technicianLocation.longitude,
+        accuracyMeters: locationAccuracy,
+        recordedAt: lastLocationRecordedAt ?? new Date().toISOString(),
+      });
+
+      if (result.status === 'ARRIVED') {
+        updateJobStatus('ARRIVED');
+        setSelectedJob((job: any | null) => job ? { ...job, jobStatus: 'ARRIVED' } : job);
+        Alert.alert(
+          'Arrival confirmed',
+          'Keep all job communication, approvals and payments inside MyFixer. Use Start Job when work begins.'
+        );
+        return;
+      }
+
+      Alert.alert('Arrival reading accepted', result.message || 'Please confirm again after a short moment.');
+    } catch (error) {
+      Alert.alert(
+        'Arrival not confirmed',
+        error instanceof Error
+          ? `${error.message}\n\nRetry, contact support, or record the access issue in MyFixer.`
+          : 'Retry, contact support, or record the access issue in MyFixer.'
+      );
+    } finally {
+      setIsConfirmingArrival(false);
+    }
   };
+
+  useEffect(() => {
+    if (!isInArrivalArea || hasShownArrivalPrompt || !bookingId) return;
+    setHasShownArrivalPrompt(true);
+    Alert.alert(
+      'You appear to have reached the service location.',
+      'Confirm arrival so MyFixer can verify your location. Keep all job communication, approvals and payments inside MyFixer.',
+      [
+        { text: 'Not yet', style: 'cancel' },
+        { text: 'Confirm Arrival', onPress: () => { void handleConfirmArrival(); } },
+      ]
+    );
+  }, [bookingId, hasShownArrivalPrompt, isInArrivalArea]);
 
   const renderJobMarker = (job: any, color: string) => {
     const latitude = Number(job.latitude);
@@ -114,19 +194,15 @@ export function MapScreen(): React.JSX.Element {
   return (
     <View style={styles.container}>
       <MapLibreMap mapStyle={OSM_RASTER_STYLE} style={styles.map}>
-        <Camera center={DEFAULT_CENTER} zoom={11} />
+        {cameraBounds ? (
+          <Camera bounds={cameraBounds} padding={{ top: 90, right: 36, bottom: 240, left: 36 }} />
+        ) : (
+          <Camera center={DEFAULT_CENTER} zoom={11} />
+        )}
 
         {isOnDuty && <UserLocation animated accuracy />}
 
-        {routeGeoJson && (
-          <GeoJSONSource id="active-route" data={routeGeoJson}>
-            <Layer
-              id="active-route-line"
-              type="line"
-              paint={{ 'line-color': '#00FF87', 'line-width': 4, 'line-opacity': 0.95 }}
-            />
-          </GeoJSONSource>
-        )}
+        <RouteLine id="active-route" geometry={routeState.route?.geometry} />
 
         {technicianLocation && (
           <Marker lngLat={toLngLat(technicianLocation.latitude, technicianLocation.longitude)}>
@@ -158,27 +234,49 @@ export function MapScreen(): React.JSX.Element {
                   {selectedJob.applianceType} ({selectedJob.jobStatus || 'INCOMING'})
                 </Text>
                 <View style={styles.etaBadge}>
-                  <Text style={styles.etaText}>{selectedJob.distance || '— km'}</Text>
+                  <Text style={styles.etaText}>{eta?.travelTime || 'Calculating'}</Text>
                 </View>
               </View>
 
               <Text style={styles.addressText}>{selectedJob.fullAddress || 'Service address unavailable'}</Text>
               <Text style={styles.distanceText}>
-                {selectedJob.customerName || 'Client'} • {selectedJob.generalArea || 'Local Area'}
+                {distanceText} â€¢ {eta?.arrivalTime || 'Estimated travel time pending'}
               </Text>
+              {routeState.errorMessage ? (
+                <Text style={styles.routeErrorText}>The road route is temporarily unavailable. Fallback distance is approximate.</Text>
+              ) : null}
+              {locationAccuracy !== null && locationAccuracy > MAX_ARRIVAL_ACCURACY_METERS ? (
+                <Text style={styles.routeErrorText}>GPS accuracy is too low for arrival confirmation.</Text>
+              ) : null}
+              {selectedJob.jobStatus === 'IN_ROUTE' ? (
+                <TouchableOpacity
+                  style={[styles.btnArrival, !isInArrivalArea && styles.btnArrivalDisabled]}
+                  onPress={() => { void handleConfirmArrival(); }}
+                  disabled={isConfirmingArrival}
+                >
+                  <Text style={styles.btnArrivalText}>
+                    {isConfirmingArrival ? 'Confirming...' : 'Confirm Arrival'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+              {selectedJob.jobStatus === 'ARRIVED' ? (
+                <Text style={styles.routeHintText}>Start the job from Active Jobs when work begins.</Text>
+              ) : null}
 
               <View style={styles.actionRow}>
                 <TouchableOpacity
                   style={styles.btnSecondary}
-                  onPress={() => Linking.openURL(`tel:${selectedJob.customerPhone || '0110000000'}`)}
+                  onPress={routeState.refreshRoute}
                 >
-                  <Text style={styles.btnSecondaryText}>Call Client</Text>
+                  <RefreshCwIcon color="#F8FAFC" size={16} />
+                  <Text style={styles.btnSecondaryText}>Refresh Route</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.btnPrimary}
-                  onPress={() => openNativeMaps(Number(selectedJob.latitude), Number(selectedJob.longitude), selectedJob.applianceType)}
+                  onPress={() => setSelectedJob(selectedJob)}
                 >
-                  <Text style={styles.btnPrimaryText}>Navigate</Text>
+                  <CrosshairIcon color="#090D14" size={16} />
+                  <Text style={styles.btnPrimaryText}>Recenter</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -211,10 +309,15 @@ const styles = StyleSheet.create({
   etaText: { color: '#090D14', fontSize: 11, fontWeight: '800' },
   addressText: { color: '#F8FAFC', fontSize: 15, fontWeight: '600', marginBottom: 2 },
   distanceText: { color: '#64748B', fontSize: 13, marginBottom: 15 },
+  routeErrorText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', marginBottom: 10 },
+  routeHintText: { color: '#94A3B8', fontSize: 12, fontWeight: '700', marginBottom: 10 },
+  btnArrival: { backgroundColor: '#F59E0B', paddingVertical: 12, alignItems: 'center', borderRadius: 10, marginBottom: 10 },
+  btnArrivalDisabled: { opacity: 0.65 },
+  btnArrivalText: { color: '#090D14', fontSize: 13, fontWeight: '800' },
   actionRow: { flexDirection: 'row', gap: 10 },
-  btnPrimary: { flex: 1, backgroundColor: '#00FF87', paddingVertical: 12, alignItems: 'center', borderRadius: 10 },
+  btnPrimary: { flex: 1, backgroundColor: '#00FF87', paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderRadius: 10 },
   btnPrimaryText: { color: '#090D14', fontWeight: '700', fontSize: 14 },
-  btnSecondary: { flex: 1, backgroundColor: '#1E293B', paddingVertical: 12, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: '#334155' },
+  btnSecondary: { flex: 1, backgroundColor: '#1E293B', paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderRadius: 10, borderWidth: 1, borderColor: '#334155' },
   btnSecondaryText: { color: '#F8FAFC', fontWeight: '700', fontSize: 14 },
   noSelectionCard: { backgroundColor: '#111827', borderRadius: 12, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: '#1E293B' },
   noSelectionText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },

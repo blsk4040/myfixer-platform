@@ -55,7 +55,7 @@ export const getAvailableJobsForTechnician = async (req: Request, res: Response)
 
     const acceptedFutureJobs = await Booking.find({
       technicianId: new mongoose.Types.ObjectId(technicianId),
-      status: { $in: [BookingStatus.ACCEPTED, BookingStatus.IN_ROUTE, BookingStatus.ARRIVED] },
+      status: { $in: [BookingStatus.ACCEPTED, BookingStatus.IN_ROUTE, BookingStatus.ARRIVED, BookingStatus.IN_PROGRESS, BookingStatus.DIAGNOSTIC_DONE] },
       'appointmentWindow.isPreBook': true,
       'appointmentWindow.scheduledStartTime': { $gte: new Date() },
     })
@@ -66,23 +66,7 @@ export const getAvailableJobsForTechnician = async (req: Request, res: Response)
 
     res.status(200).json({
       success: true,
-      jobs: jobs.map((job) => ({
-        bookingId: job.id,
-        applianceType: job.applianceType,
-        faultDescription: job.faultDescription,
-        fullAddress: job.fullAddress,
-        complexDetails: job.complexDetails,
-        generalArea: job.generalArea,
-        priceMinor: job.priceMinor,
-        currency: job.currency,
-        countryCode: job.countryCode,
-        latitude: job.latitude,
-        longitude: job.longitude,
-        distanceKm: job.distanceKm,
-        distanceText: `${job.distanceKm.toFixed(1)} km`,
-        categoryMatch: job.categoryMatch,
-      }))
-      ,
+      jobs,
       acceptedFutureJobs: acceptedFutureJobs.map((job) => ({
         bookingId: job._id.toString(),
         customerName: job.customerName,

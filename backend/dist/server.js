@@ -22,6 +22,20 @@ const mongoose_1 = __importDefault(require("mongoose"));
 const socket_io_1 = require("socket.io");
 const api_routes_1 = __importDefault(require("./routes/api.routes"));
 const socket_server_1 = require("./sockets/socket.server");
+const paystack_service_1 = require("./services/paystack.service");
+const payment_capabilities_config_1 = require("./config/payment-capabilities.config");
+const validateStartupConfiguration = () => {
+    const routingProvider = (process.env.ROUTING_PROVIDER || 'osrm').trim().toLowerCase();
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
+    if (isProduction && routingProvider === 'osrm' && !process.env.OSRM_BASE_URL?.trim()) {
+        throw new Error('OSRM_BASE_URL must be configured when ROUTING_PROVIDER=osrm in production.');
+    }
+    if (process.env.NODE_ENV === 'production' || (process.env.PAYSTACK_ENABLED || '').trim().toLowerCase() === 'true') {
+        (0, paystack_service_1.validatePaystackStartupConfiguration)();
+    }
+    (0, payment_capabilities_config_1.validatePayoutStartupConfiguration)();
+};
+validateStartupConfiguration();
 const parseAllowedOrigins = () => {
     const configuredOrigins = process.env.CORS_ORIGIN ?? process.env.CORS_ORIGINS;
     if (!configuredOrigins) {
@@ -47,7 +61,12 @@ exports.io = new socket_io_1.Server(exports.httpServer, {
 });
 exports.app.use((0, helmet_1.default)());
 exports.app.use((0, cors_1.default)(corsOptions));
-exports.app.use(express_1.default.json({ limit: '1mb' }));
+exports.app.use(express_1.default.json({
+    limit: '1mb',
+    verify: (req, _res, buf) => {
+        req.rawBody = Buffer.from(buf);
+    },
+}));
 exports.app.use(express_1.default.urlencoded({ extended: true }));
 exports.app.use((0, morgan_1.default)(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 exports.app.set('io', exports.io);

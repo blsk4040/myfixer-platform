@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Modal,
   ScrollView,
   StyleSheet,
@@ -40,6 +41,9 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
   const [techLocation, setTechLocation] = useState<TechnicianLocation | null>(null);
   const [pendingQuote, setPendingQuote] = useState<JobQuote | null>(null);
   const [isQuoteDecisionLoading, setIsQuoteDecisionLoading] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<string>('PENDING');
+  const [completionPending, setCompletionPending] = useState(false);
+  const [isCompletionActionLoading, setIsCompletionActionLoading] = useState(false);
 
   useEffect(() => {
     if (!trackingId) {
@@ -56,10 +60,27 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
       setTechLocation(data);
     };
     const handleQuote = (quote: JobQuote) => setPendingQuote(quote);
+    const handlePaymentSecured = () => {
+      setPaymentStatus('SECURED');
+      Alert.alert('Payment confirmed', 'MyFixer verified the payment with Paystack. The provider can now begin work.');
+      setPendingQuote(null);
+    };
+    const handlePaymentFailed = () => setPaymentStatus('FAILED');
+    const handleCompletionSubmitted = () => {
+      setCompletionPending(true);
+      Alert.alert('Completion submitted', 'Inspect the work before confirming. Do not confirm until you are satisfied.');
+    };
+    const handleCompletionConfirmed = () => setCompletionPending(false);
 
     socket.on('connect', joinRoom);
     socket.on('job_location_changed', handleLocation);
     socket.on('quote_sent', handleQuote);
+    socket.on('quote_submitted', handleQuote);
+    socket.on('quote_revised', handleQuote);
+    socket.on('payment_secured', handlePaymentSecured);
+    socket.on('payment_failed', handlePaymentFailed);
+    socket.on('completion_submitted', handleCompletionSubmitted);
+    socket.on('completion_confirmed', handleCompletionConfirmed);
     socket.on('connect_error', () => setIsLoading(false));
     if (socket.connected) joinRoom();
 
@@ -67,8 +88,29 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
       socket.off('connect', joinRoom);
       socket.off('job_location_changed', handleLocation);
       socket.off('quote_sent', handleQuote);
+      socket.off('quote_submitted', handleQuote);
+      socket.off('quote_revised', handleQuote);
+      socket.off('payment_secured', handlePaymentSecured);
+      socket.off('payment_failed', handlePaymentFailed);
+      socket.off('completion_submitted', handleCompletionSubmitted);
+      socket.off('completion_confirmed', handleCompletionConfirmed);
       socket.off('connect_error');
     };
+  }, [trackingId]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadPaymentStatus = async () => {
+      if (!trackingId) return;
+      try {
+        const response = await apiService.getBookingPaymentStatus(trackingId);
+        if (isMounted) setPaymentStatus(response.paymentStatus);
+      } catch {
+        // Quote and socket flows still work if this optional status refresh fails.
+      }
+    };
+    void loadPaymentStatus();
+    return () => { isMounted = false; };
   }, [trackingId]);
 
   useEffect(() => {
@@ -78,7 +120,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
       if (!trackingId) return;
       try {
         const response = await apiService.getBookingQuotes(trackingId);
-        const quote = response.quotes.find((item) => item.status === 'SENT_TO_CLIENT');
+        const quote = response.quotes.find((item) => item.status === 'SUBMITTED' || item.status === 'SENT_TO_CLIENT');
         if (isMounted && quote) setPendingQuote(quote);
       } catch {
         // Socket updates still surface new quotes.
@@ -96,16 +138,65 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
       setIsQuoteDecisionLoading(true);
       if (decision === 'APPROVE') {
         await apiService.approveJobQuote(pendingQuote.id);
-        Alert.alert('Quote Approved', 'The technician can now continue with the approved work order.');
+        const initialized = await apiService.initializePayment({
+          bookingId: pendingQuote.bookingId,
+          quoteId: pendingQuote.id,
+          idempotencyKey: `quote:${pendingQuote.id}:payment`,
+        });
+        setPaymentStatus(initialized.payment.status);
+        await Linking.openURL(initialized.payment.authorizationUrl);
+        Alert.alert('Paystack checkout opened', 'Payment is confirmed only after MyFixer verifies it with Paystack.');
       } else {
-        await apiService.rejectJobQuote(pendingQuote.id);
+        await apiService.rejectJobQuote(pendingQuote.id, 'Client rejected the quote in the app.');
         Alert.alert('Quote Rejected', 'The technician has been notified.');
       }
-      setPendingQuote(null);
+      if (decision === 'REJECT') setPendingQuote(null);
     } catch (error: any) {
       Alert.alert('Quote Error', error.message || 'Could not update quote.');
     } finally {
       setIsQuoteDecisionLoading(false);
+    }
+  };
+
+  const handleClarificationRequest = async () => {
+    if (!pendingQuote) return;
+    try {
+      setIsQuoteDecisionLoading(true);
+      await apiService.requestQuoteClarification(pendingQuote.id, 'Please clarify this quote before I approve it.');
+      Alert.alert('Clarification requested', 'The technician has been asked to send a revised quote.');
+      setPendingQuote(null);
+    } catch (error: any) {
+      Alert.alert('Quote Error', error.message || 'Could not request clarification.');
+    } finally {
+      setIsQuoteDecisionLoading(false);
+    }
+  };
+
+  const handleConfirmCompletion = async () => {
+    if (!trackingId) return;
+    try {
+      setIsCompletionActionLoading(true);
+      await apiService.confirmCompletion(trackingId, `completion-confirm:${trackingId}`);
+      setCompletionPending(false);
+      Alert.alert('Completion confirmed', 'Thanks. The provider earning is now eligible for MyFixer review and admin-approved payout.');
+    } catch (error: any) {
+      Alert.alert('Completion Error', error.message || 'Could not confirm completion.');
+    } finally {
+      setIsCompletionActionLoading(false);
+    }
+  };
+
+  const handleReportCompletionIssue = async () => {
+    if (!trackingId) return;
+    try {
+      setIsCompletionActionLoading(true);
+      await apiService.reportCompletionIssue(trackingId, 'Customer reported an issue from the tracking screen.');
+      setCompletionPending(false);
+      Alert.alert('Issue reported', 'MyFixer has been notified. Provider payout will remain on hold while this is reviewed.');
+    } catch (error: any) {
+      Alert.alert('Issue Error', error.message || 'Could not report this issue.');
+    } finally {
+      setIsCompletionActionLoading(false);
     }
   };
 
@@ -182,14 +273,30 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
               <Text style={styles.actionButtonText}>Chat</Text>
             </TouchableOpacity>
           </View>
+          {completionPending ? (
+            <View style={styles.completionCard}>
+              <Text style={styles.completionTitle}>Provider marked the work complete</Text>
+              <Text style={styles.completionText}>Inspect the work before confirming. Do not confirm until you are satisfied.</Text>
+              <View style={styles.completionActions}>
+                <TouchableOpacity style={styles.issueButton} onPress={handleReportCompletionIssue} disabled={isCompletionActionLoading}>
+                  <Text style={styles.quoteRejectText}>Report Issue</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmCompletion} disabled={isCompletionActionLoading}>
+                  <Text style={styles.quoteApproveText}>{isCompletionActionLoading ? 'Working...' : 'Confirm Completion'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
         </ScrollView>
       </View>
 
       <Modal visible={!!pendingQuote} animationType="slide" transparent onRequestClose={() => setPendingQuote(null)}>
         <View style={styles.quoteModalOverlay}>
           <View style={styles.quoteModalContent}>
-            <Text style={styles.quoteTitle}>Approve Work Order</Text>
+            <Text style={styles.quoteTitle}>Approve Work Order {pendingQuote?.version ? `v${pendingQuote.version}` : ''}</Text>
             <Text style={styles.quoteSubtitle}>Review the technician's quote before work continues.</Text>
+            <Text style={styles.quoteWarning}>Only pay through MyFixer. Payments made outside the app may not qualify for refunds, dispute support, invoices or service guarantees.</Text>
+            <Text style={styles.paymentStatusText}>Payment status: {paymentStatus.replace(/_/g, ' ')}</Text>
 
             <View style={styles.quoteLineList}>
               {pendingQuote?.lineItems.map((item, index) => (
@@ -213,6 +320,9 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
             <View style={styles.quoteActions}>
               <TouchableOpacity style={styles.quoteRejectButton} onPress={() => handleQuoteDecision('REJECT')} disabled={isQuoteDecisionLoading}>
                 <Text style={styles.quoteRejectText}>Reject</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quoteClarifyButton} onPress={handleClarificationRequest} disabled={isQuoteDecisionLoading}>
+                <Text style={styles.quoteRejectText}>Clarify</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.quoteApproveButton} onPress={() => handleQuoteDecision('APPROVE')} disabled={isQuoteDecisionLoading}>
                 <Text style={styles.quoteApproveText}>{isQuoteDecisionLoading ? 'Working...' : 'Approve'}</Text>
@@ -253,10 +363,18 @@ const styles = StyleSheet.create({
   callButton: { backgroundColor: '#1E293B', borderColor: '#334155' },
   chatButton: { backgroundColor: '#090D14', borderColor: '#1E293B' },
   actionButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  completionCard: { backgroundColor: '#090D14', borderWidth: 1, borderColor: '#334155', borderRadius: 12, padding: 14, marginTop: 14 },
+  completionTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+  completionText: { color: '#CBD5E1', fontSize: 12, lineHeight: 18, marginTop: 6 },
+  completionActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  issueButton: { flex: 1, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#F59E0B', borderRadius: 12, height: 46, alignItems: 'center', justifyContent: 'center' },
+  confirmButton: { flex: 1.5, backgroundColor: '#00FF87', borderRadius: 12, height: 46, alignItems: 'center', justifyContent: 'center' },
   quoteModalOverlay: { flex: 1, backgroundColor: '#000000AA', justifyContent: 'flex-end' },
   quoteModalContent: { backgroundColor: '#111827', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderWidth: 1, borderColor: '#1E293B' },
   quoteTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
   quoteSubtitle: { color: '#64748B', fontSize: 12, marginTop: 4, marginBottom: 16 },
+  quoteWarning: { color: '#FBBF24', fontSize: 12, lineHeight: 18, marginBottom: 14 },
+  paymentStatusText: { color: '#CBD5E1', fontSize: 12, fontWeight: '700', marginBottom: 12 },
   quoteLineList: { gap: 10 },
   quoteLine: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1E293B', paddingBottom: 10 },
   quoteLineLabel: { color: '#E2E8F0', fontSize: 14, fontWeight: '700' },
@@ -268,6 +386,7 @@ const styles = StyleSheet.create({
   quoteNotes: { color: '#94A3B8', fontSize: 12, marginTop: 12, lineHeight: 18 },
   quoteActions: { flexDirection: 'row', gap: 12, marginTop: 20 },
   quoteRejectButton: { flex: 1, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', borderRadius: 12, height: 48, alignItems: 'center', justifyContent: 'center' },
+  quoteClarifyButton: { flex: 1, backgroundColor: '#111827', borderWidth: 1, borderColor: '#F59E0B', borderRadius: 12, height: 48, alignItems: 'center', justifyContent: 'center' },
   quoteApproveButton: { flex: 2, backgroundColor: '#00FF87', borderRadius: 12, height: 48, alignItems: 'center', justifyContent: 'center' },
   quoteRejectText: { color: '#94A3B8', fontSize: 14, fontWeight: '700' },
   quoteApproveText: { color: '#090D14', fontSize: 14, fontWeight: '800' },

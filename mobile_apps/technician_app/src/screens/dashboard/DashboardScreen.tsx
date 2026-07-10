@@ -36,9 +36,7 @@ export function DashboardScreen(): React.JSX.Element {
     currency: job.currency || 'ZAR',
     distance: job.distance || 'Nearby',
     generalArea: job.generalArea || 'Local Area',
-    customerName: job.customerName || 'Client',
-    fullAddress: job.fullAddress || '',
-    complexDetails: job.complexDetails,
+    hasPreciseLocation: false,
   }));
 
   const currentActiveTarget = Array.isArray(activeJobsGlobal) ? activeJobsGlobal[0] : activeJobsGlobal;
@@ -94,13 +92,8 @@ export function DashboardScreen(): React.JSX.Element {
       price: job.callOutFee,
       distance: job.distance,
       generalArea: job.generalArea,
-      customerName: job.customerName,
-      fullAddress: job.fullAddress,
-      complexDetails: job.complexDetails || '',
-      customerId: 'cust_unknown_fallback',
       currency: job.currency || 'ZAR',
-      latitude: Number((job as any).latitude) || 0,
-      longitude: Number((job as any).longitude) || 0,
+      hasPreciseLocation: false as const,
     };
 
     try {

@@ -296,6 +296,7 @@ const serializeCustomerProfile = async (user: any, req?: Request) => {
           BookingStatus.ACCEPTED,
           BookingStatus.IN_ROUTE,
           BookingStatus.ARRIVED,
+          BookingStatus.IN_PROGRESS,
           BookingStatus.DIAGNOSTIC_DONE,
         ],
       },

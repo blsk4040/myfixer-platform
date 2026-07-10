@@ -40,6 +40,7 @@ var JobMediaPurpose;
     JobMediaPurpose["CHAT"] = "CHAT";
     JobMediaPurpose["BEFORE_WORK"] = "BEFORE_WORK";
     JobMediaPurpose["AFTER_WORK"] = "AFTER_WORK";
+    JobMediaPurpose["INSPECTION"] = "INSPECTION";
     JobMediaPurpose["PROOF_OF_COMPLETION"] = "PROOF_OF_COMPLETION";
     JobMediaPurpose["QUOTE_PART"] = "QUOTE_PART";
     JobMediaPurpose["DISPUTE"] = "DISPUTE";

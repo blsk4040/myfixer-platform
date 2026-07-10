@@ -26,10 +26,15 @@ export function IncomingJobsTab(): React.JSX.Element {
         <IncomingRequestCard
           key={job.id}
           job={{
-            ...job,
-            latitude: Number(job.latitude),
-            longitude: Number(job.longitude),
-          } as any}
+            id: job.id,
+            applianceType: job.applianceType,
+            faultDescription: job.faultDescription || '',
+            callOutFee: job.price,
+            currency: job.currency,
+            distance: job.distance || 'Nearby',
+            generalArea: job.generalArea || 'Local area',
+            hasPreciseLocation: false,
+          }}
           onAccept={async (job: any) => {
             try {
               await acceptBookingWorkflow(job, technicianIdentity.userId);

@@ -5,6 +5,7 @@ import Booking, { BookingCancellationBy, BookingDispatchStatus, BookingStatus } 
 import TechnicianCapability, { CapabilityStatus } from '../models/technician-capability.model';
 import TechnicianTelemetry from '../models/technician-telemetry.model';
 import { normalizeServiceKey } from './service-availability.service';
+import { serializeBookingForUnassignedTechnician } from './booking-privacy.service';
 
 const EARTH_RADIUS_KM = 6371;
 const DISPATCH_TIMEOUT_MINUTES = 30;
@@ -42,19 +43,21 @@ export const normalizeDispatchServiceKey = (value: unknown): string =>
 
 export interface AvailableBookingPayload {
   id: string;
-  serviceKey: string;
+  bookingId: string;
+  serviceKey?: string;
   applianceType: string;
   faultDescription: string;
-  fullAddress: string;
-  complexDetails: string;
   generalArea: string;
+  approximateArea: string;
   priceMinor: number;
+  callOutFee: number;
   currency: string;
   countryCode: string;
-  latitude: number;
-  longitude: number;
+  scheduledAt?: Date | string | null;
   distanceKm: number;
+  distanceText: string;
   categoryMatch: boolean;
+  hasPreciseLocation: false;
 }
 
 const buildAvailableBookingPayload = (
@@ -64,27 +67,18 @@ const buildAvailableBookingPayload = (
 ): AvailableBookingPayload => {
   const [longitude, latitude] = booking.customerLocation.coordinates;
 
-  return {
-    id: booking._id?.toString() ?? booking.id,
-    serviceKey: getBookingDispatchServiceCategory(booking),
-    applianceType: booking.applianceType,
-    faultDescription: booking.faultDescription || 'No description provided.',
-    fullAddress: booking.fullAddress,
-    complexDetails: booking.complexDetails || '',
-    generalArea: booking.generalArea || 'Local Area',
-    priceMinor: booking.priceMinor,
-    currency: booking.currency,
-    countryCode: booking.countryCode,
-    latitude,
-    longitude,
-    distanceKm: getDistanceKm(
+  const distanceKm = getDistanceKm(
       technicianLocation.coordinates[1],
       technicianLocation.coordinates[0],
       latitude,
       longitude
-    ),
-    categoryMatch,
-  };
+    );
+
+  const payload = serializeBookingForUnassignedTechnician(
+    { ...booking, serviceKey: getBookingDispatchServiceCategory(booking) },
+    { distanceKm, categoryMatch }
+  );
+  return { ...payload, distanceKm, hasPreciseLocation: false };
 };
 
 const getDispatchExpiry = (booking: { createdAt?: Date; dispatch?: { expiresAt?: Date | null } }): Date => {

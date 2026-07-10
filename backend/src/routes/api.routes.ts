@@ -2,12 +2,17 @@
 import { Router } from 'express';
 import {
   acceptBooking,
+  confirmArrival,
   createBooking,
   declineBooking,
   finalizeJobInvoice,
   getMyActiveBooking,
   getMyBookingHistory,
   getBookingById,
+  completeInspection,
+  startJob,
+  startInspection,
+  startRoute,
   updateBookingStatus,
 } from '../controllers/booking.controller';
 import {
@@ -26,10 +31,30 @@ import {
 import { getInvoicesByUser, downloadInvoicePDF } from '../controllers/invoice.controller';
 import { getWalletBalance, getWalletTransactions, requestWalletCashout } from '../controllers/wallet.controller';
 import {
+  addBankPayoutMethod,
+  addMobileMoneyPayoutMethod,
+  deletePayoutMethod,
+  getMyPayoutMethods,
+  makeDefaultPayoutMethod,
+} from '../controllers/payout-method.controller';
+import {
+  approveAdminSettlement,
+  confirmCompletion,
+  getAdminSettlements,
+  getTechnicianSettlements,
+  holdAdminSettlement,
+  releaseAdminSettlementHold,
+  reportCompletionIssueController,
+  retryAdminSettlementPayout,
+  submitCompletion,
+} from '../controllers/settlement.controller';
+import {
   approveJobQuote,
   createJobQuote,
   getBookingQuotes,
+  requestQuoteClarification,
   rejectJobQuote,
+  submitJobQuote,
 } from '../controllers/quote.controller';
 import {
   getBookingMessages,
@@ -98,6 +123,7 @@ import { AdminPermission, UserRole } from '../models/user.model';
 
 // Import the secure PCI-compliant payment gateway endpoints
 import paymentRoutes from './payment.routes';
+import routingRoutes from '../modules/routing/routing.routes';
 
 const apiRouter = Router();
 
@@ -139,6 +165,14 @@ apiRouter.get('/bookings/history/me', authenticateToken, requireRole([UserRole.C
 apiRouter.post('/bookings', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), createBooking);
 apiRouter.post('/bookings/:id/accept', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), acceptBooking);
 apiRouter.post('/bookings/:id/decline', authenticateToken, requireRole([UserRole.TECHNICIAN]), declineBooking);
+apiRouter.post('/bookings/:id/start-route', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), startRoute);
+apiRouter.post('/bookings/:bookingId/arrival', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), confirmArrival);
+apiRouter.post('/bookings/:bookingId/start-inspection', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), startInspection);
+apiRouter.post('/bookings/:bookingId/complete-inspection', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), completeInspection);
+apiRouter.post('/bookings/:id/start-job', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), startJob);
+apiRouter.post('/bookings/:bookingId/submit-completion', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), submitCompletion);
+apiRouter.post('/bookings/:bookingId/confirm-completion', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), confirmCompletion);
+apiRouter.post('/bookings/:bookingId/report-completion-issue', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), reportCompletionIssueController);
 apiRouter.patch('/bookings/:id/status', authenticateToken, updateBookingStatus);
 apiRouter.get('/bookings/:id', authenticateToken, getBookingById);
 apiRouter.post('/bookings/:bookingId/media', authenticateToken, uploadBookingMedia);
@@ -147,8 +181,10 @@ apiRouter.post('/bookings/:bookingId/messages', authenticateToken, sendBookingMe
 
 apiRouter.post('/bookings/:bookingId/quotes', authenticateToken, createJobQuote);
 apiRouter.get('/bookings/:bookingId/quotes', authenticateToken, getBookingQuotes);
+apiRouter.post('/quotes/:quoteId/submit', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), submitJobQuote);
 apiRouter.post('/quotes/:quoteId/approve', authenticateToken, approveJobQuote);
 apiRouter.post('/quotes/:quoteId/reject', authenticateToken, rejectJobQuote);
+apiRouter.post('/quotes/:quoteId/request-clarification', authenticateToken, requestQuoteClarification);
 apiRouter.get('/technician/available-jobs', authenticateToken, requireRole([UserRole.TECHNICIAN]), getAvailableJobsForTechnician);
 
 apiRouter.get('/admin/technicians', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.TECHNICIANS_READ), listTechnicianApplications);
@@ -166,6 +202,11 @@ apiRouter.patch('/admin/managed-collection-reminders/:id', authenticateToken, re
 apiRouter.get('/admin/quotes', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_READ), getAdminQuotes);
 apiRouter.get('/admin/invoices', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminInvoices);
 apiRouter.get('/admin/wallet-transactions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminWalletTransactions);
+apiRouter.get('/admin/settlements', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminSettlements);
+apiRouter.post('/admin/settlements/:settlementId/approve', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), approveAdminSettlement);
+apiRouter.post('/admin/settlements/:id/hold', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), holdAdminSettlement);
+apiRouter.post('/admin/settlements/:id/release-hold', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), releaseAdminSettlementHold);
+apiRouter.post('/admin/settlements/:id/retry-payout', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), retryAdminSettlementPayout);
 apiRouter.get('/admin/markets', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_READ), getAdminMarkets);
 apiRouter.patch('/admin/markets/:countryCode', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), updateAdminMarket);
 apiRouter.get('/admin/users', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.ADMINS_READ), listAdminUsers);
@@ -183,6 +224,7 @@ apiRouter.patch('/admin/managed-collection-subscription-plans/:id', authenticate
 
 // 💳 Secure Tokenized Payment Gateway Engine
 apiRouter.use('/payments', paymentRoutes);
+apiRouter.use('/routing', routingRoutes);
 
 // 🧾 Tax Compliance Invoice Operations
 apiRouter.get('/invoices', authenticateToken, getInvoicesByUser);         // Fetches account specific invoice rows
@@ -192,5 +234,11 @@ apiRouter.get('/invoices/:id/download', authenticateToken, downloadInvoicePDF); 
 apiRouter.get('/wallet', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), getWalletBalance);                     // Balances data array fetch
 apiRouter.get('/wallet/transactions', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), getWalletTransactions);
 apiRouter.post('/wallet/cashout', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), requestWalletCashout);         // Dispatches outbound EFT instructions
+apiRouter.get('/technicians/me/payout-methods', authenticateToken, requireRole([UserRole.TECHNICIAN]), getMyPayoutMethods);
+apiRouter.post('/technicians/me/payout-methods/bank-account', authenticateToken, requireRole([UserRole.TECHNICIAN]), addBankPayoutMethod);
+apiRouter.post('/technicians/me/payout-methods/mobile-money', authenticateToken, requireRole([UserRole.TECHNICIAN]), addMobileMoneyPayoutMethod);
+apiRouter.patch('/technicians/me/payout-methods/:id/default', authenticateToken, requireRole([UserRole.TECHNICIAN]), makeDefaultPayoutMethod);
+apiRouter.delete('/technicians/me/payout-methods/:id', authenticateToken, requireRole([UserRole.TECHNICIAN]), deletePayoutMethod);
+apiRouter.get('/technicians/me/settlements', authenticateToken, requireRole([UserRole.TECHNICIAN]), getTechnicianSettlements);
 
 export default apiRouter;

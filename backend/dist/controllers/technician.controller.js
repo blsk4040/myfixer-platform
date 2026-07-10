@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.reviewTechnicianApplication = exports.getAvailableJobsForTechnician = exports.listTechnicianApplications = void 0;
+exports.reviewTechnicianApplication = exports.reviewTechnicianProfilePhoto = exports.uploadMyTechnicianProfilePhoto = exports.getAvailableJobsForTechnician = exports.listTechnicianApplications = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
 const booking_model_1 = __importStar(require("../models/booking.model"));
 const technician_model_1 = __importStar(require("../models/technician.model"));
@@ -44,8 +44,10 @@ const audit_service_1 = require("../services/audit.service");
 const matching_service_1 = __importDefault(require("../services/matching.service"));
 const user_model_1 = __importDefault(require("../models/user.model"));
 const email_service_1 = require("../services/email/email.service");
+const media_storage_service_1 = require("../services/media-storage.service");
 const isApprovalStatus = (value) => typeof value === 'string' &&
     Object.values(technician_model_1.TechnicianApprovalStatus).includes(value);
+const isPhotoReviewStatus = (value) => value === technician_model_1.VerificationStatus.VERIFIED || value === technician_model_1.VerificationStatus.REJECTED;
 const listTechnicianApplications = async (_req, res) => {
     try {
         const technicians = await technician_model_1.default.find()
@@ -70,7 +72,7 @@ const getAvailableJobsForTechnician = async (req, res) => {
         await matching_service_1.default.markBookingsSentToTechnician(technicianId, jobs.map((job) => job.id));
         const acceptedFutureJobs = await booking_model_1.default.find({
             technicianId: new mongoose_1.default.Types.ObjectId(technicianId),
-            status: { $in: [booking_model_1.BookingStatus.ACCEPTED, booking_model_1.BookingStatus.IN_ROUTE, booking_model_1.BookingStatus.ARRIVED] },
+            status: { $in: [booking_model_1.BookingStatus.ACCEPTED, booking_model_1.BookingStatus.IN_ROUTE, booking_model_1.BookingStatus.ARRIVED, booking_model_1.BookingStatus.IN_PROGRESS, booking_model_1.BookingStatus.DIAGNOSTIC_DONE] },
             'appointmentWindow.isPreBook': true,
             'appointmentWindow.scheduledStartTime': { $gte: new Date() },
         })
@@ -80,22 +82,7 @@ const getAvailableJobsForTechnician = async (req, res) => {
             .lean();
         res.status(200).json({
             success: true,
-            jobs: jobs.map((job) => ({
-                bookingId: job.id,
-                applianceType: job.applianceType,
-                faultDescription: job.faultDescription,
-                fullAddress: job.fullAddress,
-                complexDetails: job.complexDetails,
-                generalArea: job.generalArea,
-                priceMinor: job.priceMinor,
-                currency: job.currency,
-                countryCode: job.countryCode,
-                latitude: job.latitude,
-                longitude: job.longitude,
-                distanceKm: job.distanceKm,
-                distanceText: `${job.distanceKm.toFixed(1)} km`,
-                categoryMatch: job.categoryMatch,
-            })),
+            jobs,
             acceptedFutureJobs: acceptedFutureJobs.map((job) => ({
                 bookingId: job._id.toString(),
                 customerName: job.customerName,
@@ -118,6 +105,139 @@ const getAvailableJobsForTechnician = async (req, res) => {
     }
 };
 exports.getAvailableJobsForTechnician = getAvailableJobsForTechnician;
+const uploadMyTechnicianProfilePhoto = async (req, res) => {
+    const authUser = req.user;
+    const technicianUserId = String(authUser?.id ?? authUser?._id ?? '').trim();
+    const dataUri = typeof req.body?.dataUri === 'string' ? req.body.dataUri.trim() : '';
+    if (!technicianUserId || !mongoose_1.default.Types.ObjectId.isValid(technicianUserId)) {
+        res.status(401).json({ message: 'Unauthorized. Technician identity missing.' });
+        return;
+    }
+    if (!dataUri.startsWith('data:image/')) {
+        res.status(400).json({ message: 'Please upload a valid profile photo image.' });
+        return;
+    }
+    try {
+        const technician = await technician_model_1.default.findOne({ userId: new mongoose_1.default.Types.ObjectId(technicianUserId) });
+        if (!technician) {
+            res.status(404).json({ message: 'Technician profile not found.' });
+            return;
+        }
+        const uploaded = await (0, media_storage_service_1.uploadImageToCloudinary)({
+            dataUri,
+            folder: `myfixer/technicians/${technicianUserId}/profile`,
+            publicId: `profile-photo-${Date.now()}`,
+        });
+        const before = {
+            profilePhotoUrl: technician.documents.profilePhotoUrl,
+            profilePhotoStatus: technician.documents.profilePhotoStatus,
+            approvalStatus: technician.approvalStatus,
+        };
+        technician.documents.profilePhotoUrl = uploaded.url;
+        technician.documents.profilePhotoStatus = technician_model_1.VerificationStatus.SUBMITTED;
+        if (technician.approvalStatus === technician_model_1.TechnicianApprovalStatus.REJECTED) {
+            technician.approvalStatus = technician_model_1.TechnicianApprovalStatus.PENDING_REVIEW;
+            technician.review.rejectionReason = '';
+        }
+        await technician.save();
+        await (0, audit_service_1.logAuditEvent)(req, {
+            action: 'technician.profile_photo.submit',
+            module: 'TECHNICIANS',
+            resourceType: 'Technician',
+            resourceId: technician._id.toString(),
+            changes: {
+                before,
+                after: {
+                    profilePhotoUrl: technician.documents.profilePhotoUrl,
+                    profilePhotoStatus: technician.documents.profilePhotoStatus,
+                    approvalStatus: technician.approvalStatus,
+                },
+            },
+        });
+        res.status(200).json({
+            success: true,
+            technician: {
+                id: technician._id,
+                approvalStatus: technician.approvalStatus,
+                profilePhotoUrl: technician.documents.profilePhotoUrl,
+                profilePhotoStatus: technician.documents.profilePhotoStatus,
+            },
+        });
+    }
+    catch (error) {
+        console.error('Failed to upload technician profile photo:', error);
+        res.status(500).json({ message: 'Unable to upload technician profile photo.' });
+    }
+};
+exports.uploadMyTechnicianProfilePhoto = uploadMyTechnicianProfilePhoto;
+const reviewTechnicianProfilePhoto = async (req, res) => {
+    const { id } = req.params;
+    const body = req.body;
+    const reviewerId = req.user?.id;
+    if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+        res.status(400).json({ message: 'Invalid technician id.' });
+        return;
+    }
+    if (!isPhotoReviewStatus(body.status)) {
+        res.status(400).json({ message: 'Invalid profile photo review status.' });
+        return;
+    }
+    try {
+        const technician = await technician_model_1.default.findById(id);
+        if (!technician) {
+            res.status(404).json({ message: 'Technician application not found.' });
+            return;
+        }
+        if (!technician.documents.profilePhotoUrl) {
+            res.status(400).json({ message: 'Technician has not uploaded a profile photo.' });
+            return;
+        }
+        const before = {
+            profilePhotoStatus: technician.documents.profilePhotoStatus,
+            profilePhotoUrl: technician.documents.profilePhotoUrl,
+            approvalStatus: technician.approvalStatus,
+            review: technician.review,
+        };
+        technician.documents.profilePhotoStatus = body.status;
+        technician.review.reviewedAt = new Date();
+        technician.review.reviewedBy = mongoose_1.default.Types.ObjectId.isValid(reviewerId)
+            ? new mongoose_1.default.Types.ObjectId(reviewerId)
+            : null;
+        const reviewReason = typeof body.rejectionReason === 'string' ? body.rejectionReason.trim() : '';
+        if (body.status === technician_model_1.VerificationStatus.REJECTED) {
+            technician.approvalStatus = technician_model_1.TechnicianApprovalStatus.PENDING_REVIEW;
+            technician.review.rejectionReason = reviewReason || 'Profile photo was rejected. Please upload a clear headshot.';
+            await user_model_1.default.findByIdAndUpdate(technician.userId, { $set: { profilePhotoUrl: '' } });
+        }
+        else {
+            technician.review.rejectionReason = '';
+            await user_model_1.default.findByIdAndUpdate(technician.userId, { $set: { profilePhotoUrl: technician.documents.profilePhotoUrl } });
+        }
+        await technician.save();
+        await (0, audit_service_1.logAuditEvent)(req, {
+            action: 'technician.profile_photo.review',
+            module: 'TECHNICIANS',
+            resourceType: 'Technician',
+            resourceId: technician._id.toString(),
+            changes: {
+                before,
+                after: {
+                    profilePhotoStatus: technician.documents.profilePhotoStatus,
+                    profilePhotoUrl: technician.documents.profilePhotoUrl,
+                    approvalStatus: technician.approvalStatus,
+                    review: technician.review,
+                },
+            },
+            metadata: { status: body.status },
+        });
+        res.status(200).json({ success: true, technician });
+    }
+    catch (error) {
+        console.error('Failed to review technician profile photo:', error);
+        res.status(500).json({ message: 'Failed to review technician profile photo.' });
+    }
+};
+exports.reviewTechnicianProfilePhoto = reviewTechnicianProfilePhoto;
 const reviewTechnicianApplication = async (req, res) => {
     const { id } = req.params;
     const body = req.body;
@@ -134,6 +254,11 @@ const reviewTechnicianApplication = async (req, res) => {
         const technician = await technician_model_1.default.findById(id);
         if (!technician) {
             res.status(404).json({ message: 'Technician application not found.' });
+            return;
+        }
+        if (body.status === technician_model_1.TechnicianApprovalStatus.APPROVED &&
+            technician.documents.profilePhotoStatus !== technician_model_1.VerificationStatus.VERIFIED) {
+            res.status(409).json({ message: 'Approve the technician profile photo before approving this application.' });
             return;
         }
         const before = {

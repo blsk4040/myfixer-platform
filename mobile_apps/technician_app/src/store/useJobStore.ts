@@ -2,28 +2,72 @@
 import { create } from 'zustand';
 
 // 🚀 Upgraded JobStatus to include all operational evolution checkpoints
-export type JobStatus = 'IDLE' | 'ACCEPTED' | 'IN_ROUTE' | 'ARRIVED' | 'DIAGNOSTIC_DONE' | 'COMPLETED';
+export type JobStatus = 'IDLE' | 'ACCEPTED' | 'IN_ROUTE' | 'ARRIVED' | 'IN_PROGRESS' | 'DIAGNOSTIC_DONE' | 'COMPLETED';
+export type InspectionStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'NOT_REQUIRED';
+export type QuoteStatus =
+  | 'NOT_REQUIRED'
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'SENT_TO_CLIENT'
+  | 'CLARIFICATION_REQUESTED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'EXPIRED'
+  | 'SUPERSEDED'
+  | 'CANCELLED';
+export type BookingPaymentStatus = 'NOT_REQUIRED' | 'PENDING' | 'SECURED' | 'FAILED' | 'UNDER_REVIEW' | 'REFUNDED';
+export type WorkAuthorizationStatus =
+  | 'BLOCKED'
+  | 'AWAITING_INSPECTION'
+  | 'AWAITING_QUOTE'
+  | 'AWAITING_QUOTE_APPROVAL'
+  | 'AWAITING_PAYMENT'
+  | 'AUTHORIZED';
 
-// Unified payload schema supporting Phase 1 structures & Phase 2 South African layouts
-export interface JobPayload {
+interface BaseJobPayload {
   id: string;
-  customerId: string;
-  customerName?: string;
   applianceType: string;
   faultDescription?: string; 
   price: number;
   currency: string;
-  latitude: number;
-  longitude: number;
   distance?: string;
   generalArea?: string;      // Masked view e.g., "Bryanston"
-  fullAddress?: string;      // Unlocked post-acceptance
-  complexDetails?: string;   // Complex / Estate detail lines
   scheduledTime?: string;    // Used for future queue buckets
   rating?: number;
   jobStatus?: JobStatus;     // Attached inline status variant tracking
-  customerPhone?: string;
+  inspectionStatus?: InspectionStatus;
+  quoteStatus?: QuoteStatus;
+  quoteRequired?: boolean;
+  paymentStatus?: BookingPaymentStatus;
+  workAuthorizationStatus?: WorkAuthorizationStatus;
+  workAuthorizationReason?: string;
 }
+
+export interface PrivacySafeIncomingJob extends BaseJobPayload {
+  hasPreciseLocation: false;
+  customerId?: never;
+  customerName?: never;
+  fullAddress?: never;
+  complexDetails?: never;
+  latitude?: never;
+  longitude?: never;
+  customerPhone?: never;
+  recipientPhone?: never;
+}
+
+export interface AssignedBookingDetails extends BaseJobPayload {
+  hasPreciseLocation: true;
+  customerId: string;
+  customerName?: string;
+  latitude: number;
+  longitude: number;
+  fullAddress: string;
+  complexDetails?: string;   // Complex / Estate detail lines
+  customerPhone?: string;
+  recipientPhone?: string;
+}
+
+export type JobPayload = PrivacySafeIncomingJob | AssignedBookingDetails;
 
 interface JobStoreState {
   // Original Base States
@@ -50,6 +94,7 @@ interface JobStoreState {
   acceptJob: (jobPayload: JobPayload) => void;
   declineJob: (jobId: string) => void;
   updateJobStatus: (status: JobStatus) => void;
+  patchJob: (jobId: string, patch: Partial<JobPayload>) => void;
   advanceJobStatus: (jobId: string) => void; // ⚡ New Workflow Action
   completeJob: (jobId: string) => void;
   clearJob: () => void;
@@ -129,6 +174,17 @@ export const useJobStore = create<JobStoreState>((set) => ({
     };
   }),
 
+  patchJob: (jobId, patch) => set((state) => {
+    const patchOne = (job: JobPayload): JobPayload => job.id === jobId ? { ...job, ...patch } as JobPayload : job;
+    return {
+      currentJob: state.currentJob && state.currentJob.id === jobId ? patchOne(state.currentJob) : state.currentJob,
+      activeJobs: state.activeJobs.map(patchOne),
+      incomingJobs: state.incomingJobs.map(patchOne),
+      scheduledJobs: state.scheduledJobs.map(patchOne),
+      completedJobs: state.completedJobs.map(patchOne),
+    };
+  }),
+
   // 🚀 Integrated Action Engine: Sequentially cycles and clears pipeline settlements cleanly
   advanceJobStatus: (jobId: string) => set((state) => {
     const activeJobIndex = state.activeJobs.findIndex(j => j.id === jobId);
@@ -157,18 +213,16 @@ export const useJobStore = create<JobStoreState>((set) => ({
         currentJob: state.currentJob && state.currentJob.id === jobId ? job : state.currentJob
       };
     } 
-    // Stage 3: Arrived -> Diagnostic Complete
+    // Stage 3: Arrived stays parked until backend inspection, quote and payment gates allow Start Work.
     else if (job.jobStatus === 'ARRIVED') {
-      job.jobStatus = 'DIAGNOSTIC_DONE';
-      updatedActive[activeJobIndex] = job;
       return {
         activeJobs: updatedActive,
-        jobStatus: 'DIAGNOSTIC_DONE',
+        jobStatus: 'ARRIVED',
         currentJob: state.currentJob && state.currentJob.id === jobId ? job : state.currentJob
       };
     } 
-    // Stage 4: Diagnostic complete -> Collect Payment, close, and add to earnings!
-    else if (job.jobStatus === 'DIAGNOSTIC_DONE') {
+    // Stage 4: Work in progress -> Collect Payment, close, and add to earnings.
+    else if (job.jobStatus === 'IN_PROGRESS' || job.jobStatus === 'DIAGNOSTIC_DONE') {
       const finalizedJob = { ...job, jobStatus: 'COMPLETED' as const, rating: 5 };
       
       return {

@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CheckCircle2 as LucideCheckCircle, FileText as LucideFileText, X as LucideX } from 'lucide-react-native';
 import apiService, { BookingHistoryItem } from '../../services/api.service';
+import { formatBookingStatus } from '../../types/booking';
 
 const FileText = LucideFileText as any;
 const X = LucideX as any;
@@ -69,7 +70,7 @@ export function BookingHistoryScreen(): React.JSX.Element {
             </View>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: `${statusColor}10`, borderColor: statusColor }]}>
-            <Text style={[styles.statusText, { color: statusColor }]}>{item.status}</Text>
+            <Text style={[styles.statusText, { color: statusColor }]}>{formatBookingStatus(item.status)}</Text>
           </View>
         </View>
 

@@ -35,62 +35,18 @@ const getWalletBalance = async (req, res) => {
 };
 exports.getWalletBalance = getWalletBalance;
 const requestWalletCashout = async (req, res) => {
-    try {
-        const userId = req.user?.id;
-        const { amount, amountMinor } = req.body;
-        const wallet = await billing_model_1.Wallet.findOne({ technicianId: userId });
-        const currency = wallet?.currency || market_config_1.CurrencyCode.ZAR;
-        const requestedAmountMinor = Number.isFinite(Number(amountMinor))
-            ? Number(amountMinor)
-            : Number.isFinite(Number(amount))
-                ? (0, market_config_1.toMinorUnits)(Number(amount), currency)
-                : 0;
-        if (requestedAmountMinor <= 0) {
-            res.status(400).json({ success: false, message: 'Invalid cashout calculation amount requested.' });
-            return;
-        }
-        if (!wallet || wallet.availableBalanceMinor < requestedAmountMinor) {
-            res.status(400).json({ success: false, message: 'Insufficient cleared funds available for cashout.' });
-            return;
-        }
-        const before = {
-            availableBalanceMinor: wallet.availableBalanceMinor,
-            totalWithdrawnMinor: wallet.totalWithdrawnMinor,
-        };
-        // Deduct atomic amounts cleanly via Mongoose document memory save hooks
-        wallet.availableBalanceMinor -= requestedAmountMinor;
-        wallet.totalWithdrawnMinor += requestedAmountMinor;
-        wallet.lastTransactionAt = new Date();
-        await wallet.save();
-        await (0, audit_service_1.logAuditEvent)(req, {
-            action: 'wallet.cashout.request',
-            module: 'WALLET',
-            resourceType: 'Wallet',
-            resourceId: wallet._id.toString(),
-            changes: {
-                before,
-                after: {
-                    availableBalanceMinor: wallet.availableBalanceMinor,
-                    totalWithdrawnMinor: wallet.totalWithdrawnMinor,
-                },
-            },
-            metadata: {
-                technicianId: String(wallet.technicianId),
-                amountMinor: requestedAmountMinor,
-                currency: wallet.currency,
-            },
-        });
-        res.status(200).json({
-            success: true,
-            amount_minor: requestedAmountMinor,
-            amount: (0, market_config_1.fromMinorUnits)(requestedAmountMinor, wallet.currency),
-            message: 'Cashout processing request approved. Electronic transfer initiated.'
-        });
-    }
-    catch (error) {
-        console.error('Error updating document cashout data balances:', error);
-        res.status(500).json({ success: false, message: 'Internal Server Error' });
-    }
+    await (0, audit_service_1.logAuditEvent)(req, {
+        action: 'wallet.cashout.blocked',
+        module: 'WALLET',
+        resourceType: 'Wallet',
+        metadata: { reason: 'Phase 4 admin-approved settlement payouts required' },
+        success: false,
+    }).catch(() => undefined);
+    res.status(409).json({
+        success: false,
+        message: 'Technician payouts are handled through the admin-approved settlement centre. Direct cashout is disabled during the payout pilot.',
+        code: 'DIRECT_CASHOUT_DISABLED',
+    });
 };
 exports.requestWalletCashout = requestWalletCashout;
 const getWalletTransactions = async (req, res) => {

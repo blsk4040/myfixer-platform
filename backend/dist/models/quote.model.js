@@ -39,21 +39,29 @@ const mongoose_1 = __importStar(require("mongoose"));
 const market_config_1 = require("../config/market.config");
 var QuoteStatus;
 (function (QuoteStatus) {
+    QuoteStatus["NOT_REQUIRED"] = "NOT_REQUIRED";
     QuoteStatus["DRAFT"] = "DRAFT";
+    QuoteStatus["SUBMITTED"] = "SUBMITTED";
+    QuoteStatus["CLARIFICATION_REQUESTED"] = "CLARIFICATION_REQUESTED";
     QuoteStatus["SENT_TO_CLIENT"] = "SENT_TO_CLIENT";
     QuoteStatus["APPROVED"] = "APPROVED";
     QuoteStatus["REJECTED"] = "REJECTED";
     QuoteStatus["EXPIRED"] = "EXPIRED";
+    QuoteStatus["SUPERSEDED"] = "SUPERSEDED";
     QuoteStatus["CANCELLED"] = "CANCELLED";
 })(QuoteStatus || (exports.QuoteStatus = QuoteStatus = {}));
 var QuoteLineItemType;
 (function (QuoteLineItemType) {
+    QuoteLineItemType["CALL_OUT"] = "CALL_OUT";
     QuoteLineItemType["CALLOUT"] = "CALLOUT";
+    QuoteLineItemType["LABOUR"] = "LABOUR";
     QuoteLineItemType["LABOR"] = "LABOR";
     QuoteLineItemType["PART"] = "PART";
     QuoteLineItemType["ADD_ON"] = "ADD_ON";
     QuoteLineItemType["SURCHARGE"] = "SURCHARGE";
     QuoteLineItemType["DISCOUNT"] = "DISCOUNT";
+    QuoteLineItemType["TAX"] = "TAX";
+    QuoteLineItemType["PLATFORM_FEE"] = "PLATFORM_FEE";
 })(QuoteLineItemType || (exports.QuoteLineItemType = QuoteLineItemType = {}));
 const QuoteLineItemSchema = new mongoose_1.Schema({
     type: {
@@ -135,6 +143,23 @@ const JobQuoteSchema = new mongoose_1.Schema({
         default: QuoteStatus.DRAFT,
         index: true,
     },
+    version: {
+        type: Number,
+        required: true,
+        default: 1,
+        min: 1,
+    },
+    parentQuoteId: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'JobQuote',
+        default: null,
+        index: true,
+    },
+    isCurrent: {
+        type: Boolean,
+        default: true,
+        index: true,
+    },
     lineItems: {
         type: [QuoteLineItemSchema],
         default: [],
@@ -171,11 +196,23 @@ const JobQuoteSchema = new mongoose_1.Schema({
         type: Date,
         default: null,
     },
+    submittedAt: {
+        type: Date,
+        default: null,
+    },
     approvedAt: {
         type: Date,
         default: null,
     },
     rejectedAt: {
+        type: Date,
+        default: null,
+    },
+    clarificationRequestedAt: {
+        type: Date,
+        default: null,
+    },
+    supersededAt: {
         type: Date,
         default: null,
     },
@@ -196,6 +233,14 @@ const JobQuoteSchema = new mongoose_1.Schema({
         type: mongoose_1.Schema.Types.ObjectId,
         ref: 'User',
     },
+    createdBy: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+    },
+    submittedBy: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+    },
     metadata: {
         type: mongoose_1.Schema.Types.Mixed,
         default: {},
@@ -213,6 +258,8 @@ JobQuoteSchema.virtual('totalAmount').get(function () {
 JobQuoteSchema.set('toJSON', { virtuals: true });
 JobQuoteSchema.set('toObject', { virtuals: true });
 JobQuoteSchema.index({ bookingId: 1, createdAt: -1 });
+JobQuoteSchema.index({ bookingId: 1, version: -1 });
+JobQuoteSchema.index({ bookingId: 1, isCurrent: 1, status: 1 });
 JobQuoteSchema.index({ customerId: 1, status: 1 });
 JobQuoteSchema.index({ technicianId: 1, status: 1 });
 JobQuoteSchema.index({ status: 1, createdAt: -1 });

@@ -1,5 +1,6 @@
 import authService, { AuthSession } from './auth.service';
 import { assertConfiguredUrl, getApiBaseUrl } from '../config/runtime.config';
+import { BookingStatus, ServiceRecipient } from '../types/booking';
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -19,13 +20,19 @@ export interface TechnicianRecord {
 
 export interface BookingDetails {
   id: string;
-  status: string;
+  status: BookingStatus;
   countryCode?: string;
   currency?: CurrencyCode;
   priceMinor?: number;
   customerLocation?: Coordinate;
+  serviceLocation?: Coordinate;
+  serviceRecipient?: ServiceRecipient;
   technician?: TechnicianRecord | null;
   technicianId?: string | null;
+  inspection?: unknown;
+  pricingMode?: 'FIXED_PRICE' | 'INSPECTION_AND_QUOTE';
+  paymentStatus?: 'NOT_REQUIRED' | 'PENDING' | 'SECURED' | 'FAILED' | 'UNDER_REVIEW' | 'REFUNDED';
+  workAuthorization?: unknown;
   [key: string]: unknown;
 }
 
@@ -55,6 +62,7 @@ export interface CreateBookingRequest {
   isForSomeoneElse?: boolean;
   contactName?: string;
   contactPhone?: string;
+  serviceRecipient?: ServiceRecipient;
 }
 
 export interface DefaultServiceAddress {
@@ -141,7 +149,7 @@ export interface BookingHistoryItem {
   id: string;
   applianceType: string;
   faultDescription?: string;
-  status: string;
+  status: BookingStatus;
   fullAddress?: string;
   generalArea?: string;
   currency: CurrencyCode;
@@ -167,16 +175,54 @@ export interface JobQuote {
   bookingId: string;
   currency: CurrencyCode;
   status: string;
+  version?: number;
+  parentQuoteId?: string | null;
+  expiresAt?: string | null;
+  submittedAt?: string | null;
+  approvedAt?: string | null;
+  rejectedAt?: string | null;
+  clarificationRequestedAt?: string | null;
   lineItems: Array<{
     type: string;
     label: string;
+    description?: string;
     quantity: number;
+    unitAmountMinor?: number;
     unitAmount: number;
+    totalAmountMinor?: number;
     totalAmount: number;
+    notes?: string;
   }>;
   totalAmount: number;
   totalAmountMinor: number;
   technicianNotes?: string;
+}
+
+export interface PaymentInitializeResponse {
+  success: boolean;
+  reused: boolean;
+  payment: {
+    authorizationUrl: string;
+    accessCode: string;
+    reference: string;
+    amountMinor: number;
+    amount: number;
+    currency: CurrencyCode;
+    status: string;
+  };
+}
+
+export interface BookingPaymentStatusResponse {
+  success: boolean;
+  paymentStatus: 'NOT_REQUIRED' | 'PENDING' | 'SECURED' | 'FAILED' | 'UNDER_REVIEW' | 'REFUNDED';
+  transaction: {
+    reference: string;
+    status: string;
+    amountMinor: number;
+    currency: CurrencyCode;
+    paidAt?: string | null;
+    verifiedAt?: string | null;
+  } | null;
 }
 
 export interface JobMediaRecord {
@@ -349,6 +395,7 @@ class ApiService {
         service_key: payload.serviceKey,
         category: payload.category,
         save_as_default_address: payload.saveAsDefaultAddress,
+        service_recipient: payload.serviceRecipient,
         is_for_someone_else: payload.isForSomeoneElse,
         onsite_contact_name: payload.contactName,
         onsite_contact_phone: payload.contactPhone,
@@ -489,6 +536,40 @@ class ApiService {
     });
   }
 
+  requestQuoteClarification(quoteId: string, message: string): Promise<{ success: boolean; quote: JobQuote }> {
+    return this.request(`/quotes/${encodeURIComponent(quoteId)}/request-clarification`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+  }
+
+  initializePayment(payload: { bookingId: string; quoteId?: string; idempotencyKey?: string; callbackUrl?: string }): Promise<PaymentInitializeResponse> {
+    return this.request('/payments/initialize', {
+      method: 'POST',
+      headers: payload.idempotencyKey ? { 'Idempotency-Key': payload.idempotencyKey } : undefined,
+      body: JSON.stringify(payload),
+    });
+  }
+
+  getBookingPaymentStatus(bookingId: string): Promise<BookingPaymentStatusResponse> {
+    return this.request(`/payments/booking/${encodeURIComponent(bookingId)}/status`);
+  }
+
+  confirmCompletion(bookingId: string, idempotencyKey?: string): Promise<{ success: boolean; bookingId: string; status: BookingStatus; completion: unknown; settlement: unknown }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/confirm-completion`, {
+      method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+      body: JSON.stringify({ idempotencyKey }),
+    });
+  }
+
+  reportCompletionIssue(bookingId: string, reason: string): Promise<{ success: boolean; bookingId: string; completion: unknown }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/report-completion-issue`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
   getBookingMessages(bookingId: string): Promise<{ success: boolean; messages: BookingChatMessage[] }> {
     return this.request(`/bookings/${encodeURIComponent(bookingId)}/messages`);
   }
@@ -497,7 +578,7 @@ class ApiService {
     dataUri: string;
     fileName?: string;
     mimeType?: string;
-    purpose?: 'CHAT' | 'BEFORE_WORK' | 'AFTER_WORK' | 'PROOF_OF_COMPLETION' | 'QUOTE_PART' | 'DISPUTE';
+    purpose?: 'CHAT' | 'BEFORE_WORK' | 'AFTER_WORK' | 'INSPECTION' | 'PROOF_OF_COMPLETION' | 'QUOTE_PART' | 'DISPUTE';
   }): Promise<{ success: boolean; media: JobMediaRecord }> {
     return this.request(`/bookings/${encodeURIComponent(bookingId)}/media`, {
       method: 'POST',

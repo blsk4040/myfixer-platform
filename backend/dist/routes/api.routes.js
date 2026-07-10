@@ -9,6 +9,8 @@ const booking_controller_1 = require("../controllers/booking.controller");
 const auth_controller_1 = require("../controllers/auth.controller");
 const invoice_controller_1 = require("../controllers/invoice.controller");
 const wallet_controller_1 = require("../controllers/wallet.controller");
+const payout_method_controller_1 = require("../controllers/payout-method.controller");
+const settlement_controller_1 = require("../controllers/settlement.controller");
 const quote_controller_1 = require("../controllers/quote.controller");
 const booking_chat_controller_1 = require("../controllers/booking-chat.controller");
 const technician_controller_1 = require("../controllers/technician.controller");
@@ -22,6 +24,7 @@ const auth_middleware_1 = require("../middleware/auth.middleware");
 const user_model_1 = require("../models/user.model");
 // Import the secure PCI-compliant payment gateway endpoints
 const payment_routes_1 = __importDefault(require("./payment.routes"));
+const routing_routes_1 = __importDefault(require("../modules/routing/routing.routes"));
 const apiRouter = (0, express_1.Router)();
 // 🔐 Authentication Matrix Endpoints
 apiRouter.post('/auth/register', auth_controller_1.registerUser);
@@ -45,6 +48,7 @@ apiRouter.get('/notification-preferences', auth_middleware_1.authenticateToken, 
 apiRouter.patch('/notification-preferences', auth_middleware_1.authenticateToken, notification_controller_1.updateMyNotificationPreferences);
 apiRouter.post('/push-tokens', auth_middleware_1.authenticateToken, push_token_controller_1.registerPushToken);
 apiRouter.delete('/push-tokens', auth_middleware_1.authenticateToken, push_token_controller_1.unregisterPushToken);
+apiRouter.post('/technician/profile-photo', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN]), technician_controller_1.uploadMyTechnicianProfilePhoto);
 apiRouter.get('/profile/me', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), auth_controller_1.getMyProfile);
 apiRouter.patch('/profile/default-address', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), auth_controller_1.updateMyDefaultAddress);
 apiRouter.get('/managed-collection-plans', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), managed_collection_subscription_controller_1.listPublicSubscriptionPlans);
@@ -58,6 +62,14 @@ apiRouter.get('/bookings/history/me', auth_middleware_1.authenticateToken, (0, a
 apiRouter.post('/bookings', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), booking_controller_1.createBooking);
 apiRouter.post('/bookings/:id/accept', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN, user_model_1.UserRole.ADMIN]), booking_controller_1.acceptBooking);
 apiRouter.post('/bookings/:id/decline', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN]), booking_controller_1.declineBooking);
+apiRouter.post('/bookings/:id/start-route', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN, user_model_1.UserRole.ADMIN]), booking_controller_1.startRoute);
+apiRouter.post('/bookings/:bookingId/arrival', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN, user_model_1.UserRole.ADMIN]), booking_controller_1.confirmArrival);
+apiRouter.post('/bookings/:bookingId/start-inspection', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN, user_model_1.UserRole.ADMIN]), booking_controller_1.startInspection);
+apiRouter.post('/bookings/:bookingId/complete-inspection', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN, user_model_1.UserRole.ADMIN]), booking_controller_1.completeInspection);
+apiRouter.post('/bookings/:id/start-job', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN, user_model_1.UserRole.ADMIN]), booking_controller_1.startJob);
+apiRouter.post('/bookings/:bookingId/submit-completion', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN, user_model_1.UserRole.ADMIN]), settlement_controller_1.submitCompletion);
+apiRouter.post('/bookings/:bookingId/confirm-completion', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), settlement_controller_1.confirmCompletion);
+apiRouter.post('/bookings/:bookingId/report-completion-issue', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), settlement_controller_1.reportCompletionIssueController);
 apiRouter.patch('/bookings/:id/status', auth_middleware_1.authenticateToken, booking_controller_1.updateBookingStatus);
 apiRouter.get('/bookings/:id', auth_middleware_1.authenticateToken, booking_controller_1.getBookingById);
 apiRouter.post('/bookings/:bookingId/media', auth_middleware_1.authenticateToken, booking_chat_controller_1.uploadBookingMedia);
@@ -65,11 +77,14 @@ apiRouter.get('/bookings/:bookingId/messages', auth_middleware_1.authenticateTok
 apiRouter.post('/bookings/:bookingId/messages', auth_middleware_1.authenticateToken, booking_chat_controller_1.sendBookingMessage);
 apiRouter.post('/bookings/:bookingId/quotes', auth_middleware_1.authenticateToken, quote_controller_1.createJobQuote);
 apiRouter.get('/bookings/:bookingId/quotes', auth_middleware_1.authenticateToken, quote_controller_1.getBookingQuotes);
+apiRouter.post('/quotes/:quoteId/submit', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN, user_model_1.UserRole.ADMIN]), quote_controller_1.submitJobQuote);
 apiRouter.post('/quotes/:quoteId/approve', auth_middleware_1.authenticateToken, quote_controller_1.approveJobQuote);
 apiRouter.post('/quotes/:quoteId/reject', auth_middleware_1.authenticateToken, quote_controller_1.rejectJobQuote);
+apiRouter.post('/quotes/:quoteId/request-clarification', auth_middleware_1.authenticateToken, quote_controller_1.requestQuoteClarification);
 apiRouter.get('/technician/available-jobs', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN]), technician_controller_1.getAvailableJobsForTechnician);
 apiRouter.get('/admin/technicians', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.TECHNICIANS_READ), technician_controller_1.listTechnicianApplications);
 apiRouter.patch('/admin/technicians/:id/review', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.TECHNICIANS_REVIEW), technician_controller_1.reviewTechnicianApplication);
+apiRouter.patch('/admin/technicians/:id/profile-photo', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.TECHNICIANS_REVIEW), technician_controller_1.reviewTechnicianProfilePhoto);
 apiRouter.put('/admin/capabilities/:capabilityId/status', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.TECHNICIANS_REVIEW), admin_controller_1.updateTechnicianCapabilityStatus);
 apiRouter.get('/admin/overview', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.OVERVIEW_READ), admin_controller_1.getAdminOverview);
 apiRouter.get('/admin/bookings', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.BOOKINGS_READ), admin_controller_1.getAdminBookings);
@@ -82,6 +97,11 @@ apiRouter.patch('/admin/managed-collection-reminders/:id', auth_middleware_1.aut
 apiRouter.get('/admin/quotes', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.BOOKINGS_READ), admin_controller_1.getAdminQuotes);
 apiRouter.get('/admin/invoices', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.FINANCE_READ), admin_controller_1.getAdminInvoices);
 apiRouter.get('/admin/wallet-transactions', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.FINANCE_READ), admin_controller_1.getAdminWalletTransactions);
+apiRouter.get('/admin/settlements', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.FINANCE_READ), settlement_controller_1.getAdminSettlements);
+apiRouter.post('/admin/settlements/:settlementId/approve', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.FINANCE_READ), settlement_controller_1.approveAdminSettlement);
+apiRouter.post('/admin/settlements/:id/hold', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.FINANCE_READ), settlement_controller_1.holdAdminSettlement);
+apiRouter.post('/admin/settlements/:id/release-hold', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.FINANCE_READ), settlement_controller_1.releaseAdminSettlementHold);
+apiRouter.post('/admin/settlements/:id/retry-payout', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.FINANCE_READ), settlement_controller_1.retryAdminSettlementPayout);
 apiRouter.get('/admin/markets', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.MARKETS_READ), admin_controller_1.getAdminMarkets);
 apiRouter.patch('/admin/markets/:countryCode', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.MARKETS_UPDATE), admin_controller_1.updateAdminMarket);
 apiRouter.get('/admin/users', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.ADMINS_READ), admin_controller_1.listAdminUsers);
@@ -98,6 +118,7 @@ apiRouter.post('/admin/managed-collection-subscription-plans', auth_middleware_1
 apiRouter.patch('/admin/managed-collection-subscription-plans/:id', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.MARKETS_UPDATE), managed_collection_subscription_controller_1.updateAdminSubscriptionPlan);
 // 💳 Secure Tokenized Payment Gateway Engine
 apiRouter.use('/payments', payment_routes_1.default);
+apiRouter.use('/routing', routing_routes_1.default);
 // 🧾 Tax Compliance Invoice Operations
 apiRouter.get('/invoices', auth_middleware_1.authenticateToken, invoice_controller_1.getInvoicesByUser); // Fetches account specific invoice rows
 apiRouter.get('/invoices/:id/download', auth_middleware_1.authenticateToken, invoice_controller_1.downloadInvoicePDF); // Serves or constructs physical PDF buffers
@@ -105,5 +126,11 @@ apiRouter.get('/invoices/:id/download', auth_middleware_1.authenticateToken, inv
 apiRouter.get('/wallet', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN, user_model_1.UserRole.ADMIN]), wallet_controller_1.getWalletBalance); // Balances data array fetch
 apiRouter.get('/wallet/transactions', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN, user_model_1.UserRole.ADMIN]), wallet_controller_1.getWalletTransactions);
 apiRouter.post('/wallet/cashout', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN, user_model_1.UserRole.ADMIN]), wallet_controller_1.requestWalletCashout); // Dispatches outbound EFT instructions
+apiRouter.get('/technicians/me/payout-methods', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN]), payout_method_controller_1.getMyPayoutMethods);
+apiRouter.post('/technicians/me/payout-methods/bank-account', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN]), payout_method_controller_1.addBankPayoutMethod);
+apiRouter.post('/technicians/me/payout-methods/mobile-money', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN]), payout_method_controller_1.addMobileMoneyPayoutMethod);
+apiRouter.patch('/technicians/me/payout-methods/:id/default', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN]), payout_method_controller_1.makeDefaultPayoutMethod);
+apiRouter.delete('/technicians/me/payout-methods/:id', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN]), payout_method_controller_1.deletePayoutMethod);
+apiRouter.get('/technicians/me/settlements', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.TECHNICIAN]), settlement_controller_1.getTechnicianSettlements);
 exports.default = apiRouter;
 //# sourceMappingURL=api.routes.js.map

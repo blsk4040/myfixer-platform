@@ -1,5 +1,7 @@
 // src/sockets/client.socket.ts
 import { Server as SocketIOServer, Socket } from 'socket.io';
+import mongoose from 'mongoose';
+import Booking from '../models/booking.model';
 
 interface BookingRoomPayload {
   bookingId: string;
@@ -49,8 +51,20 @@ export const registerClientHandlers = (io: SocketIOServer, socket: Socket): void
 
     const bookingId = payload.bookingId.trim();
     const roomName = `booking:${bookingId}`;
+    const customerId = typeof socket.data.customerId === 'string' ? socket.data.customerId : '';
 
     try {
+      if (!customerId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+        socket.emit('join_booking_room_error', { message: 'Not authorized for this booking room' });
+        return;
+      }
+
+      const booking = await Booking.findOne({ _id: bookingId, customerId }).select('_id').lean();
+      if (!booking) {
+        socket.emit('join_booking_room_error', { message: 'Not authorized for this booking room' });
+        return;
+      }
+
       await socket.join(roomName);
       console.info(`📡 Client registered inside tracking viewport room: ${roomName}`);
       socket.emit('booking_room_joined', { bookingId, room: roomName });
@@ -62,7 +76,21 @@ export const registerClientHandlers = (io: SocketIOServer, socket: Socket): void
   // 2. Join Secure Live Chat Communication Room Context
   socket.on('join_chat_room', async (payload: unknown) => {
     if (!isBookingPayload(payload)) return;
-    const roomName = `chat:${payload.bookingId.trim()}`;
+    const bookingId = payload.bookingId.trim();
+    const customerId = typeof socket.data.customerId === 'string' ? socket.data.customerId : '';
+
+    if (!customerId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      socket.emit('join_chat_room_error', { message: 'Not authorized for this chat room' });
+      return;
+    }
+
+    const booking = await Booking.findOne({ _id: bookingId, customerId }).select('_id').lean();
+    if (!booking) {
+      socket.emit('join_chat_room_error', { message: 'Not authorized for this chat room' });
+      return;
+    }
+
+    const roomName = `chat:${bookingId}`;
     await socket.join(roomName);
     console.info(`💬 Client chat connection established: ${roomName}`);
   });

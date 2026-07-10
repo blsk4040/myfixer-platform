@@ -44,6 +44,7 @@ const booking_model_1 = __importStar(require("../models/booking.model"));
 const technician_capability_model_1 = __importStar(require("../models/technician-capability.model"));
 const technician_telemetry_model_1 = __importDefault(require("../models/technician-telemetry.model"));
 const service_availability_service_1 = require("./service-availability.service");
+const booking_privacy_service_1 = require("./booking-privacy.service");
 const EARTH_RADIUS_KM = 6371;
 const DISPATCH_TIMEOUT_MINUTES = 30;
 const DISPATCH_TIMEOUT_MS = DISPATCH_TIMEOUT_MINUTES * 60 * 1000;
@@ -66,22 +67,9 @@ const normalizeDispatchServiceKey = (value) => (0, service_availability_service_
 exports.normalizeDispatchServiceKey = normalizeDispatchServiceKey;
 const buildAvailableBookingPayload = (booking, technicianLocation, categoryMatch) => {
     const [longitude, latitude] = booking.customerLocation.coordinates;
-    return {
-        id: booking._id?.toString() ?? booking.id,
-        serviceKey: getBookingDispatchServiceCategory(booking),
-        applianceType: booking.applianceType,
-        faultDescription: booking.faultDescription || 'No description provided.',
-        fullAddress: booking.fullAddress,
-        complexDetails: booking.complexDetails || '',
-        generalArea: booking.generalArea || 'Local Area',
-        priceMinor: booking.priceMinor,
-        currency: booking.currency,
-        countryCode: booking.countryCode,
-        latitude,
-        longitude,
-        distanceKm: getDistanceKm(technicianLocation.coordinates[1], technicianLocation.coordinates[0], latitude, longitude),
-        categoryMatch,
-    };
+    const distanceKm = getDistanceKm(technicianLocation.coordinates[1], technicianLocation.coordinates[0], latitude, longitude);
+    const payload = (0, booking_privacy_service_1.serializeBookingForUnassignedTechnician)({ ...booking, serviceKey: getBookingDispatchServiceCategory(booking) }, { distanceKm, categoryMatch });
+    return { ...payload, distanceKm, hasPreciseLocation: false };
 };
 const getDispatchExpiry = (booking) => {
     if (booking.dispatch?.expiresAt)
@@ -250,6 +238,7 @@ const findEligibleTechniciansWithTelemetryPipeline = async (booking) => {
         {
             $match: {
                 'technician.approvalStatus': technician_model_1.TechnicianApprovalStatus.APPROVED,
+                'technician.documents.profilePhotoStatus': technician_model_1.VerificationStatus.VERIFIED,
                 'technician.countryCode': booking.countryCode,
                 'technician.userId': {
                     $exists: true,
@@ -279,6 +268,7 @@ const matchingService = {
         }
         const technicians = await technician_model_1.default.find({
             approvalStatus: technician_model_1.TechnicianApprovalStatus.APPROVED,
+            'documents.profilePhotoStatus': technician_model_1.VerificationStatus.VERIFIED,
             'availability.isOnline': true,
             lastLocation: { $ne: null },
             userId: { $exists: true },
@@ -410,6 +400,7 @@ const matchingService = {
         const technician = await technician_model_1.default.findOne({
             userId: new mongoose_1.default.Types.ObjectId(technicianId),
             approvalStatus: technician_model_1.TechnicianApprovalStatus.APPROVED,
+            'documents.profilePhotoStatus': technician_model_1.VerificationStatus.VERIFIED,
             'availability.isOnline': true,
         })
             .select('lastLocation serviceRadiusKm serviceCategories countryCode')

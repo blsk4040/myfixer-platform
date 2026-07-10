@@ -21,6 +21,22 @@ import { Server as SocketIOServer } from 'socket.io';
 
 import apiRouter from './routes/api.routes';
 import { registerSocketServer } from './sockets/socket.server';
+import { validatePaystackStartupConfiguration } from './services/paystack.service';
+import { validatePayoutStartupConfiguration } from './config/payment-capabilities.config';
+
+const validateStartupConfiguration = (): void => {
+  const routingProvider = (process.env.ROUTING_PROVIDER || 'osrm').trim().toLowerCase();
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
+  if (isProduction && routingProvider === 'osrm' && !process.env.OSRM_BASE_URL?.trim()) {
+    throw new Error('OSRM_BASE_URL must be configured when ROUTING_PROVIDER=osrm in production.');
+  }
+  if (process.env.NODE_ENV === 'production' || (process.env.PAYSTACK_ENABLED || '').trim().toLowerCase() === 'true') {
+    validatePaystackStartupConfiguration();
+  }
+  validatePayoutStartupConfiguration();
+};
+
+validateStartupConfiguration();
 
 const parseAllowedOrigins = (): string[] => {
   const configuredOrigins = process.env.CORS_ORIGIN ?? process.env.CORS_ORIGINS;
@@ -51,7 +67,12 @@ export const io = new SocketIOServer(httpServer, {
 
 app.use(helmet());
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, _res, buf) => {
+    (req as any).rawBody = Buffer.from(buf);
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 

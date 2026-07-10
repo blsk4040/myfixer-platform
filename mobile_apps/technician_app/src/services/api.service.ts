@@ -1,12 +1,22 @@
 import authService, { AuthSession } from './auth.service';
-import { JobStatus } from '../store/useJobStore';
+import { AssignedBookingDetails, JobStatus } from '../store/useJobStore';
 import { assertConfiguredUrl, getApiBaseUrl } from '../config/runtime.config';
 
 const API_BASE_URL = getApiBaseUrl();
 
 type BookingStatus = Exclude<JobStatus, 'IDLE'> | 'CANCELLED';
 
-export type QuoteLineItemType = 'CALLOUT' | 'LABOR' | 'PART' | 'ADD_ON' | 'SURCHARGE' | 'DISCOUNT';
+export type QuoteLineItemType =
+  | 'CALL_OUT'
+  | 'CALLOUT'
+  | 'LABOUR'
+  | 'LABOR'
+  | 'PART'
+  | 'ADD_ON'
+  | 'SURCHARGE'
+  | 'DISCOUNT'
+  | 'TAX'
+  | 'PLATFORM_FEE';
 
 export interface QuoteLineItemInput {
   type: QuoteLineItemType;
@@ -21,10 +31,41 @@ export interface JobQuote {
   bookingId: string;
   currency: string;
   status: string;
+  version?: number;
+  parentQuoteId?: string | null;
+  expiresAt?: string | null;
   lineItems: QuoteLineItemInput[];
   totalAmount: number;
   totalAmountMinor: number;
   technicianNotes?: string;
+}
+
+export interface InspectionGpsPayload {
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number;
+  recordedAt: string;
+}
+
+export interface CompleteInspectionPayload extends InspectionGpsPayload {
+  diagnosisNotes: string;
+  technicalObservations?: string;
+  quoteRequired: boolean;
+  partsRequired?: Array<{ name: string; quantity?: number; notes?: string }>;
+  evidenceMediaIds?: string[];
+}
+
+export interface BookingPaymentStatusResponse {
+  success: boolean;
+  paymentStatus: 'NOT_REQUIRED' | 'PENDING' | 'SECURED' | 'FAILED' | 'UNDER_REVIEW' | 'REFUNDED';
+  transaction: {
+    reference: string;
+    status: string;
+    amountMinor: number;
+    currency: string;
+    paidAt?: string | null;
+    verifiedAt?: string | null;
+  } | null;
 }
 
 export interface JobMediaRecord {
@@ -75,6 +116,52 @@ export interface WalletTransactionRecord {
   currency?: string;
   description?: string;
   createdAt?: string;
+}
+
+export type ProviderSettlementStatus =
+  | 'PENDING_COMPLETION'
+  | 'AWAITING_CUSTOMER_CONFIRMATION'
+  | 'ON_HOLD'
+  | 'READY_FOR_PAYOUT'
+  | 'APPROVAL_REQUIRED'
+  | 'APPROVED'
+  | 'PAYOUT_QUEUED'
+  | 'PAYOUT_PROCESSING'
+  | 'PAID'
+  | 'PAYOUT_FAILED'
+  | 'REVERSED'
+  | 'CANCELLED'
+  | 'UNDER_REVIEW';
+
+export interface ProviderSettlementRecord {
+  id: string;
+  bookingId: string;
+  currency: string;
+  grossAmountMinor: number;
+  commissionAmountMinor: number;
+  processingFeeMinor: number;
+  netAmountMinor: number;
+  status: ProviderSettlementStatus;
+  completionConfirmedAt?: string | null;
+  readyForPayoutAt?: string | null;
+  paidAt?: string | null;
+  holdReason?: string;
+}
+
+export interface ProviderPayoutMethodRecord {
+  id: string;
+  type: 'BANK_ACCOUNT' | 'MOBILE_MONEY';
+  provider: 'PAYSTACK';
+  countryCode: string;
+  currency: string;
+  accountHolderName: string;
+  bankName?: string;
+  bankCode?: string;
+  mobileProvider?: string;
+  maskedDestination: string;
+  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED' | 'DISABLED';
+  isDefault: boolean;
+  verifiedAt?: string | null;
 }
 
 export interface RegisterTechnicianPayload {
@@ -203,7 +290,7 @@ class ApiService {
     });
   }
 
-  acceptBooking(bookingId: string): Promise<{ success: boolean; status: BookingStatus }> {
+  acceptBooking(bookingId: string): Promise<{ success: boolean; status: BookingStatus; booking?: AssignedBookingDetails }> {
     return this.request(`/bookings/${encodeURIComponent(bookingId)}/accept`, {
       method: 'POST',
       body: JSON.stringify({}),
@@ -228,7 +315,47 @@ class ApiService {
     });
   }
 
-  createJobQuote(bookingId: string, payload: { lineItems: QuoteLineItemInput[]; technicianNotes?: string }): Promise<{ success: boolean; quote: JobQuote }> {
+  startRoute(bookingId: string): Promise<{ success: boolean; status: BookingStatus }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/start-route`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
+  confirmArrival(bookingId: string, payload: {
+    latitude: number;
+    longitude: number;
+    accuracyMeters: number;
+    recordedAt: string;
+  }): Promise<{ success: boolean; status?: BookingStatus; message?: string; code?: string }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/arrival`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  startJob(bookingId: string): Promise<{ success: boolean; status: BookingStatus }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/start-job`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
+  startInspection(bookingId: string, payload: InspectionGpsPayload & { acknowledgePlatformRules: boolean }): Promise<{ success: boolean; bookingId: string; inspection: unknown }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/start-inspection`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  completeInspection(bookingId: string, payload: CompleteInspectionPayload): Promise<{ success: boolean; bookingId: string; inspection: unknown; workAuthorization?: unknown }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/complete-inspection`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  createJobQuote(bookingId: string, payload: { lineItems: QuoteLineItemInput[]; technicianNotes?: string; draft?: boolean; submit?: boolean; parentQuoteId?: string }): Promise<{ success: boolean; quote: JobQuote }> {
     return this.request(`/bookings/${encodeURIComponent(bookingId)}/quotes`, {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -237,6 +364,10 @@ class ApiService {
 
   getBookingQuotes(bookingId: string): Promise<{ success: boolean; quotes: JobQuote[] }> {
     return this.request(`/bookings/${encodeURIComponent(bookingId)}/quotes`);
+  }
+
+  getBookingPaymentStatus(bookingId: string): Promise<BookingPaymentStatusResponse> {
+    return this.request(`/payments/booking/${encodeURIComponent(bookingId)}/status`);
   }
 
   finalizeJobInvoice(payload: {
@@ -253,6 +384,20 @@ class ApiService {
     });
   }
 
+  submitCompletion(bookingId: string, payload: {
+    completionNotes: string;
+    partsUsed?: Array<{ name: string; quantity?: number; amountMinor?: number; notes?: string }>;
+    evidenceMediaIds: string[];
+    finalAmountMinor: number;
+    idempotencyKey?: string;
+  }): Promise<{ success: boolean; bookingId: string; completion: unknown }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/submit-completion`, {
+      method: 'POST',
+      headers: payload.idempotencyKey ? { 'Idempotency-Key': payload.idempotencyKey } : undefined,
+      body: JSON.stringify(payload),
+    });
+  }
+
   getBookingMessages(bookingId: string): Promise<{ success: boolean; messages: BookingChatMessage[] }> {
     return this.request(`/bookings/${encodeURIComponent(bookingId)}/messages`);
   }
@@ -261,7 +406,7 @@ class ApiService {
     dataUri: string;
     fileName?: string;
     mimeType?: string;
-    purpose?: 'CHAT' | 'BEFORE_WORK' | 'AFTER_WORK' | 'PROOF_OF_COMPLETION' | 'QUOTE_PART' | 'DISPUTE';
+    purpose?: 'CHAT' | 'BEFORE_WORK' | 'AFTER_WORK' | 'INSPECTION' | 'PROOF_OF_COMPLETION' | 'QUOTE_PART' | 'DISPUTE';
   }): Promise<{ success: boolean; media: JobMediaRecord }> {
     return this.request(`/bookings/${encodeURIComponent(bookingId)}/media`, {
       method: 'POST',
@@ -297,6 +442,51 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ amountMinor }),
     });
+  }
+
+  getPayoutMethods(): Promise<{ success: boolean; methods: ProviderPayoutMethodRecord[] }> {
+    return this.request('/technicians/me/payout-methods');
+  }
+
+  addBankPayoutMethod(payload: {
+    countryCode: string;
+    currency: string;
+    accountHolderName: string;
+    bankName: string;
+    bankCode: string;
+    accountNumber: string;
+    makeDefault?: boolean;
+  }): Promise<{ success: boolean; method: ProviderPayoutMethodRecord }> {
+    return this.request('/technicians/me/payout-methods/bank-account', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  addMobileMoneyPayoutMethod(payload: {
+    countryCode: string;
+    currency: string;
+    operatorCode: string;
+    phoneNumber: string;
+    accountName?: string;
+    makeDefault?: boolean;
+  }): Promise<{ success: boolean; method: ProviderPayoutMethodRecord }> {
+    return this.request('/technicians/me/payout-methods/mobile-money', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  setDefaultPayoutMethod(methodId: string): Promise<{ success: boolean; method: ProviderPayoutMethodRecord }> {
+    return this.request(`/technicians/me/payout-methods/${encodeURIComponent(methodId)}/default`, { method: 'PATCH' });
+  }
+
+  disablePayoutMethod(methodId: string): Promise<{ success: boolean; method: ProviderPayoutMethodRecord }> {
+    return this.request(`/technicians/me/payout-methods/${encodeURIComponent(methodId)}`, { method: 'DELETE' });
+  }
+
+  getMySettlements(): Promise<{ success: boolean; settlements: ProviderSettlementRecord[] }> {
+    return this.request('/technicians/me/settlements');
   }
 
   private async getErrorMessage(response: Response): Promise<string> {

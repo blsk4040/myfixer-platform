@@ -1,6 +1,11 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerClientHandlers = void 0;
+const mongoose_1 = __importDefault(require("mongoose"));
+const booking_model_1 = __importDefault(require("../models/booking.model"));
 const isBookingPayload = (payload) => {
     return !!payload && typeof payload === 'object' && typeof payload.bookingId === 'string' && payload.bookingId.trim().length > 0;
 };
@@ -31,7 +36,17 @@ const registerClientHandlers = (io, socket) => {
         }
         const bookingId = payload.bookingId.trim();
         const roomName = `booking:${bookingId}`;
+        const customerId = typeof socket.data.customerId === 'string' ? socket.data.customerId : '';
         try {
+            if (!customerId || !mongoose_1.default.Types.ObjectId.isValid(bookingId)) {
+                socket.emit('join_booking_room_error', { message: 'Not authorized for this booking room' });
+                return;
+            }
+            const booking = await booking_model_1.default.findOne({ _id: bookingId, customerId }).select('_id').lean();
+            if (!booking) {
+                socket.emit('join_booking_room_error', { message: 'Not authorized for this booking room' });
+                return;
+            }
             await socket.join(roomName);
             console.info(`📡 Client registered inside tracking viewport room: ${roomName}`);
             socket.emit('booking_room_joined', { bookingId, room: roomName });
@@ -44,7 +59,18 @@ const registerClientHandlers = (io, socket) => {
     socket.on('join_chat_room', async (payload) => {
         if (!isBookingPayload(payload))
             return;
-        const roomName = `chat:${payload.bookingId.trim()}`;
+        const bookingId = payload.bookingId.trim();
+        const customerId = typeof socket.data.customerId === 'string' ? socket.data.customerId : '';
+        if (!customerId || !mongoose_1.default.Types.ObjectId.isValid(bookingId)) {
+            socket.emit('join_chat_room_error', { message: 'Not authorized for this chat room' });
+            return;
+        }
+        const booking = await booking_model_1.default.findOne({ _id: bookingId, customerId }).select('_id').lean();
+        if (!booking) {
+            socket.emit('join_chat_room_error', { message: 'Not authorized for this chat room' });
+            return;
+        }
+        const roomName = `chat:${bookingId}`;
         await socket.join(roomName);
         console.info(`💬 Client chat connection established: ${roomName}`);
     });

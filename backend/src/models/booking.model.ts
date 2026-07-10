@@ -9,6 +9,8 @@ export enum BookingStatus {
   ACCEPTED = 'ACCEPTED',
   IN_ROUTE = 'IN_ROUTE',
   ARRIVED = 'ARRIVED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  /** Legacy work-stage status retained while existing bookings are migrated. */
   DIAGNOSTIC_DONE = 'DIAGNOSTIC_DONE',
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
@@ -30,6 +32,51 @@ export enum BookingDispatchStatus {
   CANCELLED = 'CANCELLED',
 }
 
+export enum BookingRecipientType {
+  SELF = 'SELF',
+  OTHER = 'OTHER',
+}
+
+export enum PricingMode {
+  FIXED_PRICE = 'FIXED_PRICE',
+  INSPECTION_AND_QUOTE = 'INSPECTION_AND_QUOTE',
+}
+
+export enum InspectionStatus {
+  NOT_STARTED = 'NOT_STARTED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  NOT_REQUIRED = 'NOT_REQUIRED',
+}
+
+export enum WorkAuthorizationStatus {
+  BLOCKED = 'BLOCKED',
+  AWAITING_INSPECTION = 'AWAITING_INSPECTION',
+  AWAITING_QUOTE = 'AWAITING_QUOTE',
+  AWAITING_QUOTE_APPROVAL = 'AWAITING_QUOTE_APPROVAL',
+  AWAITING_PAYMENT = 'AWAITING_PAYMENT',
+  AUTHORIZED = 'AUTHORIZED',
+}
+
+export enum BookingPaymentStatus {
+  NOT_REQUIRED = 'NOT_REQUIRED',
+  PENDING = 'PENDING',
+  SECURED = 'SECURED',
+  FAILED = 'FAILED',
+  UNDER_REVIEW = 'UNDER_REVIEW',
+  REFUNDED = 'REFUNDED',
+}
+
+export enum CompletionStatus {
+  NOT_SUBMITTED = 'NOT_SUBMITTED',
+  PROVIDER_SUBMITTED = 'PROVIDER_SUBMITTED',
+  CUSTOMER_CONFIRMATION_PENDING = 'CUSTOMER_CONFIRMATION_PENDING',
+  CUSTOMER_CONFIRMED = 'CUSTOMER_CONFIRMED',
+  ISSUE_REPORTED = 'ISSUE_REPORTED',
+  AUTO_CONFIRMED = 'AUTO_CONFIRMED',
+  ADMIN_CONFIRMED = 'ADMIN_CONFIRMED',
+}
+
 interface IFinalBilling {
   baseAmountMinor: number;
   additionalLaborMinor: number;
@@ -37,6 +84,93 @@ interface IFinalBilling {
   totalAmountMinor: number;
   proofPhoto?: string;
   notes?: string;
+}
+
+export interface IServiceRecipient {
+  type: BookingRecipientType;
+  fullName: string;
+  phoneNumber: string;
+  relationship?: string;
+  email?: string;
+  countryCode?: string;
+  country?: string;
+  city?: string;
+  streetAddress?: string;
+  notes?: string;
+}
+
+export interface IInspectionPart {
+  name: string;
+  quantity?: number;
+  notes?: string;
+}
+
+export interface IInspectionLocation {
+  type: 'Point';
+  coordinates: [number, number];
+  accuracyMeters?: number;
+}
+
+export interface IBookingInspection {
+  status: InspectionStatus;
+  startedAt?: Date | null;
+  completedAt?: Date | null;
+  startedBy?: mongoose.Types.ObjectId | null;
+  completedBy?: mongoose.Types.ObjectId | null;
+  reminderAcknowledgedAt?: Date | null;
+  reminderAcknowledgedBy?: mongoose.Types.ObjectId | null;
+  startLocation?: IInspectionLocation;
+  completionLocation?: IInspectionLocation;
+  diagnosisNotes?: string;
+  technicalObservations?: string;
+  partsRequired?: IInspectionPart[];
+  quoteRequired?: boolean;
+  evidenceMediaIds?: mongoose.Types.ObjectId[];
+}
+
+export interface IWorkAuthorization {
+  status: WorkAuthorizationStatus;
+  reasonCode?: string;
+  requirements?: Record<string, unknown>;
+  evaluatedAt?: Date | null;
+}
+
+export interface IBookingPaymentSecurity {
+  securedAt?: Date | null;
+  transactionId?: mongoose.Types.ObjectId | null;
+  provider?: string;
+  reference?: string;
+  amountMinor?: number;
+  currency?: CurrencyCode;
+  verifiedAt?: Date | null;
+}
+
+export interface IBookingCompletionPart {
+  name: string;
+  quantity?: number;
+  amountMinor?: number;
+  notes?: string;
+}
+
+export interface IBookingCompletion {
+  status: CompletionStatus;
+  submittedBy?: mongoose.Types.ObjectId | null;
+  submittedAt?: Date | null;
+  completionNotes?: string;
+  partsUsed?: IBookingCompletionPart[];
+  evidenceMediaIds?: mongoose.Types.ObjectId[];
+  finalAmountMinor?: number;
+  currency?: CurrencyCode;
+  customerConfirmedBy?: mongoose.Types.ObjectId | null;
+  customerConfirmedAt?: Date | null;
+  issueReportedBy?: mongoose.Types.ObjectId | null;
+  issueReportedAt?: Date | null;
+  issueReason?: string;
+  autoConfirmEligibleAt?: Date | null;
+  autoConfirmedAt?: Date | null;
+  adminConfirmedBy?: mongoose.Types.ObjectId | null;
+  adminConfirmedAt?: Date | null;
+  adminNote?: string;
 }
 
 export interface IBooking extends Document {
@@ -59,10 +193,17 @@ export interface IBooking extends Document {
   fullAddress: string;
   complexDetails?: string;
   generalArea: string;
+  serviceRecipient?: IServiceRecipient;
 
   priceMinor: number;
   countryCode: CountryCode;
   currency: CurrencyCode;
+  pricingMode: PricingMode;
+  paymentStatus: BookingPaymentStatus;
+  paymentSecurity?: IBookingPaymentSecurity;
+  completion?: IBookingCompletion;
+  workAuthorization?: IWorkAuthorization;
+  inspection?: IBookingInspection;
 
   status: BookingStatus;
 
@@ -73,9 +214,13 @@ export interface IBooking extends Document {
     scheduledEndTime?: Date | null;
   };
 
+  scheduledAt?: Date | null;
   acceptedAt?: Date | null;
   inRouteAt?: Date | null;
+  routeStartedAt?: Date | null;
   arrivedAt?: Date | null;
+  inProgressAt?: Date | null;
+  workStartedAt?: Date | null;
   diagnosticDoneAt?: Date | null;
   completedAt?: Date | null;
   cancelledAt?: Date | null;
@@ -209,6 +354,215 @@ const DispatchSchema = new Schema(
   { _id: false }
 );
 
+const ServiceRecipientSchema = new Schema(
+  {
+    type: {
+      type: String,
+      enum: Object.values(BookingRecipientType),
+      default: BookingRecipientType.SELF,
+      index: true,
+    },
+    fullName: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 120,
+    },
+    phoneNumber: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 40,
+    },
+    relationship: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 80,
+    },
+    email: {
+      type: String,
+      default: '',
+      trim: true,
+      lowercase: true,
+      maxlength: 254,
+    },
+    countryCode: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 10,
+    },
+    country: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 120,
+    },
+    city: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 120,
+    },
+    streetAddress: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 240,
+    },
+    notes: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 1000,
+    },
+  },
+  { _id: false }
+);
+
+const InspectionPointSchema = new Schema<IInspectionLocation>(
+  {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point',
+      required: true,
+    },
+    coordinates: {
+      type: [Number],
+      required: true,
+      validate: {
+        validator(value: number[]) {
+          return Array.isArray(value) && value.length === 2;
+        },
+        message: 'Coordinates must contain [longitude, latitude]',
+      },
+    },
+    accuracyMeters: {
+      type: Number,
+      min: 0,
+      default: undefined,
+    },
+  },
+  { _id: false }
+);
+
+const InspectionPartSchema = new Schema<IInspectionPart>(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 120,
+    },
+    quantity: {
+      type: Number,
+      min: 0,
+      default: undefined,
+    },
+    notes: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500,
+    },
+  },
+  { _id: false }
+);
+
+const BookingInspectionSchema = new Schema<IBookingInspection>(
+  {
+    status: {
+      type: String,
+      enum: Object.values(InspectionStatus),
+      default: InspectionStatus.NOT_STARTED,
+      index: true,
+    },
+    startedAt: { type: Date, default: null },
+    completedAt: { type: Date, default: null },
+    startedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    completedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    reminderAcknowledgedAt: { type: Date, default: null },
+    reminderAcknowledgedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    startLocation: { type: InspectionPointSchema, default: undefined },
+    completionLocation: { type: InspectionPointSchema, default: undefined },
+    diagnosisNotes: { type: String, default: '', trim: true, maxlength: 4000 },
+    technicalObservations: { type: String, default: '', trim: true, maxlength: 4000 },
+    partsRequired: { type: [InspectionPartSchema], default: [] },
+    quoteRequired: { type: Boolean, default: undefined },
+    evidenceMediaIds: { type: [Schema.Types.ObjectId], ref: 'JobMedia', default: [] },
+  },
+  { _id: false }
+);
+
+const WorkAuthorizationSchema = new Schema<IWorkAuthorization>(
+  {
+    status: {
+      type: String,
+      enum: Object.values(WorkAuthorizationStatus),
+      default: WorkAuthorizationStatus.AWAITING_INSPECTION,
+      index: true,
+    },
+    reasonCode: { type: String, default: '', trim: true, maxlength: 80 },
+    requirements: { type: Schema.Types.Mixed, default: {} },
+    evaluatedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const BookingPaymentSecuritySchema = new Schema<IBookingPaymentSecurity>(
+  {
+    securedAt: { type: Date, default: null },
+    transactionId: { type: Schema.Types.ObjectId, ref: 'PaymentTransaction', default: null },
+    provider: { type: String, default: '', trim: true },
+    reference: { type: String, default: '', trim: true, index: true },
+    amountMinor: { type: Number, min: 0, default: 0 },
+    currency: { type: String, enum: Object.values(CurrencyCode), default: undefined },
+    verifiedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const BookingCompletionPartSchema = new Schema<IBookingCompletionPart>(
+  {
+    name: { type: String, required: true, trim: true, maxlength: 120 },
+    quantity: { type: Number, min: 0, default: undefined },
+    amountMinor: { type: Number, min: 0, default: undefined },
+    notes: { type: String, default: '', trim: true, maxlength: 500 },
+  },
+  { _id: false }
+);
+
+const BookingCompletionSchema = new Schema<IBookingCompletion>(
+  {
+    status: {
+      type: String,
+      enum: Object.values(CompletionStatus),
+      default: CompletionStatus.NOT_SUBMITTED,
+      index: true,
+    },
+    submittedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    submittedAt: { type: Date, default: null },
+    completionNotes: { type: String, default: '', trim: true, maxlength: 4000 },
+    partsUsed: { type: [BookingCompletionPartSchema], default: [] },
+    evidenceMediaIds: { type: [Schema.Types.ObjectId], ref: 'JobMedia', default: [] },
+    finalAmountMinor: { type: Number, min: 0, default: 0 },
+    currency: { type: String, enum: Object.values(CurrencyCode), default: undefined },
+    customerConfirmedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    customerConfirmedAt: { type: Date, default: null },
+    issueReportedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    issueReportedAt: { type: Date, default: null },
+    issueReason: { type: String, default: '', trim: true, maxlength: 2000 },
+    autoConfirmEligibleAt: { type: Date, default: null },
+    autoConfirmedAt: { type: Date, default: null },
+    adminConfirmedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    adminConfirmedAt: { type: Date, default: null },
+    adminNote: { type: String, default: '', trim: true, maxlength: 1000 },
+  },
+  { _id: false }
+);
+
 const BookingSchema = new Schema<IBooking>(
   {
     customerId: {
@@ -303,6 +657,11 @@ const BookingSchema = new Schema<IBooking>(
       index: true,
     },
 
+    serviceRecipient: {
+      type: ServiceRecipientSchema,
+      default: undefined,
+    },
+
     priceMinor: {
       type: Number,
       required: true,
@@ -324,6 +683,40 @@ const BookingSchema = new Schema<IBooking>(
       index: true,
     },
 
+    pricingMode: {
+      type: String,
+      enum: Object.values(PricingMode),
+      default: PricingMode.INSPECTION_AND_QUOTE,
+      index: true,
+    },
+
+    paymentStatus: {
+      type: String,
+      enum: Object.values(BookingPaymentStatus),
+      default: BookingPaymentStatus.PENDING,
+      index: true,
+    },
+
+    paymentSecurity: {
+      type: BookingPaymentSecuritySchema,
+      default: undefined,
+    },
+
+    completion: {
+      type: BookingCompletionSchema,
+      default: undefined,
+    },
+
+    workAuthorization: {
+      type: WorkAuthorizationSchema,
+      default: undefined,
+    },
+
+    inspection: {
+      type: BookingInspectionSchema,
+      default: undefined,
+    },
+
     status: {
       type: String,
       enum: Object.values(BookingStatus),
@@ -341,6 +734,12 @@ const BookingSchema = new Schema<IBooking>(
       default: undefined,
     },
 
+    scheduledAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+
     acceptedAt: {
       type: Date,
       default: null,
@@ -351,7 +750,22 @@ const BookingSchema = new Schema<IBooking>(
       default: null,
     },
 
+    routeStartedAt: {
+      type: Date,
+      default: null,
+    },
+
     arrivedAt: {
+      type: Date,
+      default: null,
+    },
+
+    inProgressAt: {
+      type: Date,
+      default: null,
+    },
+
+    workStartedAt: {
       type: Date,
       default: null,
     },
@@ -422,6 +836,9 @@ BookingSchema.index({ countryCode: 1, serviceKey: 1, status: 1 });
 BookingSchema.index({ generalArea: 1, status: 1 });
 BookingSchema.index({ status: 1, 'dispatch.expiresAt': 1 });
 BookingSchema.index({ 'dispatch.declinedByTechnicians': 1 });
+BookingSchema.index({ status: 1, 'inspection.status': 1 });
+BookingSchema.index({ status: 1, 'workAuthorization.status': 1 });
+BookingSchema.index({ status: 1, 'completion.status': 1 });
 
 export const Booking =
   (mongoose.models.Booking as mongoose.Model<IBooking> | undefined) ??

@@ -1,4 +1,4 @@
-package co.za.myfixer.client
+package com.helloworld
 
 import android.app.Application
 import android.content.res.Configuration

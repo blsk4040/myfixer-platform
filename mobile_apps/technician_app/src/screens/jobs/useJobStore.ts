@@ -16,7 +16,7 @@ export interface JobPayload {
   timeString?: string;
   scheduledTime?: string;
   generalArea?: string;
-  jobStatus?: 'ACCEPTED' | 'IN_ROUTE' | 'ARRIVED' | 'DIAGNOSTIC_DONE' | 'COMPLETED';
+  jobStatus?: 'ACCEPTED' | 'IN_ROUTE' | 'ARRIVED' | 'IN_PROGRESS' | 'DIAGNOSTIC_DONE' | 'COMPLETED';
 }
 
 interface JobState {
@@ -86,9 +86,10 @@ export const useJobStore = create<JobState>((set) => ({
       case 'ARRIVED':
         return {
           activeJobs: state.activeJobs.map((job) => (
-            job.id === jobId ? { ...job, jobStatus: 'DIAGNOSTIC_DONE' as const } : job
+            job.id === jobId ? { ...job, jobStatus: 'IN_PROGRESS' as const } : job
           )),
         };
+      case 'IN_PROGRESS':
       case 'DIAGNOSTIC_DONE':
         return {
           activeJobs: state.activeJobs.filter((job) => job.id !== jobId),

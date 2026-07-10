@@ -13,29 +13,32 @@ const logSocketDebug = (message: string, metadata?: Record<string, unknown>): vo
 
 export interface IncomingRequestPayload {
   bookingId: string;
-  customerId: string;
   applianceType: string;
-  latitude: number;
-  longitude: number;
+  faultDescription?: string;
+  generalArea?: string;
+  approximateArea?: string;
+  distanceText?: string;
+  priceMinor?: number;
   price: number;
   currency: string;
+  hasPreciseLocation: false;
 }
 
 export interface AvailableJobsPayload {
   bookingId: string;
+  id?: string;
   applianceType: string;
   faultDescription: string;
-  fullAddress: string;
-  complexDetails: string;
   generalArea: string;
+  approximateArea?: string;
   priceMinor: number;
+  callOutFee?: number;
   currency: string;
   countryCode: string;
-  latitude: number;
-  longitude: number;
-  distanceKm: number;
+  distanceKm?: number;
   distanceText: string;
   categoryMatch: boolean;
+  hasPreciseLocation: false;
 }
 
 export type IncomingRequestListener = (payload: IncomingRequestPayload) => void;

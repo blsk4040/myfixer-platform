@@ -94,6 +94,15 @@ export default function BookingWizardScreen() {
               latitude: coordinates?.length === 2 ? coordinates[1] : DEFAULT_COORDINATE.latitude,
               longitude: coordinates?.length === 2 ? coordinates[0] : DEFAULT_COORDINATE.longitude,
               isForSomeoneElse: false,
+              serviceRecipient: {
+                type: 'SELF',
+                fullName: nextProfile.name || 'Client',
+                phoneNumber: nextProfile.phone || '',
+                countryCode: nextProfile.countryCode,
+                country: nextProfile.countryCode,
+                city: defaultAddress.city,
+                streetAddress: defaultAddress.streetAddress || defaultAddress.fullAddress,
+              },
               city: defaultAddress.city,
               area: defaultAddress.suburb,
               postalCode: defaultAddress.postalCode,
@@ -171,10 +180,7 @@ export default function BookingWizardScreen() {
       const formattedTimestamp = scheduleMode === 'NOW' ? 'Urgent / Right Now' : selectedDate.toLocaleString();
       const readableAddress = selectedLocation.fullAddress;
       const currency = (session?.user.currency ?? 'ZAR') as any;
-      const onsiteContactNote = selectedLocation.isForSomeoneElse
-        ? `On-site contact: ${selectedLocation.contactName || 'Not provided'} (${selectedLocation.contactPhone || 'No phone provided'}).`
-        : '';
-      const faultDescription = [notes.trim() || 'No description provided.', onsiteContactNote].filter(Boolean).join('\n');
+      const faultDescription = notes.trim() || 'No description provided.';
 
       const response = await apiService.createBooking({
         customerName: session?.user.name ?? 'Client',
@@ -198,6 +204,7 @@ export default function BookingWizardScreen() {
         isForSomeoneElse: selectedLocation.isForSomeoneElse,
         contactName: selectedLocation.contactName,
         contactPhone: selectedLocation.contactPhone,
+        serviceRecipient: selectedLocation.serviceRecipient,
       });
 
       const socket = socketService.initializeConnection();
@@ -304,6 +311,8 @@ export default function BookingWizardScreen() {
                 initialFullAddress={selectedLocation?.fullAddress || profile?.defaultServiceAddress?.fullAddress || ''}
                 initialLatitude={Number(latitude)}
                 initialLongitude={Number(longitude)}
+                ownerName={profile?.name || authService.getSession()?.user.name || 'Client'}
+                ownerPhone={profile?.phone || authService.getSession()?.user.phone || ''}
                 onLocationConfirmed={handleLocationConfirmed}
               />
               {useDifferentAddress ? (
@@ -387,6 +396,23 @@ export default function BookingWizardScreen() {
                   {isLocating ? 'Locating your address coordinates...' : `Lat: ${Number(latitude).toFixed(4)}, Lon: ${Number(longitude).toFixed(4)}`}
                 </Text>
               </View>
+
+              {selectedLocation ? (
+                <View style={styles.reviewBox}>
+                  <Text style={styles.reviewTitle}>Booking review</Text>
+                  <Text style={styles.reviewLine}>Owner: {profile?.name || authService.getSession()?.user.name || 'You'}</Text>
+                  <Text style={styles.reviewLine}>
+                    Service recipient: {selectedLocation.serviceRecipient.type === 'OTHER'
+                      ? selectedLocation.serviceRecipient.fullName
+                      : 'You'}
+                  </Text>
+                  <Text style={styles.reviewLine}>Service address: {selectedLocation.fullAddress}</Text>
+                  <Text style={styles.reviewLine}>
+                    Who receives service: {selectedLocation.serviceRecipient.type === 'OTHER' ? 'Someone else' : 'Booking owner'}
+                  </Text>
+                  <Text style={styles.reviewLine}>Who pays: Booking owner</Text>
+                </View>
+              ) : null}
             </View>
           )}
 
@@ -436,6 +462,9 @@ const styles = StyleSheet.create({
 
   locationSummaryBox: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   locationSummaryText: { color: '#64748B', fontSize: 12 },
+  reviewBox: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 14, gap: 6 },
+  reviewTitle: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
+  reviewLine: { color: '#CBD5E1', fontSize: 12, lineHeight: 18 },
   footerSticky: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#090D14', padding: 20, borderTopWidth: 1, borderColor: '#1E293B' },
   primaryActionButton: { backgroundColor: '#00FF87', height: 54, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   primaryActionText: { color: '#090D14', fontSize: 15, fontWeight: '800' },

@@ -134,6 +134,42 @@ const updateSeededBookingStatus = async (technicianSession, bookingId, status) =
   assert(body?.status === status, `booking status was not ${status}: ${JSON.stringify(body)}`);
 };
 
+const confirmSeededArrival = async (technicianSession, bookingId) => {
+  const firstRecordedAt = new Date(Date.now() - 12000).toISOString();
+  const secondRecordedAt = new Date().toISOString();
+  const payload = (recordedAt) => ({
+    latitude: -15.3875,
+    longitude: 28.3228,
+    accuracyMeters: 18,
+    recordedAt,
+  });
+
+  const first = await request(`/bookings/${bookingId}/arrival`, {
+    method: 'POST',
+    token: technicianSession.token,
+    body: JSON.stringify(payload(firstRecordedAt)),
+  });
+  assert([200, 202].includes(first.response.status), `first arrival returned ${first.response.status}: ${JSON.stringify(first.body)}`);
+
+  const second = await request(`/bookings/${bookingId}/arrival`, {
+    method: 'POST',
+    token: technicianSession.token,
+    body: JSON.stringify(payload(secondRecordedAt)),
+  });
+  assert(second.response.ok, `second arrival returned ${second.response.status}: ${JSON.stringify(second.body)}`);
+  assert(second.body?.status === 'ARRIVED', `arrival was not confirmed: ${JSON.stringify(second.body)}`);
+};
+
+const startSeededJob = async (technicianSession, bookingId) => {
+  const { response, body } = await request(`/bookings/${bookingId}/start-job`, {
+    method: 'POST',
+    token: technicianSession.token,
+    body: JSON.stringify({}),
+  });
+  assert(response.ok, `start job returned ${response.status}: ${JSON.stringify(body)}`);
+  assert(body?.status === 'IN_PROGRESS', `booking status was not IN_PROGRESS: ${JSON.stringify(body)}`);
+};
+
 const createSeededQuote = async (technicianSession, bookingId, suffix) => {
   const { response, body } = await request(`/bookings/${bookingId}/quotes`, {
     method: 'POST',
@@ -370,8 +406,10 @@ const main = async () => {
     requireSmokeValue(seededContext.approveBookingId, 'approve booking id');
     requireSmokeValue(seededContext.rejectBookingId, 'reject booking id');
     await updateSeededBookingStatus(technicianSession, seededContext.approveBookingId, 'IN_ROUTE');
-    await updateSeededBookingStatus(technicianSession, seededContext.approveBookingId, 'ARRIVED');
-    await updateSeededBookingStatus(technicianSession, seededContext.rejectBookingId, 'ARRIVED');
+    await updateSeededBookingStatus(technicianSession, seededContext.rejectBookingId, 'IN_ROUTE');
+    await confirmSeededArrival(technicianSession, seededContext.approveBookingId);
+    await confirmSeededArrival(technicianSession, seededContext.rejectBookingId);
+    await startSeededJob(technicianSession, seededContext.approveBookingId);
   });
 
   await runStep('create quote', async () => {

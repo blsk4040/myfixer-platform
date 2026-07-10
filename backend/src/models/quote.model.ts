@@ -4,21 +4,29 @@ import mongoose, { Schema, Document } from 'mongoose';
 import { CountryCode, CurrencyCode } from '../config/market.config';
 
 export enum QuoteStatus {
+  NOT_REQUIRED = 'NOT_REQUIRED',
   DRAFT = 'DRAFT',
+  SUBMITTED = 'SUBMITTED',
+  CLARIFICATION_REQUESTED = 'CLARIFICATION_REQUESTED',
   SENT_TO_CLIENT = 'SENT_TO_CLIENT',
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED',
   EXPIRED = 'EXPIRED',
+  SUPERSEDED = 'SUPERSEDED',
   CANCELLED = 'CANCELLED',
 }
 
 export enum QuoteLineItemType {
+  CALL_OUT = 'CALL_OUT',
   CALLOUT = 'CALLOUT',
+  LABOUR = 'LABOUR',
   LABOR = 'LABOR',
   PART = 'PART',
   ADD_ON = 'ADD_ON',
   SURCHARGE = 'SURCHARGE',
   DISCOUNT = 'DISCOUNT',
+  TAX = 'TAX',
+  PLATFORM_FEE = 'PLATFORM_FEE',
 }
 
 export interface IQuoteLineItem {
@@ -39,6 +47,9 @@ export interface IJobQuote extends Document {
   currency: CurrencyCode;
 
   status: QuoteStatus;
+  version: number;
+  parentQuoteId?: mongoose.Types.ObjectId | null;
+  isCurrent: boolean;
 
   lineItems: IQuoteLineItem[];
 
@@ -50,13 +61,18 @@ export interface IJobQuote extends Document {
   clientDecisionNote?: string;
 
   sentAt?: Date | null;
+  submittedAt?: Date | null;
   approvedAt?: Date | null;
   rejectedAt?: Date | null;
+  clarificationRequestedAt?: Date | null;
+  supersededAt?: Date | null;
   expiredAt?: Date | null;
   cancelledAt?: Date | null;
   expiresAt?: Date | null;
 
   decisionBy?: mongoose.Types.ObjectId;
+  createdBy?: mongoose.Types.ObjectId;
+  submittedBy?: mongoose.Types.ObjectId;
 
   metadata: Record<string, unknown>;
 
@@ -163,6 +179,26 @@ const JobQuoteSchema = new Schema<IJobQuote>(
       index: true,
     },
 
+    version: {
+      type: Number,
+      required: true,
+      default: 1,
+      min: 1,
+    },
+
+    parentQuoteId: {
+      type: Schema.Types.ObjectId,
+      ref: 'JobQuote',
+      default: null,
+      index: true,
+    },
+
+    isCurrent: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
+
     lineItems: {
       type: [QuoteLineItemSchema],
       default: [],
@@ -206,12 +242,27 @@ const JobQuoteSchema = new Schema<IJobQuote>(
       default: null,
     },
 
+    submittedAt: {
+      type: Date,
+      default: null,
+    },
+
     approvedAt: {
       type: Date,
       default: null,
     },
 
     rejectedAt: {
+      type: Date,
+      default: null,
+    },
+
+    clarificationRequestedAt: {
+      type: Date,
+      default: null,
+    },
+
+    supersededAt: {
       type: Date,
       default: null,
     },
@@ -233,6 +284,16 @@ const JobQuoteSchema = new Schema<IJobQuote>(
     },
 
     decisionBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+
+    submittedBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',
     },
@@ -261,6 +322,8 @@ JobQuoteSchema.set('toJSON', { virtuals: true });
 JobQuoteSchema.set('toObject', { virtuals: true });
 
 JobQuoteSchema.index({ bookingId: 1, createdAt: -1 });
+JobQuoteSchema.index({ bookingId: 1, version: -1 });
+JobQuoteSchema.index({ bookingId: 1, isCurrent: 1, status: 1 });
 JobQuoteSchema.index({ customerId: 1, status: 1 });
 JobQuoteSchema.index({ technicianId: 1, status: 1 });
 JobQuoteSchema.index({ status: 1, createdAt: -1 });

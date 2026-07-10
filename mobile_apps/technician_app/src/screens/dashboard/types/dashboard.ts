@@ -15,11 +15,7 @@ export interface IncomingJob {
   currency?: string;
   distance: string;           // e.g., "4.5 km"
   generalArea: string;        // Suburb level masking (e.g., "Bryanston")
-  
-  // Hidden details safely cached in memory until accepted
-  customerName: string;
-  fullAddress: string;        
-  complexDetails?: string;    // e.g., "Unit 12, Stone Arch Estate"
+  hasPreciseLocation: false;
 }
 
 export interface ActiveJob {

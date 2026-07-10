@@ -8,7 +8,7 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'booking_status') THEN
-    CREATE TYPE booking_status AS ENUM ('PENDING', 'ACCEPTED', 'IN_ROUTE', 'ARRIVED', 'COMPLETED', 'CANCELLED');
+    CREATE TYPE booking_status AS ENUM ('PENDING', 'SCHEDULED', 'ACCEPTED', 'IN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED');
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'currency_code') THEN

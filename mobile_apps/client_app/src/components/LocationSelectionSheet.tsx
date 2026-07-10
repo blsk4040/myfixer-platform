@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
+import { ServiceRecipient } from '../types/booking';
 
 declare const process: {
   env?: {
@@ -25,6 +26,10 @@ export interface LocationConfirmationPayload {
   isForSomeoneElse: boolean;
   contactName?: string;
   contactPhone?: string;
+  recipientRelationship?: string;
+  recipientEmail?: string;
+  recipientNotes?: string;
+  serviceRecipient: ServiceRecipient;
   city?: string;
   area?: string;
   postalCode?: string;
@@ -35,6 +40,8 @@ interface LocationSelectionSheetProps {
   initialFullAddress?: string;
   initialLatitude?: number;
   initialLongitude?: number;
+  ownerName?: string;
+  ownerPhone?: string;
   onLocationConfirmed: (payload: LocationConfirmationPayload) => void;
 }
 
@@ -61,6 +68,8 @@ export default function LocationSelectionSheet({
   initialFullAddress = '',
   initialLatitude,
   initialLongitude,
+  ownerName = '',
+  ownerPhone = '',
   onLocationConfirmed,
 }: LocationSelectionSheetProps) {
   const [fullAddress, setFullAddress] = useState(initialFullAddress);
@@ -73,6 +82,9 @@ export default function LocationSelectionSheet({
   const [isForSomeoneElse, setIsForSomeoneElse] = useState(false);
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
+  const [relationship, setRelationship] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [recipientNotes, setRecipientNotes] = useState('');
   const [city, setCity] = useState('');
   const [area, setArea] = useState('');
   const [postalCode, setPostalCode] = useState('');
@@ -86,7 +98,13 @@ export default function LocationSelectionSheet({
     Number.isFinite(latitude) &&
     typeof longitude === 'number' &&
     Number.isFinite(longitude) &&
-    (!isForSomeoneElse || (contactName.trim().length > 0 && contactPhone.trim().length > 0));
+    (!isForSomeoneElse ||
+      (
+        contactName.trim().length > 0 &&
+        contactPhone.trim().length > 0 &&
+        relationship.trim().length > 0 &&
+        city.trim().length > 0
+      ));
 
   const handleConfirm = () => {
     if (!canConfirm || latitude === null || longitude === null) {
@@ -98,6 +116,29 @@ export default function LocationSelectionSheet({
       return;
     }
 
+    const serviceRecipient: ServiceRecipient = isForSomeoneElse
+      ? {
+          type: 'OTHER',
+          fullName: contactName.trim(),
+          phoneNumber: contactPhone.trim(),
+          relationship: relationship.trim(),
+          email: recipientEmail.trim() || undefined,
+          countryCode: countryCode?.trim() || undefined,
+          country: countryCode?.trim() || undefined,
+          city: city.trim(),
+          streetAddress: fullAddress.trim(),
+          notes: recipientNotes.trim() || undefined,
+        }
+      : {
+          type: 'SELF',
+          fullName: ownerName.trim() || 'Client',
+          phoneNumber: ownerPhone.trim(),
+          countryCode: countryCode?.trim() || undefined,
+          country: countryCode?.trim() || undefined,
+          city: city.trim() || undefined,
+          streetAddress: fullAddress.trim(),
+        };
+
     setErrorMessage('');
     onLocationConfirmed({
       fullAddress: fullAddress.trim(),
@@ -106,6 +147,10 @@ export default function LocationSelectionSheet({
       isForSomeoneElse,
       contactName: isForSomeoneElse ? contactName.trim() : undefined,
       contactPhone: isForSomeoneElse ? contactPhone.trim() : undefined,
+      recipientRelationship: isForSomeoneElse ? relationship.trim() : undefined,
+      recipientEmail: isForSomeoneElse ? recipientEmail.trim() || undefined : undefined,
+      recipientNotes: isForSomeoneElse ? recipientNotes.trim() || undefined : undefined,
+      serviceRecipient,
       city: city.trim() || undefined,
       area: area.trim() || undefined,
       postalCode: postalCode.trim() || undefined,
@@ -182,18 +227,49 @@ export default function LocationSelectionSheet({
         <View style={styles.contactFields}>
           <TextInput
             style={styles.contactInput}
-            placeholder="On-Site Contact Name"
+            placeholder="Recipient full name"
             placeholderTextColor="#64748B"
             value={contactName}
             onChangeText={setContactName}
           />
           <TextInput
             style={styles.contactInput}
-            placeholder="On-Site Contact Phone Number"
+            placeholder="Recipient phone number"
             placeholderTextColor="#64748B"
             value={contactPhone}
             onChangeText={setContactPhone}
             keyboardType="phone-pad"
+          />
+          <TextInput
+            style={styles.contactInput}
+            placeholder="Relationship to you"
+            placeholderTextColor="#64748B"
+            value={relationship}
+            onChangeText={setRelationship}
+          />
+          <TextInput
+            style={styles.contactInput}
+            placeholder="Recipient city"
+            placeholderTextColor="#64748B"
+            value={city}
+            onChangeText={setCity}
+          />
+          <TextInput
+            style={styles.contactInput}
+            placeholder="Recipient email (optional)"
+            placeholderTextColor="#64748B"
+            value={recipientEmail}
+            onChangeText={setRecipientEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+          <TextInput
+            style={[styles.contactInput, styles.notesInput]}
+            placeholder="Recipient notes (optional)"
+            placeholderTextColor="#64748B"
+            value={recipientNotes}
+            onChangeText={setRecipientNotes}
+            multiline
           />
         </View>
       ) : null}
@@ -302,6 +378,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     minHeight: 48,
     paddingHorizontal: 14,
+  },
+  notesInput: {
+    minHeight: 76,
+    paddingVertical: 12,
+    textAlignVertical: 'top',
   },
   errorText: {
     color: '#FCA5A5',

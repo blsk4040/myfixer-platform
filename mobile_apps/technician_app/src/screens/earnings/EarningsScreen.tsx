@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CreditCard, Wallet } from 'lucide-react-native';
 
 import { useJobStore } from '../../store/useJobStore';
-import apiService, { WalletBalanceResponse, WalletTransactionRecord } from '../../services/api.service';
+import apiService, { ProviderSettlementRecord, WalletBalanceResponse, WalletTransactionRecord } from '../../services/api.service';
 
 const WalletIcon = Wallet as any;
 const CreditCardIcon = CreditCard as any;
@@ -40,15 +40,18 @@ export function EarningsScreen({ navigation }: any): React.JSX.Element {
   const completedJobs = useJobStore((state) => state.completedJobs);
   const [wallet, setWallet] = useState<WalletBalanceResponse | null>(null);
   const [transactions, setTransactions] = useState<WalletTransactionRecord[]>([]);
+  const [settlements, setSettlements] = useState<ProviderSettlementRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [requestingPayout, setRequestingPayout] = useState(false);
 
   const storePayoutTotal = completedJobs.reduce((sum, job) => sum + (Number(job.price) || 0), 0);
   const currency = wallet?.currency || 'ZAR';
-  const availableAmount = wallet?.available_balance ?? 0;
-  const availableAmountMinor = wallet?.available_balance_minor ?? 0;
-  const pendingAmount = wallet?.pending_balance ?? 0;
+  const availableAmount = 0;
+  const availableAmountMinor = 0;
+  const pendingAmount = settlements
+    .filter((settlement) => settlement.status !== 'PAID' && settlement.status !== 'CANCELLED' && settlement.status !== 'REVERSED')
+    .reduce((sum, settlement) => sum + settlement.netAmountMinor / 100, 0);
   const totalEarnedEstimate = Math.max(storePayoutTotal, availableAmount + pendingAmount);
   const weeklyGoal = 7500;
   const progressPercent = Math.min(Math.round((totalEarnedEstimate / weeklyGoal) * 100), 100);
@@ -64,12 +67,14 @@ export function EarningsScreen({ navigation }: any): React.JSX.Element {
   ], [totalEarnedEstimate]);
 
   const loadWallet = useCallback(async () => {
-    const [balanceResponse, transactionResponse] = await Promise.all([
+    const [balanceResponse, transactionResponse, settlementResponse] = await Promise.all([
       apiService.getWalletBalance(),
       apiService.getWalletTransactions(),
+      apiService.getMySettlements(),
     ]);
     setWallet(balanceResponse);
     setTransactions(transactionResponse.transactions || []);
+    setSettlements(settlementResponse.settlements || []);
   }, []);
 
   useEffect(() => {
@@ -92,8 +97,8 @@ export function EarningsScreen({ navigation }: any): React.JSX.Element {
   const handlePayoutRequest = () => {
     if (availableAmountMinor <= 0) {
       Alert.alert(
-        'No Money Available Yet',
-        'Completed jobs will become available for payout after the customer payment is confirmed.'
+        'Admin Approval Required',
+        'Technician payouts are reviewed and initiated by MyFixer after completion confirmation. Direct payout requests are disabled during the pilot.'
       );
       return;
     }
@@ -188,8 +193,8 @@ export function EarningsScreen({ navigation }: any): React.JSX.Element {
             <Text style={styles.payoutTitle}>Payout</Text>
             <Text style={styles.payoutText}>
               {availableAmountMinor > 0
-                ? 'You can request the available amount now.'
-                : 'There is no cleared balance to withdraw yet.'}
+                ? 'Eligible payouts are processed after admin approval.'
+                : 'Payouts are reviewed by MyFixer after customer confirmation.'}
             </Text>
           </View>
           <CreditCardIcon color="#CBD5E1" size={22} />
@@ -223,15 +228,24 @@ export function EarningsScreen({ navigation }: any): React.JSX.Element {
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Recent Payments</Text>
+        <Text style={styles.sectionTitle}>Settlement earnings</Text>
 
-        {transactions.length === 0 && completedJobs.length === 0 ? (
+        {settlements.length === 0 && transactions.length === 0 && completedJobs.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>No payments yet</Text>
-            <Text style={styles.emptyText}>Completed paid jobs and payout requests will appear here.</Text>
+            <Text style={styles.emptyText}>Confirmed jobs and admin-approved payout records will appear here.</Text>
           </View>
         ) : (
           <>
+            {settlements.map((settlement) => (
+              <View key={settlement.id} style={styles.paymentCard}>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={styles.paymentTitle} numberOfLines={1}>Booking {settlement.bookingId.slice(-6).toUpperCase()}</Text>
+                  <Text style={styles.paymentMeta}>{settlement.status.replace(/_/g, ' ')}</Text>
+                </View>
+                <Text style={styles.paymentAmount}>{formatMoney(settlement.netAmountMinor / 100, settlement.currency)}</Text>
+              </View>
+            ))}
             {transactions.map((transaction) => (
               <View key={transaction._id} style={styles.paymentCard}>
                 <View style={{ flex: 1, marginRight: 8 }}>

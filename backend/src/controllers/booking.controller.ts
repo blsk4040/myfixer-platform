@@ -3,7 +3,7 @@ import { Request, Response } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import mongoose from 'mongoose';
 // 1. IMPORT BookingStatus ENUM HERE
-import Booking, { BookingCancellationBy, BookingDispatchStatus, BookingStatus } from '../models/booking.model';
+import Booking, { BookingCancellationBy, BookingDispatchStatus, BookingStatus, IBooking } from '../models/booking.model';
 import matchingService, { normalizeDispatchServiceKey } from '../services/matching.service';
 // 2. UNCOMMENT AND USE YOUR ACTUAL EMAIL SERVICE UTILITY
 import { EmailService } from '../services/email/email.service'; 
@@ -26,6 +26,7 @@ import ServiceWaitlist, {
 } from '../models/service-waitlist.model';
 import MarketSetting, { MarketStatus } from '../models/market-setting.model';
 import { logAuditEvent } from '../services/audit.service';
+import { AuditSeverity } from '../models/audit-log.model';
 import {
   CountryCode,
   getMarketByCountry,
@@ -37,6 +38,30 @@ import {
 import { validateServiceBookable } from '../services/service-availability.service';
 import { createNotifications } from '../services/notification.service';
 import { NotificationChannel } from '../models/notification.model';
+import {
+  BookingWorkflowError,
+  confirmBookingArrival,
+  findBookingForWorkflow,
+  transitionBookingStatus,
+} from '../services/booking-workflow.service';
+import {
+  InspectionWorkflowError,
+  completeInspectionForBooking,
+  evaluateWorkStartEligibility,
+  persistWorkStartEligibility,
+  startInspectionForBooking,
+} from '../services/inspection-workflow.service';
+import {
+  BookingRecipientValidationError,
+  normalizeServiceRecipient,
+} from '../services/booking-recipient.service';
+import {
+  isAssignedTechnicianWithPreciseAccess,
+  serializeBookingForAdmin,
+  serializeBookingForAssignedTechnician,
+  serializeBookingForOwner,
+  serializeBookingForUnassignedTechnician,
+} from '../services/booking-privacy.service';
 
 interface CreateBookingRequestBody {
   customer_id?: unknown;
@@ -71,6 +96,15 @@ interface CreateBookingRequestBody {
   scheduled_end_time?: unknown;
   email?: unknown;
   phone?: unknown;
+  service_recipient?: unknown;
+  serviceRecipient?: unknown;
+  recipient?: unknown;
+  is_for_someone_else?: unknown;
+  isForSomeoneElse?: unknown;
+  onsite_contact_name?: unknown;
+  onsite_contact_phone?: unknown;
+  contactName?: unknown;
+  contactPhone?: unknown;
 }
 
 interface AcceptBookingRequestBody {
@@ -79,6 +113,26 @@ interface AcceptBookingRequestBody {
 
 interface UpdateBookingStatusRequestBody {
   status?: unknown;
+}
+
+interface ArrivalConfirmationRequestBody {
+  latitude?: unknown;
+  longitude?: unknown;
+  accuracyMeters?: unknown;
+  recordedAt?: unknown;
+}
+
+interface InspectionRequestBody {
+  latitude?: unknown;
+  longitude?: unknown;
+  accuracyMeters?: unknown;
+  recordedAt?: unknown;
+  acknowledgePlatformRules?: unknown;
+  diagnosisNotes?: unknown;
+  technicalObservations?: unknown;
+  quoteRequired?: unknown;
+  partsRequired?: unknown;
+  evidenceMediaIds?: unknown;
 }
 
 // Add this interface to validate incoming request bodies from the mobile app
@@ -212,46 +266,22 @@ const emitIncomingRequest = async (
   });
 };
 
-const buildIncomingRequestPayload = (booking: {
-  id?: string;
-  _id?: unknown;
-  customerId: unknown;
-  customerName: string;
-  serviceKey?: string;
-  applianceType: string;
-  faultDescription: string;
-  fullAddress: string;
-  complexDetails?: string;
-  generalArea: string;
-  priceMinor: number;
-  countryCode: string;
-  currency: string;
-  customerLocation: { coordinates: [number, number] };
-}) => {
-  const [longitude, latitude] = booking.customerLocation.coordinates;
-  const bookingId =
-    typeof booking.id === 'string' && booking.id
-      ? booking.id
-      : String(booking._id ?? '');
+const buildIncomingRequestPayload = (booking: IBooking) =>
+  serializeBookingForUnassignedTechnician(booking, { categoryMatch: true });
 
-  return {
-    bookingId,
-    customerId: String(booking.customerId),
-    customerName: booking.customerName,
-    serviceKey: booking.serviceKey,
-    applianceType: booking.applianceType,
-    faultDescription: booking.faultDescription,
-    priceMinor: booking.priceMinor,
-    callOutFee: decimalFromMinor(booking.priceMinor),
-    distance: 'Nearby',
-    generalArea: booking.generalArea,
-    fullAddress: booking.fullAddress,
-    complexDetails: booking.complexDetails || '',
-    latitude,
-    longitude,
-    countryCode: booking.countryCode,
-    currency: booking.currency,
-  };
+const safelyLogAuditEvent = async (
+  request: Request,
+  input: Parameters<typeof logAuditEvent>[1]
+): Promise<void> => {
+  try {
+    await logAuditEvent(request, input);
+  } catch (error) {
+    console.warn('Audit event could not be recorded:', {
+      action: input.action,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId,
+    });
+  }
 };
 
 const createCustomerBookingNotification = async (
@@ -522,6 +552,24 @@ export const createBooking = async (
     return;
   }
 
+  let serviceRecipient;
+  try {
+    serviceRecipient = normalizeServiceRecipient(body as Record<string, unknown>, {
+      customer,
+      countryCode,
+      city: requestedCity || customer?.location?.city || '',
+      fullAddress,
+      streetAddress: streetAddress || fullAddress,
+      hasServiceCoordinates: latitude !== null && longitude !== null,
+    });
+  } catch (error) {
+    if (error instanceof BookingRecipientValidationError) {
+      response.status(400).json({ message: error.message });
+      return;
+    }
+    throw error;
+  }
+
   if ((fallbackPreference === 'SCHEDULED' || scheduledAtInput) && !isValidDate(scheduledAt)) {
     response.status(400).json({ message: 'Invalid scheduled booking date.' });
     return;
@@ -583,7 +631,9 @@ export const createBooking = async (
       fullAddress,
       complexDetails,
       generalArea,
+      serviceRecipient,
       status: isPreBook ? BookingStatus.SCHEDULED : BookingStatus.PENDING,
+      scheduledAt: isPreBook && isValidDate(scheduledAt) ? scheduledAt : null,
       appointmentWindow: isPreBook
         ? {
             isPreBook: true,
@@ -616,6 +666,18 @@ export const createBooking = async (
     });
 
     const bookingId = booking.id;
+
+    await safelyLogAuditEvent(request, {
+      action: serviceRecipient.type === 'OTHER' ? 'booking.create.for_other' : 'booking.create.for_self',
+      module: 'BOOKINGS',
+      resourceType: 'Booking',
+      resourceId: bookingId,
+      metadata: {
+        recipientType: serviceRecipient.type,
+        hasRecipientPhone: Boolean(serviceRecipient.phoneNumber),
+        hasServiceLocation: true,
+      },
+    });
     if (saveAsDefaultAddress) {
       await User.findByIdAndUpdate(customerId, {
         $set: {
@@ -779,22 +841,7 @@ export const createBooking = async (
       await Promise.all(
         eligibleTechnicianIds.map(async (technicianId) => {
           const jobs = await matchingService.findNearbyPendingBookingsForTechnician(technicianId);
-          io.to(`technician:${technicianId}`).emit('available_jobs', jobs.map((job) => ({
-            bookingId: job.id,
-            applianceType: job.applianceType,
-            faultDescription: job.faultDescription,
-            fullAddress: job.fullAddress,
-            complexDetails: job.complexDetails,
-            generalArea: job.generalArea,
-            priceMinor: job.priceMinor,
-            currency: job.currency,
-            countryCode: job.countryCode,
-            latitude: job.latitude,
-            longitude: job.longitude,
-            distanceKm: job.distanceKm,
-            distanceText: `${job.distanceKm.toFixed(1)} km`,
-            categoryMatch: job.categoryMatch,
-          })));
+          io.to(`technician:${technicianId}`).emit('available_jobs', jobs);
         })
       );
     } else {
@@ -823,15 +870,36 @@ export const getBookingById = async (
   response: Response
 ): Promise<void> => {
   const { id } = request.params;
+  const authUser = getAuthenticatedUser(request);
+  const userId = String(authUser?.id ?? authUser?._id ?? '').trim();
+  const role = normalizeUserRole(authUser?.role);
 
   try {
-    const booking = await Booking.findById(id);
+    let booking = await Booking.findById(id);
     if (!booking) {
       response.status(404).json({ message: 'Booking not found' });
       return;
     }
 
-    const [longitude, latitude] = booking.customerLocation.coordinates;
+    const isAdmin = role === UserRole.ADMIN;
+    const isCustomer = String(booking.customerId) === userId;
+    const isAssignedTechnician = String(booking.technicianId || '') === userId;
+    if (!isAdmin && !isCustomer && !isAssignedTechnician) {
+      await safelyLogAuditEvent(request, {
+        action: 'booking.precise_location.rejected',
+        module: 'BOOKINGS',
+        resourceType: 'Booking',
+        resourceId: booking.id,
+        severity: AuditSeverity.WARNING,
+        metadata: {
+          actorRole: role,
+          reason: 'not_owner_or_assigned_technician',
+        },
+        success: false,
+      });
+      response.status(403).json({ message: 'This account cannot access this booking.' });
+      return;
+    }
 
     const technicianUser = booking.technicianId && mongoose.Types.ObjectId.isValid(booking.technicianId)
       ? await User.findById(booking.technicianId).select('name phone profilePhotoUrl').lean()
@@ -843,24 +911,46 @@ export const getBookingById = async (
       ? technicianProfile.documents.profilePhotoUrl
       : '';
 
+    const serialized = isAdmin
+      ? serializeBookingForAdmin(booking)
+      : isCustomer
+        ? serializeBookingForOwner(booking)
+        : serializeBookingForAssignedTechnician(booking);
+
+    if (isAssignedTechnician) {
+      if (!isAssignedTechnicianWithPreciseAccess(booking, userId)) {
+        await safelyLogAuditEvent(request, {
+          action: 'booking.precise_location.rejected',
+          module: 'BOOKINGS',
+          resourceType: 'Booking',
+          resourceId: booking.id,
+          severity: AuditSeverity.WARNING,
+          metadata: {
+            actorRole: role,
+            reason: 'status_not_eligible_for_precise_location',
+            status: booking.status,
+          },
+          success: false,
+        });
+        response.status(403).json({ message: 'Precise service details are not available for this booking status.' });
+        return;
+      }
+
+      await safelyLogAuditEvent(request, {
+        action: 'booking.precise_location.release',
+        module: 'BOOKINGS',
+        resourceType: 'Booking',
+        resourceId: booking.id,
+        metadata: {
+          actorRole: role,
+          status: booking.status,
+        },
+      });
+    }
+
     response.status(200).json({
-      id: booking.id,
-      status: booking.status,
-      customerId: booking.customerId,
-      customerName: booking.customerName,
-      applianceType: booking.applianceType,
-      faultDescription: booking.faultDescription,
-      fullAddress: booking.fullAddress,
-      complexDetails: booking.complexDetails,
-      generalArea: booking.generalArea,
+      ...serialized,
       price: decimalFromMinor(booking.priceMinor),
-      priceMinor: booking.priceMinor,
-      countryCode: booking.countryCode,
-      currency: booking.currency,
-      customerLocation: {
-        latitude,
-        longitude,
-      },
       technicianId: booking.technicianId,
       technician: technicianUser ? {
         id: String(booking.technicianId),
@@ -904,6 +994,7 @@ export const getMyActiveBooking = async (
           BookingStatus.ACCEPTED,
           BookingStatus.IN_ROUTE,
           BookingStatus.ARRIVED,
+          BookingStatus.IN_PROGRESS,
           BookingStatus.DIAGNOSTIC_DONE,
         ],
       },
@@ -987,6 +1078,10 @@ export const getMyBookingHistory = async (
               BookingStatus.PENDING,
               BookingStatus.SCHEDULED,
               BookingStatus.ACCEPTED,
+              BookingStatus.IN_ROUTE,
+              BookingStatus.ARRIVED,
+              BookingStatus.IN_PROGRESS,
+              BookingStatus.DIAGNOSTIC_DONE,
               BookingStatus.COMPLETED,
               BookingStatus.CANCELLED,
             ],
@@ -1205,6 +1300,7 @@ export const acceptBooking = async (
       technicianId,
       status: booking.status,
       acceptedAt: booking.acceptedAt,
+      booking: serializeBookingForAssignedTechnician(booking),
     });
 
     const inboxMessages = await createCustomerBookingNotification(
@@ -1234,11 +1330,34 @@ export const acceptBooking = async (
       });
     });
 
+    await safelyLogAuditEvent(request, {
+      action: 'booking.assigned',
+      module: 'BOOKINGS',
+      resourceType: 'Booking',
+      resourceId: booking.id,
+      metadata: {
+        technicianId,
+        status: booking.status,
+      },
+    });
+
+    await safelyLogAuditEvent(request, {
+      action: 'booking.precise_location.release',
+      module: 'BOOKINGS',
+      resourceType: 'Booking',
+      resourceId: booking.id,
+      metadata: {
+        technicianId,
+        releaseChannel: 'accept_booking_response',
+      },
+    });
+
     response.status(200).json({
       success: true,
       bookingId: booking.id,
       technicianId,
       status: booking.status,
+      booking: serializeBookingForAssignedTechnician(booking),
     });
   } catch (error) {
     console.error('Failed to accept booking:', error);
@@ -1322,20 +1441,17 @@ export const updateBookingStatus = async (
     return;
   }
 
+  if ([BookingStatus.ARRIVED, BookingStatus.IN_PROGRESS, BookingStatus.COMPLETED].includes(nextStatus)) {
+    response.status(400).json({
+      message: 'Use the dedicated booking workflow endpoint for this status transition.',
+    });
+    return;
+  }
+
   try {
-    const booking = await Booking.findById(id);
+    let booking: IBooking | null = await Booking.findById(id);
     if (!booking) {
       response.status(404).json({ message: 'Booking not found' });
-      return;
-    }
-
-    const userId = String(authUser?.id ?? authUser?._id ?? '');
-    const isAssignedTechnician = String(booking.technicianId || '') === userId;
-    const isCustomer = String(booking.customerId) === userId;
-    const isAdmin = role === UserRole.ADMIN;
-
-    if (!isAdmin && !isAssignedTechnician && !(isCustomer && nextStatus === BookingStatus.CANCELLED)) {
-      response.status(403).json({ message: 'This account cannot update this booking.' });
       return;
     }
 
@@ -1344,23 +1460,12 @@ export const updateBookingStatus = async (
       completedAt: booking.completedAt,
     };
 
-    booking.status = nextStatus;
-    if (nextStatus === BookingStatus.COMPLETED) booking.completedAt = new Date();
-    if (nextStatus === BookingStatus.IN_ROUTE) booking.inRouteAt = new Date();
-    if (nextStatus === BookingStatus.ARRIVED) booking.arrivedAt = new Date();
-    if (nextStatus === BookingStatus.DIAGNOSTIC_DONE) booking.diagnosticDoneAt = new Date();
-    if (nextStatus === BookingStatus.CANCELLED) {
-      booking.cancelledAt = new Date();
-      booking.dispatch = {
-        ...(booking.dispatch ?? {
-          status: BookingDispatchStatus.CANCELLED,
-          sentToTechnicians: [],
-          declinedByTechnicians: [],
-        }),
-        status: BookingDispatchStatus.CANCELLED,
-      };
-    }
-    await booking.save();
+    booking = await transitionBookingStatus({
+      booking,
+      actor: authUser,
+      nextStatus,
+      action: nextStatus === BookingStatus.CANCELLED ? 'CANCEL_BOOKING' : 'START_ROUTE',
+    });
 
     await logAuditEvent(request, {
       action: 'booking.status.update',
@@ -1396,6 +1501,11 @@ export const updateBookingStatus = async (
         type: 'TECHNICIAN_ARRIVED',
         title: 'Technician has arrived',
         message: `Your technician has arrived for ${booking.applianceType}.`,
+      },
+      [BookingStatus.IN_PROGRESS]: {
+        type: 'JOB_STARTED',
+        title: 'Job started',
+        message: `Your technician has started work on ${booking.applianceType}.`,
       },
       [BookingStatus.COMPLETED]: {
         type: 'BOOKING_COMPLETED',
@@ -1438,8 +1548,332 @@ export const updateBookingStatus = async (
       status: booking.status,
     });
   } catch (error) {
+    if (error instanceof BookingWorkflowError) {
+      response.status(error.statusCode).json({ message: error.message, code: error.code });
+      return;
+    }
     console.error('Failed to update booking status:', error);
     response.status(500).json({ message: 'Failed to update booking status' });
+  }
+};
+
+const runWorkflowStatusAction = async (
+  request: Request,
+  response: Response,
+  nextStatus: BookingStatus,
+  action: 'START_ROUTE' | 'START_JOB'
+): Promise<void> => {
+  const bookingId = request.params.id ?? request.params.bookingId;
+
+  try {
+    let booking = await findBookingForWorkflow(bookingId);
+    const before = { status: booking.status, completedAt: booking.completedAt };
+    booking = await transitionBookingStatus({
+      booking,
+      actor: getAuthenticatedUser(request),
+      nextStatus,
+      action,
+    });
+
+    await logAuditEvent(request, {
+      action: action === 'START_ROUTE' ? 'booking.start_route' : 'booking.start_job',
+      module: 'BOOKINGS',
+      resourceType: 'Booking',
+      resourceId: booking.id,
+      changes: {
+        before,
+        after: { status: booking.status, completedAt: booking.completedAt },
+      },
+    });
+
+    const io = request.app.get('io') as SocketIOServer | undefined;
+    io?.to(`booking:${booking.id}`).emit('booking_status_changed', {
+      bookingId: booking.id,
+      status: booking.status,
+      updatedAt: booking.updatedAt,
+    });
+
+    if (nextStatus === BookingStatus.IN_PROGRESS) {
+      await createCustomerBookingNotification(
+        booking,
+        'JOB_STARTED',
+        'Job started',
+        `Your technician has started work on ${booking.applianceType}. Keep approvals and payments inside MyFixer.`
+      );
+    }
+
+    response.status(200).json({ success: true, bookingId: booking.id, status: booking.status });
+  } catch (error) {
+    if (error instanceof BookingWorkflowError) {
+      response.status(error.statusCode).json({ message: error.message, code: error.code });
+      return;
+    }
+    console.error('Failed to run booking workflow action:', error);
+    response.status(500).json({ message: 'Failed to update booking workflow.' });
+  }
+};
+
+export const startRoute = async (request: Request, response: Response): Promise<void> => {
+  await runWorkflowStatusAction(request, response, BookingStatus.IN_ROUTE, 'START_ROUTE');
+};
+
+export const startJob = async (request: Request, response: Response): Promise<void> => {
+  const bookingId = request.params.id ?? request.params.bookingId;
+
+  try {
+    let booking = await findBookingForWorkflow(bookingId);
+    const eligibility = await evaluateWorkStartEligibility(booking, getAuthenticatedUser(request));
+    await persistWorkStartEligibility(booking, eligibility);
+
+    if (!eligibility.allowed) {
+      await logAuditEvent(request, {
+        action: 'booking.start_work.denied',
+        module: 'BOOKINGS',
+        resourceType: 'Booking',
+        resourceId: booking.id,
+        metadata: {
+          reasonCode: eligibility.reasonCode,
+          requirements: eligibility.requirements,
+        },
+        success: false,
+      });
+
+      const io = request.app.get('io') as SocketIOServer | undefined;
+      io?.to(`booking:${booking.id}`).emit('work_start_blocked', {
+        bookingId: booking.id,
+        reasonCode: eligibility.reasonCode,
+        requirements: eligibility.requirements,
+        updatedAt: new Date().toISOString(),
+      });
+
+      response.status(409).json({
+        success: false,
+        message: 'Work cannot begin until all MyFixer approval and payment requirements are satisfied.',
+        code: eligibility.reasonCode,
+        eligibility,
+      });
+      return;
+    }
+
+    const before = { status: booking.status, workStartedAt: booking.workStartedAt };
+    booking = await transitionBookingStatus({
+      booking,
+      actor: getAuthenticatedUser(request),
+      nextStatus: BookingStatus.IN_PROGRESS,
+      action: 'START_JOB',
+    });
+
+    await logAuditEvent(request, {
+      action: 'booking.start_work.authorized',
+      module: 'BOOKINGS',
+      resourceType: 'Booking',
+      resourceId: booking.id,
+      changes: {
+        before,
+        after: { status: booking.status, workStartedAt: booking.workStartedAt },
+      },
+      metadata: {
+        requirements: eligibility.requirements,
+      },
+    });
+
+    const io = request.app.get('io') as SocketIOServer | undefined;
+    io?.to(`booking:${booking.id}`).emit('work_authorized', {
+      bookingId: booking.id,
+      status: booking.status,
+      updatedAt: booking.updatedAt,
+    });
+    io?.to(`booking:${booking.id}`).emit('booking_status_changed', {
+      bookingId: booking.id,
+      status: booking.status,
+      updatedAt: booking.updatedAt,
+    });
+
+    await createCustomerBookingNotification(
+      booking,
+      'JOB_STARTED',
+      'Job started',
+      `Your technician has started work on ${booking.applianceType}. Keep approvals and payments inside MyFixer.`
+    );
+
+    response.status(200).json({ success: true, bookingId: booking.id, status: booking.status, eligibility });
+  } catch (error) {
+    if (error instanceof BookingWorkflowError || error instanceof InspectionWorkflowError) {
+      response.status(error.statusCode).json({ message: error.message, code: error.code });
+      return;
+    }
+    console.error('Failed to start job:', error);
+    response.status(500).json({ message: 'Failed to start job.' });
+  }
+};
+
+const getInspectionReading = (body: InspectionRequestBody) => {
+  const latitude = toFiniteNumber(body.latitude);
+  const longitude = toFiniteNumber(body.longitude);
+  const accuracyMeters = toFiniteNumber(body.accuracyMeters);
+  const recordedAt = parseDateInput(body.recordedAt);
+  if (latitude === null || longitude === null || accuracyMeters === null || !isValidDate(recordedAt)) {
+    throw new InspectionWorkflowError('Valid latitude, longitude, accuracyMeters and recordedAt are required.', 'INVALID_INSPECTION_GPS');
+  }
+  return { latitude, longitude, accuracyMeters, recordedAt };
+};
+
+export const startInspection = async (request: Request, response: Response): Promise<void> => {
+  const { bookingId } = request.params;
+  const body = request.body as InspectionRequestBody;
+
+  try {
+    const booking = await startInspectionForBooking(
+      bookingId,
+      getAuthenticatedUser(request),
+      getInspectionReading(body),
+      body.acknowledgePlatformRules === true
+    );
+
+    await logAuditEvent(request, {
+      action: 'booking.inspection.started',
+      module: 'BOOKINGS',
+      resourceType: 'Booking',
+      resourceId: booking.id,
+      metadata: { status: booking.inspection?.status },
+    });
+
+    const io = request.app.get('io') as SocketIOServer | undefined;
+    io?.to(`booking:${booking.id}`).emit('inspection_started', {
+      bookingId: booking.id,
+      inspection: booking.inspection,
+      updatedAt: booking.updatedAt,
+    });
+
+    await createCustomerBookingNotification(
+      booking,
+      'INSPECTION_STARTED',
+      'Inspection started',
+      `Your technician has started inspection for ${booking.applianceType}. Keep approvals and payments inside MyFixer.`
+    );
+
+    response.status(200).json({ success: true, bookingId: booking.id, inspection: booking.inspection });
+  } catch (error) {
+    if (error instanceof InspectionWorkflowError) {
+      response.status(error.statusCode).json({ message: error.message, code: error.code });
+      return;
+    }
+    console.error('Failed to start inspection:', error);
+    response.status(500).json({ message: 'Failed to start inspection.' });
+  }
+};
+
+export const completeInspection = async (request: Request, response: Response): Promise<void> => {
+  const { bookingId } = request.params;
+  const body = request.body as InspectionRequestBody;
+
+  try {
+    const booking = await completeInspectionForBooking(bookingId, getAuthenticatedUser(request), {
+      ...getInspectionReading(body),
+      diagnosisNotes: typeof body.diagnosisNotes === 'string' ? body.diagnosisNotes : '',
+      technicalObservations: typeof body.technicalObservations === 'string' ? body.technicalObservations : '',
+      quoteRequired: body.quoteRequired === true,
+      partsRequired: Array.isArray(body.partsRequired) ? body.partsRequired as any[] : [],
+      evidenceMediaIds: Array.isArray(body.evidenceMediaIds) ? body.evidenceMediaIds.map(String) : [],
+    });
+
+    const eligibility = await evaluateWorkStartEligibility(booking, getAuthenticatedUser(request));
+    await persistWorkStartEligibility(booking, eligibility);
+
+    await logAuditEvent(request, {
+      action: 'booking.inspection.completed',
+      module: 'BOOKINGS',
+      resourceType: 'Booking',
+      resourceId: booking.id,
+      metadata: {
+        quoteRequired: booking.inspection?.quoteRequired,
+        partsCount: booking.inspection?.partsRequired?.length ?? 0,
+        workAuthorization: eligibility.reasonCode,
+      },
+    });
+
+    const io = request.app.get('io') as SocketIOServer | undefined;
+    io?.to(`booking:${booking.id}`).emit('inspection_completed', {
+      bookingId: booking.id,
+      inspection: booking.inspection,
+      workAuthorization: eligibility,
+      updatedAt: booking.updatedAt,
+    });
+
+    await createCustomerBookingNotification(
+      booking,
+      'INSPECTION_COMPLETED',
+      'Inspection completed',
+      booking.inspection?.quoteRequired
+        ? 'Your technician completed inspection and will send a quote for approval.'
+        : 'Your technician completed inspection. Payment is required before work can begin.'
+    );
+
+    response.status(200).json({
+      success: true,
+      bookingId: booking.id,
+      inspection: booking.inspection,
+      workAuthorization: eligibility,
+    });
+  } catch (error) {
+    if (error instanceof InspectionWorkflowError) {
+      response.status(error.statusCode).json({ message: error.message, code: error.code });
+      return;
+    }
+    console.error('Failed to complete inspection:', error);
+    response.status(500).json({ message: 'Failed to complete inspection.' });
+  }
+};
+
+export const confirmArrival = async (
+  request: Request,
+  response: Response
+): Promise<void> => {
+  const { bookingId } = request.params;
+  const body = request.body as ArrivalConfirmationRequestBody;
+  const latitude = toFiniteNumber(body.latitude);
+  const longitude = toFiniteNumber(body.longitude);
+  const accuracyMeters = toFiniteNumber(body.accuracyMeters);
+  const recordedAt = parseDateInput(body.recordedAt);
+
+  if (latitude === null || longitude === null || accuracyMeters === null || !isValidDate(recordedAt)) {
+    response.status(400).json({ message: 'Valid latitude, longitude, accuracyMeters and recordedAt are required.' });
+    return;
+  }
+
+  try {
+    const io = request.app.get('io') as SocketIOServer | undefined;
+    const booking = await confirmBookingArrival({
+      bookingId,
+      actor: getAuthenticatedUser(request),
+      reading: { latitude, longitude, accuracyMeters, recordedAt },
+      io,
+    });
+
+    await createCustomerBookingNotification(
+      booking,
+      'TECHNICIAN_ARRIVED',
+      'Technician has arrived',
+      `Your technician has arrived for ${booking.applianceType}. Keep all job communication, approvals and payments inside MyFixer.`
+    );
+
+    response.status(200).json({
+      success: true,
+      bookingId: booking.id,
+      status: booking.status,
+      message: 'Arrival confirmed. Keep all job communication, approvals and payments inside MyFixer.',
+    });
+  } catch (error) {
+    if (error instanceof BookingWorkflowError) {
+      response.status(error.statusCode).json({
+        success: error.statusCode === 202,
+        message: error.message,
+        code: error.code,
+      });
+      return;
+    }
+    console.error('Failed to confirm arrival:', error);
+    response.status(500).json({ message: 'Failed to confirm arrival.' });
   }
 };
 
@@ -1462,7 +1896,7 @@ export const finalizeJobInvoice = async (
 
   try {
     // 1. Find document inside MongoDB Atlas
-    const booking = await Booking.findById(bookingId);
+    let booking: IBooking | null = await Booking.findById(bookingId);
     if (!booking) {
       response.status(404).json({ message: 'Booking entry record not found in system storage' });
       return;
@@ -1520,8 +1954,12 @@ export const finalizeJobInvoice = async (
     };
 
     // 2. ASSIGN USING THE ENUM INSTEAD OF A RAW STRING LITERAL 🎯
-    booking.status = BookingStatus.COMPLETED;
-    booking.completedAt = new Date();
+    booking = await transitionBookingStatus({
+      booking,
+      actor: authUser,
+      nextStatus: BookingStatus.COMPLETED,
+      action: 'COMPLETE_JOB',
+    });
     
     booking.set('finalBilling', {
       baseAmount,

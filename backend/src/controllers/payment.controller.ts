@@ -10,8 +10,137 @@ import { PaymentMethodStatus } from '../models/paymentVault.model';
 import { logAuditEvent } from '../services/audit.service';
 import { createNotifications } from '../services/notification.service';
 import { NotificationChannel } from '../models/notification.model';
+import {
+  PaymentWorkflowError,
+  initializeBookingPayment,
+  maskPaymentReference,
+  processPaystackWebhookPayload,
+} from '../services/payment-workflow.service';
+import { processPaystackTransferWebhookPayload } from '../services/settlement.service';
+import { verifyPaystackSignature } from '../services/paystack.service';
+import PaymentTransaction from '../models/payment-transaction.model';
 
 export class PaymentController {
+  static async initializePayment(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { bookingId, quoteId, callbackUrl } = req.body || {};
+      const idempotencyKey = String(req.headers['idempotency-key'] || req.body?.idempotencyKey || '').trim();
+
+      const result = await initializeBookingPayment(
+        {
+          bookingId: String(bookingId || '').trim(),
+          quoteId: quoteId ? String(quoteId).trim() : undefined,
+          idempotencyKey: idempotencyKey || undefined,
+          callbackUrl: typeof callbackUrl === 'string' ? callbackUrl.trim() : undefined,
+        },
+        req.user,
+        req
+      );
+
+      const io = req.app.get('io');
+      io?.to(`booking:${result.transaction.bookingId.toString()}`).emit(result.reused ? 'payment_pending' : 'payment_initialized', {
+        bookingId: result.transaction.bookingId.toString(),
+        amountMinor: result.transaction.amountMinor,
+        currency: result.transaction.currency,
+        reference: maskPaymentReference(result.transaction.reference),
+        status: result.transaction.status,
+      });
+
+      res.status(result.reused ? 200 : 201).json({
+        success: true,
+        payment: result.response,
+        reused: result.reused,
+      });
+    } catch (error) {
+      if (error instanceof PaymentWorkflowError) {
+        res.status(error.statusCode).json({ message: error.message, code: error.code });
+        return;
+      }
+      console.error('Failed to initialize payment:', error);
+      res.status(500).json({ message: 'Unable to initialize secure payment.' });
+    }
+  }
+
+  static async getPaymentStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const bookingId = String(req.params.bookingId || '').trim();
+      const userId = String(req.user.id ?? req.user._id);
+      const booking = await Booking.findById(bookingId).lean();
+      if (!booking) {
+        res.status(404).json({ message: 'Booking not found.' });
+        return;
+      }
+      const role = String(req.user.role || '').toUpperCase();
+      const allowed =
+        role === 'ADMIN' ||
+        String(booking.customerId) === userId ||
+        String(booking.technicianId || '') === userId;
+      if (!allowed) {
+        res.status(403).json({ message: 'Not authorized to view payment status.' });
+        return;
+      }
+      const transaction = await PaymentTransaction.findOne({ bookingId: booking._id }).sort({ createdAt: -1 }).lean();
+      res.status(200).json({
+        success: true,
+        paymentStatus: booking.paymentStatus,
+        transaction: transaction ? {
+          reference: maskPaymentReference(transaction.reference),
+          status: transaction.status,
+          amountMinor: transaction.amountMinor,
+          currency: transaction.currency,
+          paidAt: transaction.paidAt,
+          verifiedAt: transaction.verifiedAt,
+        } : null,
+      });
+    } catch (error) {
+      res.status(500).json({ message: 'Unable to load payment status.' });
+    }
+  }
+
+  static async handlePaystackWebhook(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const rawBody = (req as any).rawBody instanceof Buffer
+      ? (req as any).rawBody as Buffer
+      : Buffer.from(JSON.stringify(req.body || {}));
+    const signature = String(req.headers['x-paystack-signature'] || '');
+
+    if (!verifyPaystackSignature(rawBody, signature)) {
+      try {
+        await logAuditEvent(req, {
+          action: 'payment.webhook.invalid_signature',
+          module: 'PAYMENTS',
+          resourceType: 'PaymentWebhookEvent',
+          metadata: { provider: 'PAYSTACK' },
+          success: false,
+        });
+      } catch {
+        // Audit failure must not leak details to webhook caller.
+      }
+      res.status(401).json({ message: 'Invalid webhook signature.' });
+      return;
+    }
+
+    try {
+      await logAuditEvent(req, {
+        action: 'payment.webhook.received',
+        module: 'PAYMENTS',
+        resourceType: 'PaymentWebhookEvent',
+        metadata: {
+          provider: 'PAYSTACK',
+          eventType: req.body?.event,
+          reference: req.body?.data?.reference ? maskPaymentReference(String(req.body.data.reference)) : '',
+        },
+      });
+      if (String(req.body?.event || '').startsWith('transfer.')) {
+        await processPaystackTransferWebhookPayload(req.body, req);
+      } else {
+        await processPaystackWebhookPayload(req.body, rawBody, req);
+      }
+      res.status(200).json({ received: true });
+    } catch (error) {
+      console.error('Failed to process Paystack webhook:', error);
+      res.status(200).json({ received: true });
+    }
+  }
   
   static async getCards(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
@@ -51,6 +180,17 @@ export class PaymentController {
       }
 
       const { authorization, customer } = paystackData.data;
+      if (
+        !authorization?.authorization_code ||
+        !authorization.signature ||
+        !authorization.last4 ||
+        !authorization.exp_month ||
+        !authorization.exp_year ||
+        !customer?.customer_code
+      ) {
+        res.status(400).json({ error: 'Payment provider did not return reusable card authorization details.' });
+        return;
+      }
       
       if (!authorization.reusable) {
         res.status(400).json({ error: 'Payment card method cannot be saved for recurring access operations.' });
@@ -90,13 +230,13 @@ export class PaymentController {
         authorizationCode: authorization.authorization_code,
         signature: authorization.signature,
         reusable: authorization.reusable,
-        brand: authorization.brand,
-        bank: authorization.bank,
-        countryCode: authorization.country_code,
+        brand: authorization.brand || '',
+        bank: authorization.bank || '',
+        countryCode: authorization.country_code || '',
         last4: authorization.last4,
         expiryMonth: authorization.exp_month,
         expiryYear: authorization.exp_year,
-        cardType: authorization.card_type,
+        cardType: authorization.card_type || '',
         isDefault: vault.paymentMethods.length === 0,
         status: PaymentMethodStatus.ACTIVE,
         createdAt: new Date(),
@@ -202,7 +342,7 @@ export class PaymentController {
 
       const io = req.app.get('io');
       if (booking.technicianId) {
-        io?.to(`technician:${booking.technicianId.toString()}`).emit('payment_confirmed', {
+        io?.to(`technician:${booking.technicianId.toString()}`).emit('payment_pending', {
           bookingId: booking.id,
           reference: uniqueReference,
           amountMinor: normalizedAmount,
@@ -214,9 +354,9 @@ export class PaymentController {
         email: req.user.email,
         name: '',
         channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
-        type: 'PAYMENT_CONFIRMED',
-        title: 'Payment confirmed',
-        message: `Payment for your ${booking.applianceType} booking has been confirmed.`,
+        type: 'PAYMENT_PENDING',
+        title: 'Payment submitted',
+        message: `Payment for your ${booking.applianceType} booking was submitted and still needs provider verification.`,
         metadata: {
           bookingId: booking.id,
           reference: uniqueReference,

@@ -51,6 +51,7 @@ const audit_log_model_1 = __importDefault(require("../models/audit-log.model"));
 const email_service_1 = require("../services/email/email.service");
 const booking_model_1 = __importStar(require("../models/booking.model"));
 const service_availability_service_1 = require("../services/service-availability.service");
+const media_storage_service_1 = require("../services/media-storage.service");
 // --- JWT Helper Generator ---
 const generateToken = (userId, role, email) => {
     const secret = process.env.JWT_SECRET;
@@ -294,6 +295,7 @@ const serializeCustomerProfile = async (user, req) => {
                     booking_model_1.BookingStatus.ACCEPTED,
                     booking_model_1.BookingStatus.IN_ROUTE,
                     booking_model_1.BookingStatus.ARRIVED,
+                    booking_model_1.BookingStatus.IN_PROGRESS,
                     booking_model_1.BookingStatus.DIAGNOSTIC_DONE,
                 ],
             },
@@ -543,6 +545,7 @@ const loginUser = async (req, res) => {
                     businessName: technicianProfile.businessName,
                     yearsExperience: technicianProfile.yearsExperience,
                     profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user.profilePhotoUrl,
+                    profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
                 }
                 : undefined,
         });
@@ -689,6 +692,7 @@ const googleAuth = async (req, res) => {
                         businessName: technicianProfile.businessName,
                         yearsExperience: technicianProfile.yearsExperience,
                         profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user.profilePhotoUrl,
+                        profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
                     },
                     message: 'Please verify your email before accessing the technician dashboard.',
                 });
@@ -736,6 +740,7 @@ const googleAuth = async (req, res) => {
                     businessName: technicianProfile.businessName,
                     yearsExperience: technicianProfile.yearsExperience,
                     profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user.profilePhotoUrl,
+                    profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
                 }
                 : undefined,
         });
@@ -1027,6 +1032,15 @@ const registerTechnician = async (req, res) => {
             res.status(400).json({ message: 'Please complete all required technician registration fields.' });
             return;
         }
+        const profilePhotoDataUri = typeof documents?.profilePhotoDataUri === 'string'
+            ? documents.profilePhotoDataUri.trim()
+            : typeof documents?.profilePhotoBase64 === 'string'
+                ? documents.profilePhotoBase64.trim()
+                : '';
+        if (!profilePhotoDataUri.startsWith('data:image/')) {
+            res.status(400).json({ message: 'A clear technician profile photo is required for admin review.' });
+            return;
+        }
         if (!Array.isArray(serviceCategories) || serviceCategories.length === 0) {
             res.status(400).json({ message: 'Please select at least one service category.' });
             return;
@@ -1048,10 +1062,7 @@ const registerTechnician = async (req, res) => {
         }
         const resolvedCountryCode = (0, market_config_1.normalizeCountryCode)(countryCode ?? location.country);
         const market = (0, market_config_1.getMarketByCountry)(resolvedCountryCode);
-        const autoApprove = process.env.TECHNICIAN_AUTO_APPROVE === 'true';
-        const approvalStatus = autoApprove
-            ? technician_model_1.TechnicianApprovalStatus.APPROVED
-            : technician_model_1.TechnicianApprovalStatus.PENDING_REVIEW;
+        const approvalStatus = technician_model_1.TechnicianApprovalStatus.PENDING_REVIEW;
         const hashedPassword = await bcrypt_1.default.hash(password, 10);
         const user = await user_model_1.default.create({
             name: name.trim(),
@@ -1077,6 +1088,11 @@ const registerTechnician = async (req, res) => {
             emailVerificationToken: generateEmailVerificationToken(),
         });
         const verificationEmailSent = await sendVerificationEmail(req, user);
+        const uploadedProfilePhoto = await (0, media_storage_service_1.uploadImageToCloudinary)({
+            dataUri: profilePhotoDataUri,
+            folder: `myfixer/technicians/${user._id.toString()}/profile`,
+            publicId: `profile-photo-${Date.now()}`,
+        });
         const technician = await technician_model_1.default.create({
             userId: user._id,
             approvalStatus,
@@ -1093,7 +1109,8 @@ const registerTechnician = async (req, res) => {
                 idDocumentUrl: documents?.idDocumentUrl ?? '',
                 tradeCertificateUrl: documents?.tradeCertificateUrl ?? '',
                 policeClearanceUrl: documents?.policeClearanceUrl ?? '',
-                profilePhotoUrl: documents?.profilePhotoUrl ?? '',
+                profilePhotoUrl: uploadedProfilePhoto.url,
+                profilePhotoStatus: technician_model_1.VerificationStatus.SUBMITTED,
             },
             banking: {
                 accountHolder: banking?.accountHolder ?? '',
@@ -1101,7 +1118,7 @@ const registerTechnician = async (req, res) => {
                 accountNumberLast4: banking?.accountNumberLast4 ?? '',
             },
             review: {
-                reviewedAt: autoApprove ? new Date() : null,
+                reviewedAt: null,
                 reviewedBy: null,
                 rejectionReason: '',
                 suspensionReason: '',
@@ -1123,12 +1140,10 @@ const registerTechnician = async (req, res) => {
             connectionStatus: 'DISCONNECTED',
             location: technician.lastLocation ?? null,
         });
-        const token = autoApprove ? generateToken(user._id.toString(), user_model_1.UserRole.TECHNICIAN, user.email) : null;
+        const token = null;
         res.status(201).json({
             status: 'success',
-            message: autoApprove
-                ? 'Technician profile approved automatically.'
-                : 'Technician application submitted for review.',
+            message: 'Technician application submitted for review.',
             token,
             user: token
                 ? {
@@ -1154,6 +1169,7 @@ const registerTechnician = async (req, res) => {
                 businessName: technician.businessName,
                 yearsExperience: technician.yearsExperience,
                 profilePhotoUrl: technician.documents?.profilePhotoUrl || user.profilePhotoUrl,
+                profilePhotoStatus: technician.documents?.profilePhotoStatus,
             },
             verificationEmailSent,
         });
