@@ -228,7 +228,7 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
               onPress={handleLogin}
               disabled={isLoading || isGoogleLoading}
               accessibilityRole="button"
-              accessibilityLabel={isLoading ? 'Signing in' : 'Secure sign in'}
+              accessibilityLabel={isLoading ? 'Signing in' : 'Sign in'}
             >
               {isLoading ? (
                 <View style={styles.loadingRow}>
@@ -236,7 +236,7 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
                   <Text style={styles.loginBtnText}>Signing In</Text>
                 </View>
               ) : (
-                <Text style={styles.loginBtnText}>Secure Sign In</Text>
+                <Text style={styles.loginBtnText}>Sign In</Text>
               )}
             </TouchableOpacity>
 

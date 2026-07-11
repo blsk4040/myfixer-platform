@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import { assertConfiguredUrl, getApiBaseUrl } from '../config/runtime.config';
+import Constants from 'expo-constants';
+import { assertConfiguredUrl, getApiBaseUrl, getExpoProjectId } from '../config/runtime.config';
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -33,7 +34,13 @@ export const registerDeviceForPushNotifications = async (
 
   if (!finalPermissions.granted) return null;
 
-  const tokenResponse = await Notifications.getExpoPushTokenAsync();
+  const projectId = getExpoProjectId(Constants as Parameters<typeof getExpoProjectId>[0]);
+  if (!projectId) {
+    console.warn('Push notification registration skipped: EXPO_PUBLIC_EAS_PROJECT_ID is not configured.');
+    return null;
+  }
+
+  const tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
   const token = tokenResponse.data;
   if (!token) return null;
 

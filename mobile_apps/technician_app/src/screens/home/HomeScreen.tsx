@@ -1,5 +1,5 @@
 // src/screens/home/HomeScreen.tsx
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,7 +25,7 @@ import {
 import { useSocketConnection } from '../../context/SocketContext';
 import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
 import { useJobStore } from '../../store/useJobStore';
-import apiService from '../../services/api.service';
+import apiService, { ProviderSettlementRecord } from '../../services/api.service';
 import { acceptBookingWorkflow, normalizeJobPayload } from '../../services/jobWorkflow.service';
 
 const BriefcaseIcon = Briefcase as any;
@@ -37,12 +37,29 @@ const TrendingUpIcon = TrendingUp as any;
 const WifiIcon = Wifi as any;
 const WifiOffIcon = WifiOff as any;
 
-const DAILY_GOAL = 1500;
-
 const formatMoney = (amount = 0, currency = 'ZAR') => {
   const roundedAmount = Math.round(Number(amount) || 0);
   return `${currency === 'ZAR' ? 'R' : `${currency} `}${roundedAmount.toLocaleString()}`;
 };
+
+const startOfWeek = (date: Date): Date => {
+  const start = new Date(date);
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diff);
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
+
+const settlementActivityDate = (settlement: ProviderSettlementRecord): Date | null => {
+  const rawDate = settlement.paidAt || settlement.readyForPayoutAt || settlement.completionConfirmedAt || settlement.createdAt;
+  if (!rawDate) return null;
+  const date = new Date(rawDate);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const isPendingSettlement = (settlement: ProviderSettlementRecord): boolean =>
+  settlement.status !== 'PAID' && settlement.status !== 'CANCELLED' && settlement.status !== 'REVERSED';
 
 const getStageLabel = (status?: string) => {
   switch (status) {
@@ -66,6 +83,8 @@ const getStageLabel = (status?: string) => {
 export function HomeScreen({ navigation }: any): React.JSX.Element {
   const { isConnected, connectionStatus, isOnDuty, toggleDutyStatus } = useSocketConnection();
   const technicianIdentity = getTechnicianIdentity();
+  const [settlements, setSettlements] = useState<ProviderSettlementRecord[]>([]);
+  const [settlementsLoading, setSettlementsLoading] = useState(true);
 
   const incomingJobs = useJobStore((state) => state.incomingJobs || []);
   const activeJobs = useJobStore((state) => state.activeJobs || []);
@@ -74,7 +93,28 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
 
   const activeJob = activeJobs[0] || null;
   const visibleIncomingJobs = incomingJobs.slice(0, 3);
-  const goalProgress = Math.min(100, Math.round((earningsToday / DAILY_GOAL) * 100));
+  const weeklySummary = useMemo(() => {
+    const weekStart = startOfWeek(new Date());
+    const weekSettlements = settlements.filter((settlement) => {
+      const date = settlementActivityDate(settlement);
+      return date !== null && date >= weekStart && settlement.status !== 'CANCELLED' && settlement.status !== 'REVERSED';
+    });
+
+    const totalAmount = weekSettlements.reduce((sum, settlement) => sum + settlement.netAmountMinor / 100, 0);
+    const pendingAmount = weekSettlements
+      .filter(isPendingSettlement)
+      .reduce((sum, settlement) => sum + settlement.netAmountMinor / 100, 0);
+
+    return {
+      totalAmount,
+      pendingAmount,
+      paidAmount: Math.max(totalAmount - pendingAmount, 0),
+      settlementCount: weekSettlements.length,
+    };
+  }, [settlements]);
+  const ratingLabel = technicianIdentity.stats.reviewCount > 0 && technicianIdentity.stats.averageRating !== null
+    ? technicianIdentity.stats.averageRating.toFixed(1)
+    : 'New';
 
   useEffect(() => {
     const loadAvailableJobs = async () => {
@@ -95,6 +135,15 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
 
     void loadAvailableJobs();
   }, [isOnDuty]);
+
+  useEffect(() => {
+    apiService.getMySettlements()
+      .then((response) => setSettlements(response.settlements || []))
+      .catch((error) => {
+        console.warn('Failed to load Home settlement summary:', error);
+      })
+      .finally(() => setSettlementsLoading(false));
+  }, []);
 
   const handleAcceptJob = async (job: any) => {
     try {
@@ -198,7 +247,7 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
           </View>
           <View style={styles.statCard}>
             <StarIcon color="#FBBF24" size={18} />
-            <Text style={styles.statValue}>5.0</Text>
+            <Text style={styles.statValue}>{ratingLabel}</Text>
             <Text style={styles.statLabel}>Rating</Text>
           </View>
         </View>
@@ -242,25 +291,19 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
           </View>
         )}
 
-        <Text style={styles.sectionTitle}>Incoming Requests</Text>
-        {!isOnDuty ? (
-          <View style={styles.emptyCard}>
-            <BriefcaseIcon color="#64748B" size={26} />
-            <Text style={styles.emptyTitle}>Go live to receive requests</Text>
-            <Text style={styles.emptyBody}>
-              New nearby jobs will appear here when your shift is live.
-            </Text>
-          </View>
-        ) : visibleIncomingJobs.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <ActivityIndicator size="small" color="#00FF87" />
-            <Text style={styles.emptyTitle}>No nearby requests yet</Text>
-            <Text style={styles.emptyBody}>
-              Stay live and keep the app open for new bookings.
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.incomingStack}>
+        {isOnDuty && (
+          <>
+            <Text style={styles.sectionTitle}>Incoming Requests</Text>
+            {visibleIncomingJobs.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <ActivityIndicator size="small" color="#00FF87" />
+                <Text style={styles.emptyTitle}>No nearby requests yet</Text>
+                <Text style={styles.emptyBody}>
+                  Stay live and keep the app open for new bookings.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.incomingStack}>
             {visibleIncomingJobs.map((job: any) => (
               <View key={job.id} style={styles.requestCard}>
                 <View style={styles.cardHeaderRow}>
@@ -295,26 +338,38 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
                 </View>
               </View>
             ))}
-          </View>
+              </View>
+            )}
+          </>
         )}
 
-        <View style={styles.goalCard}>
-          <View style={styles.goalHeader}>
+        <View style={styles.weekCard}>
+          <View style={styles.weekHeader}>
             <View>
-              <Text style={styles.goalTitle}>Today's Goal</Text>
-              <Text style={styles.goalSubtitle}>
-                {formatMoney(earningsToday)} / {formatMoney(DAILY_GOAL)}
+              <Text style={styles.weekTitle}>This Week</Text>
+              <Text style={styles.weekSubtitle}>
+                {weeklySummary.settlementCount === 1 ? '1 settlement' : `${weeklySummary.settlementCount} settlements`}
               </Text>
             </View>
-            <Text style={styles.goalPercent}>{goalProgress}%</Text>
+            {settlementsLoading ? (
+              <ActivityIndicator size="small" color="#00FF87" />
+            ) : (
+              <Text style={styles.weekAmount}>{formatMoney(weeklySummary.totalAmount, technicianIdentity.currency)}</Text>
+            )}
           </View>
-          <View style={styles.goalTrack}>
-            <View style={[styles.goalFill, { width: `${goalProgress}%` as any }]} />
+          <View style={styles.weekBreakdown}>
+            <View style={styles.weekBreakdownItem}>
+              <Text style={styles.weekBreakdownLabel}>Paid</Text>
+              <Text style={styles.weekBreakdownValue}>{formatMoney(weeklySummary.paidAmount, technicianIdentity.currency)}</Text>
+            </View>
+            <View style={styles.weekDivider} />
+            <View style={styles.weekBreakdownItem}>
+              <Text style={styles.weekBreakdownLabel}>Pending clearance</Text>
+              <Text style={styles.weekBreakdownValue}>{formatMoney(weeklySummary.pendingAmount, technicianIdentity.currency)}</Text>
+            </View>
           </View>
-          <Text style={styles.goalHint}>
-            {earningsToday >= DAILY_GOAL
-              ? 'Goal reached. Nice shift.'
-              : `${formatMoney(DAILY_GOAL - earningsToday)} away from your daily target.`}
+          <Text style={styles.weekHint}>
+            Confirmed jobs and admin-reviewed settlements update this weekly summary.
           </Text>
         </View>
       </ScrollView>
@@ -479,7 +534,7 @@ const styles = StyleSheet.create({
   },
   acceptButtonText: { color: '#090D14', fontSize: 12, fontWeight: '900' },
 
-  goalCard: {
+  weekCard: {
     backgroundColor: '#111827',
     borderWidth: 1,
     borderColor: '#1E293B',
@@ -487,11 +542,14 @@ const styles = StyleSheet.create({
     padding: 16,
     marginTop: 4,
   },
-  goalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  goalTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
-  goalSubtitle: { color: '#94A3B8', fontSize: 12, fontWeight: '700', marginTop: 3 },
-  goalPercent: { color: '#00FF87', fontSize: 18, fontWeight: '900' },
-  goalTrack: { height: 7, backgroundColor: '#1E293B', borderRadius: 999, overflow: 'hidden', marginTop: 14 },
-  goalFill: { height: '100%', backgroundColor: '#00FF87', borderRadius: 999 },
-  goalHint: { color: '#64748B', fontSize: 12, fontWeight: '600', marginTop: 10 },
+  weekHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  weekTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
+  weekSubtitle: { color: '#94A3B8', fontSize: 12, fontWeight: '700', marginTop: 3 },
+  weekAmount: { color: '#00FF87', fontSize: 20, fontWeight: '900' },
+  weekBreakdown: { flexDirection: 'row', alignItems: 'center', marginTop: 16 },
+  weekBreakdownItem: { flex: 1 },
+  weekBreakdownLabel: { color: '#64748B', fontSize: 11, fontWeight: '800', marginBottom: 4 },
+  weekBreakdownValue: { color: '#E2E8F0', fontSize: 14, fontWeight: '900' },
+  weekDivider: { width: 1, height: 34, backgroundColor: '#1E293B', marginHorizontal: 14 },
+  weekHint: { color: '#64748B', fontSize: 12, fontWeight: '600', lineHeight: 18, marginTop: 12 },
 });

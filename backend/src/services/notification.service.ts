@@ -130,7 +130,7 @@ const pushProvider: NotificationChannelProvider = {
     const technicianJobAlert = isTechnicianJobAlert(String(notification.type));
     const messages = tokens.map((record) => ({
       to: record.token,
-      sound: technicianJobAlert ? 'incoming-job.wav' : 'default',
+      sound: technicianJobAlert ? 'incoming_job.wav' : 'default',
       channelId: technicianJobAlert ? 'job-alerts' : 'default',
       title: notification.title,
       body: notification.message,

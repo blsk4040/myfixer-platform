@@ -402,7 +402,8 @@ const main = async () => {
         supportedCities: ['Lusaka'],
         serviceCategories: [
           { serviceKey: 'appliance_repair', label: 'Appliance Repair', status: MarketStatus.ACTIVE },
-          { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.COMING_SOON },
+          { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.DISABLED },
+          { serviceKey: 'rental_property', label: 'Rental Property', status: MarketStatus.DISABLED },
         ],
         cityServiceAvailability: [
           {
@@ -410,7 +411,8 @@ const main = async () => {
             status: MarketStatus.ACTIVE,
             services: [
               { serviceKey: 'appliance_repair', label: 'Appliance Repair', status: MarketStatus.ACTIVE },
-              { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.COMING_SOON },
+              { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.DISABLED },
+              { serviceKey: 'rental_property', label: 'Rental Property', status: MarketStatus.DISABLED },
             ],
             areas: [
               {
@@ -418,7 +420,8 @@ const main = async () => {
                 status: MarketStatus.ACTIVE,
                 services: [
                   { serviceKey: 'appliance_repair', label: 'Appliance Repair', status: MarketStatus.ACTIVE },
-                  { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.COMING_SOON },
+                  { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.DISABLED },
+                  { serviceKey: 'rental_property', label: 'Rental Property', status: MarketStatus.DISABLED },
                 ],
               },
             ],

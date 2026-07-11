@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,7 +9,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import apiService, { ProviderPayoutMethodRecord } from '../../services/api.service';
+import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
 
 interface InvoiceItem {
   id: string;
@@ -23,10 +24,30 @@ interface InvoiceItem {
 }
 
 const invoices: InvoiceItem[] = [];
+type PayoutMethodType = 'BANK_ACCOUNT' | 'MOBILE_MONEY';
+
+const countryNames: Record<string, string> = {
+  ZA: 'South Africa',
+  GH: 'Ghana',
+  NG: 'Nigeria',
+  KE: 'Kenya',
+  UG: 'Uganda',
+  TZ: 'Tanzania',
+  RW: 'Rwanda',
+  ZM: 'Zambia',
+};
+
+const payoutMethodLabels: Record<PayoutMethodType, string> = {
+  BANK_ACCOUNT: 'Bank account',
+  MOBILE_MONEY: 'Mobile money',
+};
 
 export function BankingInvoiceScreen(): React.JSX.Element {
+  const technicianIdentity = getTechnicianIdentity();
+  const payoutCapabilities = technicianIdentity.payoutCapabilities;
+  const payoutOptions = payoutCapabilities.providerPayoutMethods;
   const [activeTab, setActiveTab] = useState<'banking' | 'invoices'>('banking');
-  const [selectedRegion, setSelectedRegion] = useState<'ZA' | 'NG' | 'EA'>('ZA');
+  const [selectedPayoutType, setSelectedPayoutType] = useState<PayoutMethodType>(payoutCapabilities.defaultProviderPayoutMethod);
   const [accountHolder, setAccountHolder] = useState('');
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
@@ -43,6 +64,12 @@ export function BankingInvoiceScreen(): React.JSX.Element {
       .then((response) => setMethods(response.methods || []))
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!payoutOptions.includes(selectedPayoutType) && payoutOptions[0]) {
+      setSelectedPayoutType(payoutOptions[0]);
+    }
+  }, [payoutOptions, selectedPayoutType]);
 
   const formatMoney = (amount: number, currencyCode: string) => {
     try {
@@ -61,7 +88,12 @@ export function BankingInvoiceScreen(): React.JSX.Element {
       return;
     }
 
-    if (selectedRegion === 'EA') {
+    if (payoutOptions.length === 0) {
+      Alert.alert('Payout Not Available', `Payout methods are not available for ${countryNames[technicianIdentity.countryCode] || technicianIdentity.countryCode} yet.`);
+      return;
+    }
+
+    if (selectedPayoutType === 'MOBILE_MONEY') {
       if (!bankName.trim() || !mobileMoneyNumber.trim()) {
         Alert.alert('Mobile Money Required', 'Please enter your mobile money provider and registered wallet number.');
         return;
@@ -73,10 +105,10 @@ export function BankingInvoiceScreen(): React.JSX.Element {
 
     try {
       setSaving(true);
-      if (selectedRegion === 'EA') {
+      if (selectedPayoutType === 'MOBILE_MONEY') {
         const response = await apiService.addMobileMoneyPayoutMethod({
-          countryCode: 'GH',
-          currency: 'GHS',
+          countryCode: technicianIdentity.countryCode,
+          currency: technicianIdentity.currency,
           operatorCode: bankName.trim(),
           phoneNumber: mobileMoneyNumber.trim(),
           accountName: accountHolder.trim(),
@@ -85,11 +117,11 @@ export function BankingInvoiceScreen(): React.JSX.Element {
         setMethods((prev) => [response.method, ...prev.filter((item) => item.id !== response.method.id)]);
       } else {
         const response = await apiService.addBankPayoutMethod({
-          countryCode: selectedRegion === 'ZA' ? 'ZA' : 'NG',
-          currency: selectedRegion === 'ZA' ? 'ZAR' : 'NGN',
+          countryCode: technicianIdentity.countryCode,
+          currency: technicianIdentity.currency,
           accountHolderName: accountHolder.trim(),
           bankName: bankName.trim(),
-          bankCode: selectedRegion === 'ZA' ? branchCode.trim() : sortCode.trim(),
+          bankCode: technicianIdentity.countryCode === 'ZA' ? branchCode.trim() : sortCode.trim(),
           accountNumber: accountNumber.trim(),
           makeDefault: true,
         });
@@ -181,24 +213,18 @@ export function BankingInvoiceScreen(): React.JSX.Element {
 
           <Text style={styles.inputLabel}>Country / payout type</Text>
           <View style={styles.regionSelectorRow}>
-            <TouchableOpacity
-              style={[styles.regionChip, selectedRegion === 'ZA' && styles.activeRegionChip]}
-              onPress={() => setSelectedRegion('ZA')}
-            >
-              <Text style={[styles.regionChipText, selectedRegion === 'ZA' && styles.activeRegionChipText]}>South Africa</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.regionChip, selectedRegion === 'NG' && styles.activeRegionChip]}
-              onPress={() => setSelectedRegion('NG')}
-            >
-              <Text style={[styles.regionChipText, selectedRegion === 'NG' && styles.activeRegionChipText]}>Nigeria</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.regionChip, selectedRegion === 'EA' && styles.activeRegionChip]}
-              onPress={() => setSelectedRegion('EA')}
-            >
-              <Text style={[styles.regionChipText, selectedRegion === 'EA' && styles.activeRegionChipText]}>Mobile money</Text>
-            </TouchableOpacity>
+            <View style={styles.regionChip}>
+              <Text style={styles.regionChipText}>{countryNames[technicianIdentity.countryCode] || technicianIdentity.countryCode}</Text>
+            </View>
+            {payoutOptions.map((option) => (
+              <TouchableOpacity
+                key={option}
+                style={[styles.regionChip, selectedPayoutType === option && styles.activeRegionChip]}
+                onPress={() => setSelectedPayoutType(option)}
+              >
+                <Text style={[styles.regionChipText, selectedPayoutType === option && styles.activeRegionChipText]}>{payoutMethodLabels[option]}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
           <View style={styles.formContainer}>
@@ -211,7 +237,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
               onChangeText={setAccountHolder}
             />
 
-            {selectedRegion === 'EA' ? (
+            {selectedPayoutType === 'MOBILE_MONEY' ? (
               <>
                 <Text style={styles.inputLabel}>Mobile money provider</Text>
                 <TextInput
@@ -236,7 +262,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
                 <Text style={styles.inputLabel}>Bank name</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder={selectedRegion === 'ZA' ? 'Standard Bank, FNB, Capitec' : 'Access Bank, GTBank, Zenith'}
+                  placeholder={technicianIdentity.countryCode === 'ZA' ? 'Standard Bank, FNB, Capitec' : 'Bank name'}
                   placeholderTextColor="#64748B"
                   value={bankName}
                   onChangeText={setBankName}
@@ -244,20 +270,20 @@ export function BankingInvoiceScreen(): React.JSX.Element {
                 <Text style={styles.inputLabel}>Account number</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder={selectedRegion === 'ZA' ? '10123456789' : '0123456789'}
+                  placeholder={technicianIdentity.countryCode === 'ZA' ? '10123456789' : 'Account number'}
                   placeholderTextColor="#64748B"
                   keyboardType="number-pad"
                   value={accountNumber}
                   onChangeText={setAccountNumber}
                 />
-                <Text style={styles.inputLabel}>{selectedRegion === 'ZA' ? 'Branch code' : 'Sort code (optional)'}</Text>
+                <Text style={styles.inputLabel}>{technicianIdentity.countryCode === 'ZA' ? 'Branch code' : 'Bank code / sort code'}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder={selectedRegion === 'ZA' ? '250655' : '044150149'}
+                  placeholder={technicianIdentity.countryCode === 'ZA' ? '250655' : 'Bank code'}
                   placeholderTextColor="#64748B"
                   keyboardType="number-pad"
-                  value={selectedRegion === 'ZA' ? branchCode : sortCode}
-                  onChangeText={selectedRegion === 'ZA' ? setBranchCode : setSortCode}
+                  value={technicianIdentity.countryCode === 'ZA' ? branchCode : sortCode}
+                  onChangeText={technicianIdentity.countryCode === 'ZA' ? setBranchCode : setSortCode}
                 />
               </>
             )}

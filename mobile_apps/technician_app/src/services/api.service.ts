@@ -145,6 +145,8 @@ export interface ProviderSettlementRecord {
   completionConfirmedAt?: string | null;
   readyForPayoutAt?: string | null;
   paidAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
   holdReason?: string;
 }
 
@@ -179,6 +181,26 @@ export interface RegisterTechnicianPayload {
   serviceRadiusKm?: number;
   bio?: string;
   profilePhotoDataUri: string;
+}
+
+export interface ServiceAvailabilityItem {
+  serviceKey: string;
+  label: string;
+  status: 'ACTIVE' | 'COMING_SOON' | 'PAUSED' | 'DISABLED';
+  canBook: boolean;
+  message: string;
+}
+
+export interface MarketAvailabilityResponse {
+  success: boolean;
+  availability: {
+    countryCode: string;
+    countryName: string;
+    currency: string;
+    city: string;
+    area: string;
+    services: ServiceAvailabilityItem[];
+  };
 }
 
 export interface GoogleAuthResponse {
@@ -235,16 +257,7 @@ class ApiService {
     message: string;
     token: string | null;
     user: AuthSession['user'] | null;
-    technician: {
-      id: string;
-      approvalStatus: string;
-      serviceCategories: string[];
-      city?: string;
-      businessName?: string;
-      yearsExperience?: number;
-      profilePhotoUrl?: string;
-      profilePhotoStatus?: string;
-    };
+    technician: AuthSession['technician'];
     verificationEmailSent?: boolean;
   }> {
     return this.request('/auth/register-technician', {
@@ -271,6 +284,14 @@ class ApiService {
         },
       }),
     });
+  }
+
+  getMarketAvailability(params: { countryCode: string; city?: string; area?: string }): Promise<MarketAvailabilityResponse> {
+    const query = new URLSearchParams();
+    if (params.city) query.set('city', params.city);
+    if (params.area) query.set('area', params.area);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.request<MarketAvailabilityResponse>(`/markets/${encodeURIComponent(params.countryCode)}/availability${suffix}`);
   }
 
   uploadTechnicianProfilePhoto(payload: {
@@ -306,6 +327,10 @@ class ApiService {
 
   getAvailableJobsForTechnician(): Promise<{ success: boolean; jobs: any[] }> {
     return this.request('/technician/available-jobs');
+  }
+
+  getTechnicianJobs(): Promise<{ success: boolean; activeJobs: any[]; scheduledJobs: any[]; completedJobs: any[] }> {
+    return this.request('/technician/jobs');
   }
 
   updateBookingStatus(bookingId: string, status: BookingStatus): Promise<{ success: boolean; status: BookingStatus }> {

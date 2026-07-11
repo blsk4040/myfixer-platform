@@ -36,6 +36,15 @@ const amountFromTransaction = (transaction: WalletTransactionRecord): number => 
   return 0;
 };
 
+const startOfWeek = (date: Date): Date => {
+  const start = new Date(date);
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diff);
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
+
 export function EarningsScreen({ navigation }: any): React.JSX.Element {
   const completedJobs = useJobStore((state) => state.completedJobs);
   const [wallet, setWallet] = useState<WalletBalanceResponse | null>(null);
@@ -53,18 +62,46 @@ export function EarningsScreen({ navigation }: any): React.JSX.Element {
     .filter((settlement) => settlement.status !== 'PAID' && settlement.status !== 'CANCELLED' && settlement.status !== 'REVERSED')
     .reduce((sum, settlement) => sum + settlement.netAmountMinor / 100, 0);
   const totalEarnedEstimate = Math.max(storePayoutTotal, availableAmount + pendingAmount);
-  const weeklyGoal = 7500;
-  const progressPercent = Math.min(Math.round((totalEarnedEstimate / weeklyGoal) * 100), 100);
+  const weeklyActivity = useMemo(() => {
+    const weekStart = startOfWeek(new Date());
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => {
+      const date = new Date(weekStart);
+      date.setDate(weekStart.getDate() + index);
+      return { day, date, amount: 0 };
+    });
 
-  const chartBars = useMemo(() => [
-    { day: 'Mon', h: totalEarnedEstimate > 0 ? '55%' : '12%' },
-    { day: 'Tue', h: totalEarnedEstimate > 0 ? '75%' : '12%' },
-    { day: 'Wed', h: totalEarnedEstimate > 0 ? '48%' : '12%', active: true },
-    { day: 'Thu', h: '12%' },
-    { day: 'Fri', h: '12%' },
-    { day: 'Sat', h: '12%' },
-    { day: 'Sun', h: '12%' },
-  ], [totalEarnedEstimate]);
+    const addAmount = (rawDate: string | null | undefined, amount: number) => {
+      if (!rawDate || amount <= 0) return;
+      const date = new Date(rawDate);
+      if (Number.isNaN(date.getTime()) || date < weekStart) return;
+      const dayIndex = Math.floor((date.getTime() - weekStart.getTime()) / 86400000);
+      if (dayIndex >= 0 && dayIndex < days.length) {
+        days[dayIndex].amount += amount;
+      }
+    };
+
+    settlements.forEach((settlement) => {
+      addAmount(settlement.paidAt || settlement.readyForPayoutAt || settlement.completionConfirmedAt || settlement.createdAt, settlement.netAmountMinor / 100);
+    });
+    transactions.forEach((transaction) => {
+      addAmount(transaction.createdAt, amountFromTransaction(transaction));
+    });
+
+    return days;
+  }, [settlements, transactions]);
+  const weeklyEarned = weeklyActivity.reduce((sum, item) => sum + item.amount, 0);
+  const weeklyGoal = 7500;
+  const progressPercent = Math.min(Math.round((weeklyEarned / weeklyGoal) * 100), 100);
+
+  const chartBars = useMemo(() => {
+    const maxAmount = Math.max(...weeklyActivity.map((item) => item.amount), 0);
+    const todayLabel = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date().getDay()];
+    return weeklyActivity.map((item) => ({
+      day: item.day,
+      h: `${maxAmount > 0 ? Math.max(10, Math.round((item.amount / maxAmount) * 100)) : 10}%`,
+      active: item.day === todayLabel,
+    }));
+  }, [weeklyActivity]);
 
   const loadWallet = useCallback(async () => {
     const [balanceResponse, transactionResponse, settlementResponse] = await Promise.all([
@@ -166,7 +203,7 @@ export function EarningsScreen({ navigation }: any): React.JSX.Element {
           <View style={styles.progressContainer}>
             <View style={styles.progressHeader}>
               <Text style={styles.progressLabel}>Weekly goal</Text>
-              <Text style={styles.progressValue}>{progressPercent}% of {formatMoney(weeklyGoal, currency)}</Text>
+              <Text style={styles.progressValue}>{formatMoney(weeklyEarned, currency)} of {formatMoney(weeklyGoal, currency)}</Text>
             </View>
             <View style={styles.progressBarTrack}>
               <View style={[styles.progressBarFill, { width: `${progressPercent}%` as DimensionValue }]} />

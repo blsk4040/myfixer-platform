@@ -102,6 +102,7 @@ export interface ITechnicianDocument extends Document {
 
   stats: {
     averageRating: number;
+    reviewCount: number;
     completedJobs: number;
     cancelledJobs: number;
     lifetimeEarningsMinor: number;
@@ -331,6 +332,11 @@ const TechnicianSchema = new Schema<ITechnicianDocument>(
         default: 0,
         min: 0,
         max: 5,
+      },
+      reviewCount: {
+        type: Number,
+        default: 0,
+        min: 0,
       },
       completedJobs: {
         type: Number,

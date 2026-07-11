@@ -1,6 +1,6 @@
 // mobile_apps/client_app/src/navigation/AppNavigator.tsx
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -28,6 +28,8 @@ import ManagedCollectionScreen from '../screens/managed_collection/ManagedCollec
 import NotificationInboxScreen from '../screens/notifications/NotificationInboxScreen';
 import SubscriptionDashboardScreen from '../screens/subscriptions/SubscriptionDashboardScreen';
 import { AddressesScreen } from '../screens/profile/AddressesScreen';
+import apiService from '../services/api.service';
+import authService from '../services/auth.service';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -48,6 +50,9 @@ export type RootStackParamList = {
     serviceKey?: string;
     subCategory?: string;
     basePrice?: number;
+    preferredTechnicianId?: string;
+    preferredTechnicianName?: string;
+    rebookFromBookingId?: string;
   };
   ManagedCollection: undefined;
   TrackingMain: {
@@ -92,6 +97,28 @@ const linking = {
 };
 
 function MainTabNavigator() {
+  const [managedCollectionEnabled, setManagedCollectionEnabled] = useState(false);
+
+  useEffect(() => {
+    const session = authService.getSession();
+    const countryCode = session?.user.countryCode;
+    if (!countryCode) {
+      setManagedCollectionEnabled(false);
+      return;
+    }
+
+    apiService.getMarketAvailability({
+      countryCode,
+      city: session.user.location?.city,
+      area: session.user.location?.area,
+    })
+      .then((result) => {
+        const managedCollection = result.availability.services.find((service) => service.serviceKey === 'managed_collection');
+        setManagedCollectionEnabled(Boolean(managedCollection?.canBook));
+      })
+      .catch(() => setManagedCollectionEnabled(false));
+  }, []);
+
   return (
     <Tab.Navigator
       tabBar={(props) => <CustomTabBar {...props} />}
@@ -132,16 +159,18 @@ function MainTabNavigator() {
         }}
       />
 
-      <Tab.Screen
-        name="Subscriptions"
-        component={SubscriptionDashboardScreen}
-        options={{
-          tabBarLabel: 'Plans',
-          tabBarIcon: ({ color, size }) => (
-            <CreditCard color={color} size={size} />
-          ),
-        }}
-      />
+      {managedCollectionEnabled && (
+        <Tab.Screen
+          name="Subscriptions"
+          component={SubscriptionDashboardScreen}
+          options={{
+            tabBarLabel: 'Plans',
+            tabBarIcon: ({ color, size }) => (
+              <CreditCard color={color} size={size} />
+            ),
+          }}
+        />
+      )}
 
       <Tab.Screen
         name="History"

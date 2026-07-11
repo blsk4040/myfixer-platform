@@ -62,8 +62,10 @@ var AdminPermission;
     AdminPermission["TECHNICIANS_READ"] = "technicians.read";
     AdminPermission["TECHNICIANS_REVIEW"] = "technicians.review";
     AdminPermission["FINANCE_READ"] = "finance.read";
+    AdminPermission["CLIENTS_CONTACT_READ"] = "clients.contact.read";
     AdminPermission["MARKETS_READ"] = "markets.read";
     AdminPermission["MARKETS_UPDATE"] = "markets.update";
+    AdminPermission["MARKETS_SERVICES_ACTIVATE"] = "markets.services.activate";
     AdminPermission["ADMINS_READ"] = "admins.read";
     AdminPermission["ADMINS_CREATE"] = "admins.create";
     AdminPermission["ADMINS_UPDATE"] = "admins.update";
@@ -264,6 +266,11 @@ const UserSchema = new mongoose_1.Schema({
     lastPasswordChangeAt: {
         type: Date,
         default: null,
+    },
+    mustChangePassword: {
+        type: Boolean,
+        default: false,
+        index: true,
     },
     passwordResetTokenHash: {
         type: String,

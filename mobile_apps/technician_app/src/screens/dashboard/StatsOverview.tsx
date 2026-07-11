@@ -19,7 +19,7 @@ export function StatsOverview({ stats }: StatsOverviewProps): React.JSX.Element 
 
       <View style={styles.row}>
         <StatCard title="Earnings Today" value={`R ${stats.earnings.toFixed(2)}`} />
-        <StatCard title="Rating" value={stats.rating.toFixed(1)} />
+        <StatCard title="Rating" value={stats.ratingLabel || stats.rating.toFixed(1)} />
       </View>
     </View>
   );

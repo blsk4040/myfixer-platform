@@ -4,8 +4,35 @@ declare const process: {
     EXPO_PUBLIC_API_URL?: string;
     EXPO_PUBLIC_SOCKET_URL?: string;
     EXPO_PUBLIC_SOCKET_DEBUG?: string;
+    EXPO_PUBLIC_EAS_PROJECT_ID?: string;
     EXPO_PUBLIC_APP_ENV?: string;
     NODE_ENV?: string;
+  };
+};
+
+type ExpoConstantsLike = {
+  easConfig?: {
+    projectId?: string;
+  };
+  expoConfig?: {
+    extra?: {
+      eas?: {
+        projectId?: string;
+      };
+      EAS_PROJECT_ID?: string;
+    };
+  };
+  manifest2?: {
+    extra?: {
+      expoClient?: {
+        extra?: {
+          eas?: {
+            projectId?: string;
+          };
+          EAS_PROJECT_ID?: string;
+        };
+      };
+    };
   };
 };
 
@@ -63,6 +90,17 @@ export function getSocketUrl(): string {
   return apiBaseUrl ? normalizeUrl(apiBaseUrl.replace(/\/api\/v1$/, '')) : '';
 }
 
+export function getExpoProjectId(constants?: ExpoConstantsLike): string {
+  return (
+    getEnvValue('EXPO_PUBLIC_EAS_PROJECT_ID') ||
+    constants?.easConfig?.projectId ||
+    constants?.expoConfig?.extra?.eas?.projectId ||
+    constants?.expoConfig?.extra?.EAS_PROJECT_ID ||
+    constants?.manifest2?.extra?.expoClient?.extra?.eas?.projectId ||
+    constants?.manifest2?.extra?.expoClient?.extra?.EAS_PROJECT_ID ||
+    ''
+  ).trim();
+}
 
 export function assertConfiguredUrl(value: string, envName: string): void {
   if (value) return;

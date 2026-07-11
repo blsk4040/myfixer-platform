@@ -23,6 +23,7 @@ interface ProfileOption {
 export function ProfileScreen({ navigation }: any): React.JSX.Element {
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [managedCollectionPaymentsAvailable, setManagedCollectionPaymentsAvailable] = useState(false);
 
   useEffect(() => {
     apiService.getMyProfile()
@@ -31,10 +32,30 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (!profile?.countryCode) {
+      setManagedCollectionPaymentsAvailable(false);
+      return;
+    }
+
+    apiService.getMarketAvailability({
+      countryCode: profile.countryCode,
+      city: profile.location?.city,
+      area: profile.location?.area,
+    })
+      .then((response) => {
+        const managedCollection = response.availability.services.find((service) => service.serviceKey === 'managed_collection');
+        setManagedCollectionPaymentsAvailable(Boolean(managedCollection?.canBook));
+      })
+      .catch(() => setManagedCollectionPaymentsAvailable(false));
+  }, [profile?.countryCode, profile?.location?.area, profile?.location?.city]);
+
   const accountOptions: ProfileOption[] = [
-    { title: 'Booking History', subtitle: 'View completed and cancelled service requests', icon: '•', actionKey: 'History' },
+    { title: 'History', subtitle: 'Same booking history as the History tab', icon: '•', actionKey: 'History' },
     { title: 'Active Requests', subtitle: 'Track jobs currently in progress', icon: '•', actionKey: 'Activity' },
-    { title: 'Wallet & Payments', subtitle: 'Manage cards and payment methods', icon: '•', actionKey: 'Payments' },
+    ...(managedCollectionPaymentsAvailable
+      ? [{ title: 'Wallet & Payments', subtitle: 'Manage Managed Collection subscriptions and payments', icon: '•', actionKey: 'Payments' }]
+      : []),
     { title: 'Saved Address', subtitle: 'Manage your default service location', icon: '•', actionKey: 'Addresses' },
     { title: 'Security', subtitle: 'Password and account protection', icon: '•', actionKey: 'Security' },
     { title: 'Help & Support', subtitle: 'Get assistance with your account', icon: '•', actionKey: 'Support' },
@@ -52,7 +73,7 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
         navigation.navigate('Addresses');
         break;
       case 'Payments':
-        Alert.alert('Wallet & Payments', 'Payment management is not available yet.');
+        navigation.navigate('Subscriptions');
         break;
       case 'Security':
         Alert.alert('Security', 'Security settings are not available yet.');

@@ -21,17 +21,17 @@ export function IncomingRequestsList({
   onDecline,
   connectionMessage = '',
 }: IncomingRequestsListProps): React.JSX.Element {
+  if (!isOnline) {
+    return <></>;
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.sectionTitle}>Incoming Requests</Text>
 
-      {isOnline && connectionMessage ? (
+      {connectionMessage ? (
         <View style={styles.offlineCard}>
           <Text style={styles.offlineText}>{connectionMessage}</Text>
-        </View>
-      ) : !isOnline ? (
-        <View style={styles.offlineCard}>
-          <Text style={styles.offlineText}>Go live to start receiving nearby jobs.</Text>
         </View>
       ) : jobs.length === 0 ? (
         <EmptyOnlineState />

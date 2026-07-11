@@ -98,6 +98,15 @@ export function ActiveJobsTab(): React.JSX.Element {
   const [quoteRequired, setQuoteRequired] = useState(true);
   const [submittingInspection, setSubmittingInspection] = useState(false);
 
+  const isQuoteApprovedForJob = (job: JobPayload): boolean =>
+    approvedQuoteJobIds.has(job.id) || job.quoteStatus === 'APPROVED';
+
+  const isQuoteSentForJob = (job: JobPayload): boolean =>
+    sentQuoteJobIds.has(job.id) ||
+    job.quoteStatus === 'SUBMITTED' ||
+    job.quoteStatus === 'SENT_TO_CLIENT' ||
+    job.quoteStatus === 'APPROVED';
+
   const appendChatMessage = (bookingId: string, message: BookingChatMessage) => {
     setChatThreads((prev) => {
       const current = prev[bookingId] || [];
@@ -428,7 +437,7 @@ export function ActiveJobsTab(): React.JSX.Element {
     }
 
     if (job.jobStatus === 'IN_PROGRESS' || job.jobStatus === 'DIAGNOSTIC_DONE') {
-      if (!approvedQuoteJobIds.has(job.id)) {
+      if (!isQuoteApprovedForJob(job)) {
         openQuoteSheet(job);
         return;
       }
@@ -448,13 +457,13 @@ export function ActiveJobsTab(): React.JSX.Element {
         return;
       }
       if (job.inspectionStatus === 'COMPLETED') {
-        if (job.quoteRequired !== false && !sentQuoteJobIds.has(job.id)) {
+        if (job.quoteRequired !== false && !isQuoteSentForJob(job)) {
           openQuoteSheet(job);
           return;
         }
         try {
           await apiService.startJob(job.id);
-          advanceJobStatus(job.id);
+          patchJob(job.id, { jobStatus: 'IN_PROGRESS' });
         } catch (error: any) {
           const message = error.message || job.workAuthorizationReason || 'Work cannot begin yet.';
           Alert.alert('Start work blocked', message);
@@ -467,7 +476,7 @@ export function ActiveJobsTab(): React.JSX.Element {
 
     const nextStatus = getNextStatus(job.jobStatus);
     if (!nextStatus) {
-      Alert.alert('Next step unavailable', getStageBlockReason(job, approvedQuoteJobIds.has(job.id)));
+      Alert.alert('Next step unavailable', getStageBlockReason(job, isQuoteApprovedForJob(job)));
       return;
     }
 
@@ -498,7 +507,7 @@ export function ActiveJobsTab(): React.JSX.Element {
     try {
       setSubmittingInvoice(true);
 
-      if (!approvedQuoteJobIds.has(activeInvoiceJob.id)) {
+      if (!isQuoteApprovedForJob(activeInvoiceJob)) {
         const lineItems = [
           {
             type: 'CALLOUT' as const,
@@ -598,7 +607,7 @@ export function ActiveJobsTab(): React.JSX.Element {
   const basePriceValue = activeInvoiceJob ? (Number(activeInvoiceJob.price) || 450) : 450;
   const activeInvoiceCurrency = activeInvoiceJob?.currency || 'ZAR';
   const computedLiveTotal = basePriceValue + (parseFloat(additionalLabor) || 0) + (parseFloat(partsAmount) || 0);
-  const isApprovedQuote = !!activeInvoiceJob && approvedQuoteJobIds.has(activeInvoiceJob.id);
+  const isApprovedQuote = !!activeInvoiceJob && isQuoteApprovedForJob(activeInvoiceJob);
 
   const renderChatMedia = (media: JobMediaRecord[] = []) => (
     <View style={styles.chatMediaGrid}>
@@ -622,8 +631,8 @@ export function ActiveJobsTab(): React.JSX.Element {
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         {activeJobs.map((job) => {
           const currentProps = getActionButtonProps(job.jobStatus);
-          const quoteApproved = approvedQuoteJobIds.has(job.id);
-          const quoteSent = sentQuoteJobIds.has(job.id);
+          const quoteApproved = isQuoteApprovedForJob(job);
+          const quoteSent = isQuoteSentForJob(job);
 
           return (
             <View key={job.id} style={[styles.jobCard, (job.jobStatus === 'IN_PROGRESS' || job.jobStatus === 'DIAGNOSTIC_DONE') && { borderColor: '#00FF8740' }]}>

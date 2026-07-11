@@ -14,6 +14,7 @@ import apiService, {
   ManagedCollectionSubscriptionPlan,
   ManagedCollectionSubscriptionRecord,
 } from '../../services/api.service';
+import authService from '../../services/auth.service';
 
 const money = (minor?: number, currency = 'ZMW') =>
   typeof minor === 'number' ? `${currency} ${(minor / 100).toFixed(2)}` : '-';
@@ -24,10 +25,36 @@ export function SubscriptionDashboardScreen(): React.JSX.Element {
   const [invoices, setInvoices] = useState<Array<Record<string, unknown>>>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [unavailableMessage, setUnavailableMessage] = useState('');
 
   const load = useCallback(async () => {
+    const session = authService.getSession();
+    const countryCode = session?.user.countryCode;
+    if (!countryCode) {
+      setUnavailableMessage('Please complete your account country before using Managed Collection subscriptions.');
+      setPlans([]);
+      setCurrent(null);
+      setInvoices([]);
+      return;
+    }
+
+    const availability = await apiService.getMarketAvailability({
+      countryCode,
+      city: session.user.location?.city,
+      area: session.user.location?.area,
+    });
+    const managedCollection = availability.availability.services.find((service) => service.serviceKey === 'managed_collection');
+    if (!managedCollection?.canBook) {
+      setUnavailableMessage(managedCollection?.message || 'Managed Collection subscriptions are not available in your country yet.');
+      setPlans([]);
+      setCurrent(null);
+      setInvoices([]);
+      return;
+    }
+
+    setUnavailableMessage('');
     const [planResult, dashboard] = await Promise.all([
-      apiService.getManagedCollectionPlans(),
+      apiService.getManagedCollectionPlans(countryCode),
       apiService.getManagedCollectionSubscriptionDashboard(),
     ]);
     setPlans(planResult.plans || []);
@@ -83,6 +110,15 @@ export function SubscriptionDashboardScreen(): React.JSX.Element {
       <View style={styles.center}>
         <ActivityIndicator color="#00FF87" />
         <Text style={styles.muted}>Loading subscription dashboard...</Text>
+      </View>
+    );
+  }
+
+  if (unavailableMessage) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.title}>Managed Collection</Text>
+        <Text style={styles.muted}>{unavailableMessage}</Text>
       </View>
     );
   }

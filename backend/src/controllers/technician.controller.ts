@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Booking, { BookingStatus } from '../models/booking.model';
+import JobQuote from '../models/quote.model';
 import Technician, { TechnicianApprovalStatus, VerificationStatus } from '../models/technician.model';
+import { serializeBookingForAssignedTechnician } from '../services/booking-privacy.service';
 import { logAuditEvent } from '../services/audit.service';
 import matchingService from '../services/matching.service';
 import User from '../models/user.model';
@@ -85,6 +87,84 @@ export const getAvailableJobsForTechnician = async (req: Request, res: Response)
   } catch (error) {
     console.error('Failed to fetch available jobs for technician:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch nearby jobs.' });
+  }
+};
+
+export const getMyTechnicianJobs = async (req: Request, res: Response): Promise<void> => {
+  const authUser = (req as any).user as { id?: string; _id?: string } | undefined;
+  const technicianId = String(authUser?.id ?? authUser?._id ?? '').trim();
+
+  if (!technicianId || !mongoose.Types.ObjectId.isValid(technicianId)) {
+    res.status(401).json({ message: 'Unauthorized. Technician identity missing.' });
+    return;
+  }
+
+  try {
+    const technicianObjectId = new mongoose.Types.ObjectId(technicianId);
+    const now = new Date();
+    const activeStatuses = [
+      BookingStatus.ACCEPTED,
+      BookingStatus.IN_ROUTE,
+      BookingStatus.ARRIVED,
+      BookingStatus.IN_PROGRESS,
+      BookingStatus.DIAGNOSTIC_DONE,
+    ];
+
+    const [activeJobs, scheduledJobs, completedJobs] = await Promise.all([
+      Booking.find({
+        technicianId: technicianObjectId,
+        status: { $in: activeStatuses },
+        $or: [
+          { 'appointmentWindow.isPreBook': { $ne: true } },
+          { 'appointmentWindow.scheduledStartTime': { $lte: now } },
+          { 'appointmentWindow.scheduledStartTime': null },
+        ],
+      })
+        .sort({ acceptedAt: -1, updatedAt: -1 })
+        .limit(100),
+      Booking.find({
+        technicianId: technicianObjectId,
+        $or: [
+          { status: BookingStatus.SCHEDULED },
+          {
+            status: { $in: activeStatuses },
+            'appointmentWindow.isPreBook': true,
+            'appointmentWindow.scheduledStartTime': { $gt: now },
+          },
+        ],
+      })
+        .sort({ 'appointmentWindow.scheduledStartTime': 1, scheduledAt: 1, updatedAt: -1 })
+        .limit(100),
+      Booking.find({
+        technicianId: technicianObjectId,
+        status: BookingStatus.COMPLETED,
+      })
+        .sort({ completedAt: -1, updatedAt: -1 })
+        .limit(50),
+    ]);
+
+    const allJobs = [...activeJobs, ...scheduledJobs, ...completedJobs];
+    const bookingIds = allJobs.map((job) => job._id);
+    const currentQuotes = await JobQuote.find({ bookingId: { $in: bookingIds }, isCurrent: true })
+      .select('bookingId status')
+      .lean();
+    const quoteStatusByBookingId = new Map(
+      currentQuotes.map((quote) => [String(quote.bookingId), quote.status])
+    );
+    const serializeWithQuoteStatus = (booking: any) => ({
+      ...serializeBookingForAssignedTechnician(booking),
+      quoteStatus: quoteStatusByBookingId.get(String(booking._id)) ?? 'NOT_REQUIRED',
+    });
+
+    res.status(200).json({
+      success: true,
+      activeJobs: activeJobs.map(serializeWithQuoteStatus),
+      scheduledJobs: scheduledJobs.map(serializeWithQuoteStatus),
+      completedJobs: completedJobs.map(serializeWithQuoteStatus),
+    });
+  } catch (error) {
+    console.error('Failed to fetch technician jobs:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch technician jobs.' });
   }
 };
 

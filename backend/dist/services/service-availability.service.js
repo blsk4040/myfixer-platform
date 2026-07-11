@@ -45,7 +45,8 @@ exports.DEFAULT_SERVICE_DEFINITIONS = [
     { serviceKey: 'gardening', label: 'Gardening', status: market_setting_model_1.MarketStatus.ACTIVE },
     { serviceKey: 'maintenance', label: 'Maintenance', status: market_setting_model_1.MarketStatus.ACTIVE },
     { serviceKey: 'automotive', label: 'Automotive', status: market_setting_model_1.MarketStatus.ACTIVE },
-    { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: market_setting_model_1.MarketStatus.COMING_SOON },
+    { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: market_setting_model_1.MarketStatus.DISABLED },
+    { serviceKey: 'rental_property', label: 'Rental Property Listings', status: market_setting_model_1.MarketStatus.DISABLED },
 ];
 const SERVICE_ALIASES = {
     appliances: 'appliance_repair',
@@ -66,6 +67,19 @@ const SERVICE_ALIASES = {
     'garbage collection': 'managed_collection',
     'managed collection': 'managed_collection',
     'managed collection services': 'managed_collection',
+    rental: 'rental_property',
+    rentals: 'rental_property',
+    'rental property': 'rental_property',
+    'rental property listings': 'rental_property',
+    'property listing': 'rental_property',
+    'property listings': 'rental_property',
+    'property rental': 'rental_property',
+    'rental listing': 'rental_property',
+    'rental listings': 'rental_property',
+    landlord: 'rental_property',
+    landlords: 'rental_property',
+    'long term rental': 'rental_property',
+    'long term rentals': 'rental_property',
 };
 const statusPriority = {
     [market_setting_model_1.MarketStatus.ACTIVE]: 4,

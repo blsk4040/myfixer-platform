@@ -51,6 +51,7 @@ const technician_model_1 = __importStar(require("../models/technician.model"));
 const technician_capability_model_1 = __importStar(require("../models/technician-capability.model"));
 const service_waitlist_model_1 = __importStar(require("../models/service-waitlist.model"));
 const market_setting_model_1 = __importStar(require("../models/market-setting.model"));
+const promotion_model_1 = __importStar(require("../models/promotion.model"));
 const audit_service_1 = require("../services/audit.service");
 const audit_log_model_1 = require("../models/audit-log.model");
 const market_config_1 = require("../config/market.config");
@@ -66,6 +67,39 @@ const toFiniteNumber = (value) => {
     return Number.isFinite(parsed) ? parsed : null;
 };
 const decimalFromMinor = (valueMinor) => valueMinor / 100;
+const normalizePromoCode = (value) => typeof value === 'string' ? value.trim().toUpperCase().replace(/\s+/g, '') : '';
+const calculatePromotionDiscount = async (args) => {
+    if (!args.promoCode)
+        return null;
+    const now = new Date();
+    const promotion = await promotion_model_1.default.findOne({
+        code: args.promoCode,
+        status: promotion_model_1.PromotionStatus.ACTIVE,
+        $and: [
+            { $or: [{ startsAt: null }, { startsAt: { $lte: now } }] },
+            { $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }] },
+            { $or: [{ countryCode: null }, { countryCode: args.countryCode }] },
+            { $or: [{ currency: null }, { currency: args.currency }] },
+        ],
+    });
+    if (!promotion) {
+        throw new Error('Promo code is invalid or expired.');
+    }
+    if (promotion.usageLimit !== null && promotion.usageLimit !== undefined && promotion.usageCount >= promotion.usageLimit) {
+        throw new Error('Promo code usage limit has been reached.');
+    }
+    if (args.amountMinor < promotion.minBookingAmountMinor) {
+        throw new Error('Promo code minimum booking amount has not been met.');
+    }
+    let discountMinor = promotion.discountType === promotion_model_1.PromotionDiscountType.PERCENTAGE
+        ? Math.floor((args.amountMinor * promotion.discountValue) / 100)
+        : Math.round(promotion.discountValue);
+    if (promotion.maxDiscountMinor !== null && promotion.maxDiscountMinor !== undefined) {
+        discountMinor = Math.min(discountMinor, promotion.maxDiscountMinor);
+    }
+    discountMinor = Math.min(Math.max(discountMinor, 0), args.amountMinor);
+    return { discountMinor, promotion };
+};
 const isBookingStatus = (value) => typeof value === 'string' && Object.values(booking_model_1.BookingStatus).includes(value);
 const normalizeFallbackPreference = (value) => {
     const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
@@ -176,6 +210,34 @@ const createCustomerBookingNotification = async (booking, eventType, title, mess
         },
     });
 };
+const stripScheduleMarker = (value) => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return text.replace(/\s*\((ASAP|Urgent \/ Right Now|[^)]*\d{1,2}:\d{2}[^)]*)\)\s*$/i, '').trim() || text || 'service';
+};
+const providerRoleForService = (serviceKey) => {
+    const key = (0, matching_service_1.normalizeDispatchServiceKey)(serviceKey);
+    if (key === 'cleaning')
+        return 'cleaner';
+    if (key === 'plumbing')
+        return 'plumber';
+    if (key === 'electrical')
+        return 'electrician';
+    if (key === 'gardening')
+        return 'gardener';
+    if (key === 'painting')
+        return 'painter';
+    if (key === 'automotive')
+        return 'mechanic';
+    return 'technician';
+};
+const serviceLabelForNotification = (booking) => stripScheduleMarker(booking.applianceType || booking.metadata?.serviceKey || booking.serviceKey || 'service');
+const formatScheduledBookingTime = (value) => value.toLocaleString('en-ZA', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+});
 const createTechnicianJobNotification = async (technicianId, booking) => {
     if (!mongoose_1.default.Types.ObjectId.isValid(technicianId))
         return [];
@@ -261,6 +323,45 @@ const canTechnicianClaimOpenBooking = async (technicianUserId, booking) => {
         : [];
     return legacyCategories.includes(categorySlug);
 };
+const validatePreferredProviderRebooking = async (input) => {
+    if (!input.preferredTechnicianId && !input.rebookFromBookingId)
+        return { allowed: true };
+    if (!mongoose_1.default.Types.ObjectId.isValid(input.preferredTechnicianId)) {
+        return { allowed: false, message: 'Invalid preferred provider.' };
+    }
+    if (!mongoose_1.default.Types.ObjectId.isValid(input.rebookFromBookingId)) {
+        return { allowed: false, message: 'A previous completed MyFixer booking is required to rebook a preferred provider.' };
+    }
+    const sourceBooking = await booking_model_1.default.findOne({
+        _id: input.rebookFromBookingId,
+        customerId: new mongoose_1.default.Types.ObjectId(input.customerId),
+        technicianId: new mongoose_1.default.Types.ObjectId(input.preferredTechnicianId),
+        status: booking_model_1.BookingStatus.COMPLETED,
+    })
+        .select('serviceKey metadata countryCode technicianId')
+        .lean();
+    if (!sourceBooking) {
+        return { allowed: false, message: 'You can only rebook a provider from your own completed MyFixer jobs.' };
+    }
+    const previousServiceKey = (0, matching_service_1.normalizeDispatchServiceKey)(sourceBooking.serviceKey ?? sourceBooking.metadata?.serviceKey);
+    if (previousServiceKey && previousServiceKey !== input.requestedServiceKey) {
+        return { allowed: false, message: 'This provider can only be rebooked for the same service category.' };
+    }
+    if (sourceBooking.countryCode !== input.countryCode) {
+        return { allowed: false, message: 'Preferred provider rebooking is only available in the same country.' };
+    }
+    const canClaim = await canTechnicianClaimOpenBooking(input.preferredTechnicianId, {
+        serviceKey: input.requestedServiceKey,
+        countryCode: input.countryCode,
+    });
+    if (!canClaim) {
+        return { allowed: false, message: 'This provider is not currently approved for that service.' };
+    }
+    return {
+        allowed: true,
+        preferredTechnicianObjectId: new mongoose_1.default.Types.ObjectId(input.preferredTechnicianId),
+    };
+};
 const hasValidDefaultServiceAddress = (user) => {
     const address = user?.defaultServiceAddress;
     return Boolean(address?.fullAddress && address?.city && address?.suburb);
@@ -301,11 +402,18 @@ const createBooking = async (request, response) => {
                 ? body.neighborhood.trim()
                 : '';
     const requestedServiceKey = (0, matching_service_1.normalizeDispatchServiceKey)(body.service_key ?? body.category ?? body.general_area ?? applianceType);
+    const preferredTechnicianId = typeof (body.preferredTechnicianId ?? body.preferred_technician_id) === 'string'
+        ? String(body.preferredTechnicianId ?? body.preferred_technician_id).trim()
+        : '';
+    const rebookFromBookingId = typeof (body.rebookFromBookingId ?? body.rebook_from_booking_id) === 'string'
+        ? String(body.rebookFromBookingId ?? body.rebook_from_booking_id).trim()
+        : '';
     const fallbackPreference = normalizeFallbackPreference(body.fallbackPreference ?? body.fallback_preference);
     const scheduledAtInput = body.scheduledStartTime ?? body.scheduled_start_time ?? body.scheduledAt ?? body.scheduled_at;
     const scheduledAt = parseDateInput(scheduledAtInput);
     const scheduledEndAt = parseDateInput(body.scheduledEndTime ?? body.scheduled_end_time);
     const isPreBook = isValidDate(scheduledAt) && scheduledAt.getTime() > Date.now();
+    const promoCode = normalizePromoCode(body.promoCode ?? body.promo_code);
     const latitude = toFiniteNumber(body.latitude);
     const longitude = toFiniteNumber(body.longitude);
     let countryCode = market_config_1.CountryCode.ZA;
@@ -321,7 +429,9 @@ const createBooking = async (request, response) => {
     }
     const market = (0, market_config_1.getMarketByCountry)(countryCode);
     const callOutFee = toFiniteNumber(body.call_out_fee) ?? market.defaultCalloutFee;
-    const priceMinor = (0, market_config_1.toMinorUnits)(callOutFee, market.currency);
+    const originalPriceMinor = (0, market_config_1.toMinorUnits)(callOutFee, market.currency);
+    let priceMinor = originalPriceMinor;
+    let appliedPromotion = null;
     if (!customerId || !applianceType || !fullAddress || latitude === null || longitude === null) {
         response.status(400).json({ message: 'Missing or invalid booking layout items' });
         return;
@@ -344,6 +454,24 @@ const createBooking = async (request, response) => {
     if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 || callOutFee < 0) {
         response.status(400).json({ message: 'Invalid location or pricing metrics input' });
         return;
+    }
+    if (promoCode) {
+        try {
+            appliedPromotion = await calculatePromotionDiscount({
+                promoCode,
+                customerId,
+                amountMinor: originalPriceMinor,
+                countryCode: market.countryCode,
+                currency: market.currency,
+            });
+            if (appliedPromotion) {
+                priceMinor = Math.max(originalPriceMinor - appliedPromotion.discountMinor, 0);
+            }
+        }
+        catch (error) {
+            response.status(400).json({ message: error.message || 'Promo code could not be applied.' });
+            return;
+        }
     }
     let serviceRecipient;
     try {
@@ -402,6 +530,17 @@ const createBooking = async (request, response) => {
         });
         return;
     }
+    const preferredRebooking = await validatePreferredProviderRebooking({
+        customerId,
+        preferredTechnicianId,
+        rebookFromBookingId,
+        requestedServiceKey,
+        countryCode: market.countryCode,
+    });
+    if (!preferredRebooking.allowed) {
+        response.status(403).json({ message: preferredRebooking.message || 'Preferred provider rebooking is not allowed for this request.' });
+        return;
+    }
     try {
         // 1. Save directly into MongoDB Atlas with updated keys
         const booking = await booking_model_1.default.create({
@@ -440,6 +579,19 @@ const createBooking = async (request, response) => {
                 serviceKey: requestedServiceKey,
                 fallbackPreference,
                 scheduledAt: isValidDate(scheduledAt) ? scheduledAt : null,
+                preferredTechnicianId: preferredRebooking.preferredTechnicianObjectId?.toString() || '',
+                rebookFromBookingId,
+                rebookPolicy: preferredRebooking.preferredTechnicianObjectId
+                    ? 'PREFERRED_PROVIDER_FIRST_WITH_MYFIXER_PROTECTION'
+                    : '',
+                promotion: appliedPromotion ? {
+                    code: appliedPromotion.promotion.code,
+                    promotionId: appliedPromotion.promotion._id.toString(),
+                    discountType: appliedPromotion.promotion.discountType,
+                    discountValue: appliedPromotion.promotion.discountValue,
+                    originalPriceMinor,
+                    discountMinor: appliedPromotion.discountMinor,
+                } : undefined,
             },
             priceMinor,
             countryCode: market.countryCode,
@@ -449,9 +601,13 @@ const createBooking = async (request, response) => {
                 expiresAt: isPreBook ? null : matching_service_1.default.getDispatchExpiry({ createdAt: new Date() }),
                 sentToTechnicians: [],
                 declinedByTechnicians: [],
+                preferredTechnicianId: preferredRebooking.preferredTechnicianObjectId ?? null,
             },
         });
         const bookingId = booking.id;
+        if (appliedPromotion) {
+            await promotion_model_1.default.updateOne({ _id: appliedPromotion.promotion._id }, { $inc: { usageCount: 1 } });
+        }
         await safelyLogAuditEvent(request, {
             action: serviceRecipient.type === 'OTHER' ? 'booking.create.for_other' : 'booking.create.for_self',
             module: 'BOOKINGS',
@@ -484,19 +640,37 @@ const createBooking = async (request, response) => {
                 },
             });
         }
-        await createCustomerBookingNotification(booking, 'BOOKING_CREATED', 'Booking request created', `Your ${applianceType} request has been created and is being sent to available technicians.`);
+        const notificationServiceLabel = serviceLabelForNotification(booking);
+        const scheduledNotificationText = isPreBook && isValidDate(scheduledAt)
+            ? formatScheduledBookingTime(scheduledAt)
+            : '';
+        await createCustomerBookingNotification(booking, 'BOOKING_CREATED', `${notificationServiceLabel} request ${isPreBook ? 'scheduled' : 'submitted'}`, isPreBook && scheduledNotificationText
+            ? `Your ${notificationServiceLabel} request is scheduled for ${scheduledNotificationText}. We will notify you when a provider is assigned.`
+            : `We are finding a ${providerRoleForService(requestedServiceKey)} near you. We will notify you when someone accepts.`, {
+            serviceKey: requestedServiceKey,
+            scheduledAt: isPreBook && isValidDate(scheduledAt) ? scheduledAt.toISOString() : null,
+            bookingStatus: isPreBook ? booking_model_1.BookingStatus.SCHEDULED : booking_model_1.BookingStatus.PENDING,
+        });
         // 2. Broadcast the open request to every eligible online approved technician.
         const eligibleTechnicianIds = fallbackPreference === 'SCHEDULED' || isPreBook
             ? []
             : await matching_service_1.default.findEligibleOnlineTechniciansForBooking(bookingId);
+        const preferredTechnicianUserId = preferredRebooking.preferredTechnicianObjectId?.toString() || '';
+        const orderedEligibleTechnicianIds = preferredTechnicianUserId && eligibleTechnicianIds.includes(preferredTechnicianUserId)
+            ? [
+                preferredTechnicianUserId,
+                ...eligibleTechnicianIds.filter((technicianId) => technicianId !== preferredTechnicianUserId),
+            ].filter((technicianId, index, list) => list.indexOf(technicianId) === index)
+            : eligibleTechnicianIds;
         console.info('[dispatch-test] findEligibleTechniciansWithTelemetryPipeline output', {
             bookingId,
             serviceKey: requestedServiceKey,
             customerCoordinates: [longitude, latitude],
-            eligibleTechnicianIds,
-            matchedCount: eligibleTechnicianIds.length,
+            eligibleTechnicianIds: orderedEligibleTechnicianIds,
+            preferredTechnicianId: preferredTechnicianUserId,
+            matchedCount: orderedEligibleTechnicianIds.length,
         });
-        if (eligibleTechnicianIds.length > 0) {
+        if (orderedEligibleTechnicianIds.length > 0) {
             booking.dispatch = {
                 ...(booking.dispatch ?? {
                     status: booking_model_1.BookingDispatchStatus.BROADCASTING,
@@ -504,7 +678,7 @@ const createBooking = async (request, response) => {
                     sentToTechnicians: [],
                     declinedByTechnicians: [],
                 }),
-                sentToTechnicians: eligibleTechnicianIds.map((technicianId) => new mongoose_1.default.Types.ObjectId(technicianId)),
+                sentToTechnicians: orderedEligibleTechnicianIds.map((technicianId) => new mongoose_1.default.Types.ObjectId(technicianId)),
             };
             await booking.save();
         }
@@ -601,9 +775,9 @@ const createBooking = async (request, response) => {
         const incomingRequestPayload = buildIncomingRequestPayload(booking);
         const io = request.app.get('io');
         if (io) {
-            await Promise.all(eligibleTechnicianIds.map((technicianId) => emitIncomingRequest(io, technicianId, incomingRequestPayload)));
-            await Promise.all(eligibleTechnicianIds.map((technicianId) => createTechnicianJobNotification(technicianId, booking)));
-            await Promise.all(eligibleTechnicianIds.map(async (technicianId) => {
+            await Promise.all(orderedEligibleTechnicianIds.map((technicianId) => emitIncomingRequest(io, technicianId, incomingRequestPayload)));
+            await Promise.all(orderedEligibleTechnicianIds.map((technicianId) => createTechnicianJobNotification(technicianId, booking)));
+            await Promise.all(orderedEligibleTechnicianIds.map(async (technicianId) => {
                 const jobs = await matching_service_1.default.findNearbyPendingBookingsForTechnician(technicianId);
                 io.to(`technician:${technicianId}`).emit('available_jobs', jobs);
             }));
@@ -616,7 +790,8 @@ const createBooking = async (request, response) => {
             bookingId,
             fallbackPreference,
             dispatchStatus: booking.dispatch?.status,
-            notifiedTechnicianIds: eligibleTechnicianIds
+            preferredTechnicianId: preferredTechnicianUserId || null,
+            notifiedTechnicianIds: orderedEligibleTechnicianIds
         });
     }
     catch (error) {
@@ -769,6 +944,7 @@ const getMyActiveBooking = async (request, response) => {
                 status: booking.status,
                 customerId: booking.customerId,
                 customerName: booking.customerName,
+                serviceKey: booking.serviceKey,
                 applianceType: booking.applianceType,
                 faultDescription: booking.faultDescription,
                 fullAddress: booking.fullAddress,
@@ -861,6 +1037,7 @@ const getMyBookingHistory = async (request, response) => {
                     : '';
                 return {
                     id: String(booking._id),
+                    serviceKey: String(booking.serviceKey || booking.metadata?.serviceKey || ''),
                     applianceType: booking.applianceType,
                     faultDescription: booking.faultDescription,
                     status: booking.status,
@@ -963,9 +1140,12 @@ const acceptBooking = async (request, response) => {
             sentToTechnicians.length === 0;
         const hasApprovedTechnicianProfile = technician?.approvalStatus === technician_model_1.TechnicianApprovalStatus.APPROVED &&
             technician.documents?.profilePhotoStatus === technician_model_1.VerificationStatus.VERIFIED;
+        const canClaimOpenPool = isOpenPoolClaim && hasApprovedTechnicianProfile
+            ? await canTechnicianClaimOpenBooking(technicianId, existingBooking)
+            : false;
         const isEligible = role === user_model_1.UserRole.ADMIN ||
             (await matching_service_1.default.isTechnicianEligibleForBooking(technicianId, id)) ||
-            (isOpenPoolClaim && hasApprovedTechnicianProfile);
+            canClaimOpenPool;
         if (!isEligible) {
             response.status(403).json({ message: 'This booking is not available to this technician.' });
             return;
@@ -1007,7 +1187,7 @@ const acceptBooking = async (request, response) => {
             acceptedAt: booking.acceptedAt,
             booking: (0, booking_privacy_service_1.serializeBookingForAssignedTechnician)(booking),
         });
-        const inboxMessages = await createCustomerBookingNotification(booking, 'TECHNICIAN_ACCEPTED', 'Technician accepted your request', `A technician has accepted your ${booking.applianceType} request.`, { technicianId });
+        const inboxMessages = await createCustomerBookingNotification(booking, 'TECHNICIAN_ACCEPTED', `${providerRoleForService(booking.serviceKey)} found`, `Your ${providerRoleForService(booking.serviceKey)} accepted the ${serviceLabelForNotification(booking)} request.`, { technicianId });
         inboxMessages.forEach((message) => {
             io?.to(`customer:${booking.customerId.toString()}`).emit('new_inbox_message', message);
         });
@@ -1165,28 +1345,28 @@ const updateBookingStatus = async (request, response) => {
         const statusNotificationMap = {
             [booking_model_1.BookingStatus.IN_ROUTE]: {
                 type: 'TECHNICIAN_EN_ROUTE',
-                title: 'Technician is on the way',
-                message: `Your technician is on the way for ${booking.applianceType}.`,
+                title: `${providerRoleForService(booking.serviceKey)} on the way`,
+                message: `Your ${providerRoleForService(booking.serviceKey)} is heading to your ${serviceLabelForNotification(booking)} job.`,
             },
             [booking_model_1.BookingStatus.ARRIVED]: {
                 type: 'TECHNICIAN_ARRIVED',
-                title: 'Technician has arrived',
-                message: `Your technician has arrived for ${booking.applianceType}.`,
+                title: `${providerRoleForService(booking.serviceKey)} arrived`,
+                message: `Your ${providerRoleForService(booking.serviceKey)} has arrived for ${serviceLabelForNotification(booking)}.`,
             },
             [booking_model_1.BookingStatus.IN_PROGRESS]: {
                 type: 'JOB_STARTED',
-                title: 'Job started',
-                message: `Your technician has started work on ${booking.applianceType}.`,
+                title: `${serviceLabelForNotification(booking)} in progress`,
+                message: `Work has started on your ${serviceLabelForNotification(booking)} request.`,
             },
             [booking_model_1.BookingStatus.COMPLETED]: {
                 type: 'BOOKING_COMPLETED',
-                title: 'Booking completed',
-                message: `Your ${booking.applianceType} booking has been completed.`,
+                title: `${serviceLabelForNotification(booking)} completed`,
+                message: `Your ${serviceLabelForNotification(booking)} job is complete. Please review the service.`,
             },
             [booking_model_1.BookingStatus.CANCELLED]: {
                 type: 'BOOKING_CANCELLED',
-                title: 'Booking cancelled',
-                message: `Your ${booking.applianceType} booking has been cancelled.`,
+                title: `${serviceLabelForNotification(booking)} cancelled`,
+                message: `Your ${serviceLabelForNotification(booking)} request has been cancelled.`,
             },
         };
         const notification = statusNotificationMap[nextStatus];
@@ -1251,7 +1431,8 @@ const runWorkflowStatusAction = async (request, response, nextStatus, action) =>
             updatedAt: booking.updatedAt,
         });
         if (nextStatus === booking_model_1.BookingStatus.IN_PROGRESS) {
-            await createCustomerBookingNotification(booking, 'JOB_STARTED', 'Job started', `Your technician has started work on ${booking.applianceType}. Keep approvals and payments inside MyFixer.`);
+            const providerRole = providerRoleForService(booking.serviceKey);
+            await createCustomerBookingNotification(booking, 'JOB_STARTED', 'Job started', `Your ${providerRole} has started work on ${booking.applianceType}. Keep approvals and payments inside MyFixer.`);
         }
         response.status(200).json({ success: true, bookingId: booking.id, status: booking.status });
     }
@@ -1332,7 +1513,8 @@ const startJob = async (request, response) => {
             status: booking.status,
             updatedAt: booking.updatedAt,
         });
-        await createCustomerBookingNotification(booking, 'JOB_STARTED', 'Job started', `Your technician has started work on ${booking.applianceType}. Keep approvals and payments inside MyFixer.`);
+        const providerRole = providerRoleForService(booking.serviceKey);
+        await createCustomerBookingNotification(booking, 'JOB_STARTED', 'Job started', `Your ${providerRole} has started work on ${booking.applianceType}. Keep approvals and payments inside MyFixer.`);
         response.status(200).json({ success: true, bookingId: booking.id, status: booking.status, eligibility });
     }
     catch (error) {
@@ -1373,7 +1555,8 @@ const startInspection = async (request, response) => {
             inspection: booking.inspection,
             updatedAt: booking.updatedAt,
         });
-        await createCustomerBookingNotification(booking, 'INSPECTION_STARTED', 'Inspection started', `Your technician has started inspection for ${booking.applianceType}. Keep approvals and payments inside MyFixer.`);
+        const providerRole = providerRoleForService(booking.serviceKey);
+        await createCustomerBookingNotification(booking, 'INSPECTION_STARTED', 'Inspection started', `Your ${providerRole} has started inspection for ${booking.applianceType}. Keep approvals and payments inside MyFixer.`);
         response.status(200).json({ success: true, bookingId: booking.id, inspection: booking.inspection });
     }
     catch (error) {
@@ -1418,9 +1601,10 @@ const completeInspection = async (request, response) => {
             workAuthorization: eligibility,
             updatedAt: booking.updatedAt,
         });
+        const providerRole = providerRoleForService(booking.serviceKey);
         await createCustomerBookingNotification(booking, 'INSPECTION_COMPLETED', 'Inspection completed', booking.inspection?.quoteRequired
-            ? 'Your technician completed inspection and will send a quote for approval.'
-            : 'Your technician completed inspection. Payment is required before work can begin.');
+            ? `Your ${providerRole} completed inspection and will send a quote for approval.`
+            : `Your ${providerRole} completed inspection. Payment is required before work can begin.`);
         response.status(200).json({
             success: true,
             bookingId: booking.id,
@@ -1457,7 +1641,8 @@ const confirmArrival = async (request, response) => {
             reading: { latitude, longitude, accuracyMeters, recordedAt },
             io,
         });
-        await createCustomerBookingNotification(booking, 'TECHNICIAN_ARRIVED', 'Technician has arrived', `Your technician has arrived for ${booking.applianceType}. Keep all job communication, approvals and payments inside MyFixer.`);
+        const providerRole = providerRoleForService(booking.serviceKey);
+        await createCustomerBookingNotification(booking, 'TECHNICIAN_ARRIVED', `${providerRole} has arrived`, `Your ${providerRole} has arrived for ${booking.applianceType}. Keep all job communication, approvals and payments inside MyFixer.`);
         response.status(200).json({
             success: true,
             bookingId: booking.id,

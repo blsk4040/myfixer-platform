@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { CountryCode, CurrencyCode } from '../config/market.config';
+import { CountryCode, CurrencyCode, getMarketByCountry } from '../config/market.config';
 import { assertPayoutMethodSupported } from '../config/payment-capabilities.config';
 import ProviderPayoutMethod, {
   IProviderPayoutMethod,
@@ -28,6 +28,21 @@ const ensureTechnicianApproved = async (technicianId: string) => {
     throw new PayoutMethodError('Technician approval is required before adding payout methods.', 'TECHNICIAN_NOT_APPROVED', 403);
   }
   return profile;
+};
+
+const ensurePayoutCountryMatchesTechnician = (
+  profile: Awaited<ReturnType<typeof ensureTechnicianApproved>>,
+  countryCode: CountryCode,
+  currency: CurrencyCode
+) => {
+  const technicianCountryCode = profile.countryCode;
+  const technicianMarket = getMarketByCountry(technicianCountryCode);
+  if (countryCode !== technicianCountryCode) {
+    throw new PayoutMethodError('Payout country must match your registered technician country.', 'PAYOUT_COUNTRY_MISMATCH', 403);
+  }
+  if (currency !== technicianMarket.currency) {
+    throw new PayoutMethodError('Payout currency must match your registered technician country.', 'PAYOUT_CURRENCY_MISMATCH', 403);
+  }
 };
 
 const serialize = (method: IProviderPayoutMethod) => ({
@@ -85,7 +100,8 @@ export const createBankPayoutMethod = async (
   }
 ) => {
   if (!mongoose.Types.ObjectId.isValid(technicianId)) throw new PayoutMethodError('Invalid technician id.', 'INVALID_TECHNICIAN_ID');
-  await ensureTechnicianApproved(technicianId);
+  const profile = await ensureTechnicianApproved(technicianId);
+  ensurePayoutCountryMatchesTechnician(profile, input.countryCode, input.currency);
   assertPayoutMethodSupported(input.countryCode, input.currency, ProviderPayoutMethodType.BANK_ACCOUNT);
 
   const accountHolderName = input.accountHolderName.trim();
@@ -146,7 +162,8 @@ export const createMobileMoneyPayoutMethod = async (
     makeDefault?: boolean;
   }
 ) => {
-  await ensureTechnicianApproved(technicianId);
+  const profile = await ensureTechnicianApproved(technicianId);
+  ensurePayoutCountryMatchesTechnician(profile, input.countryCode, input.currency);
   assertPayoutMethodSupported(input.countryCode, input.currency, ProviderPayoutMethodType.MOBILE_MONEY);
   const operatorCode = input.operatorCode.trim();
   const phoneNumber = input.phoneNumber.trim();

@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Image,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Camera } from 'lucide-react-native';
 import apiService from '../../services/api.service';
@@ -35,6 +35,7 @@ const SERVICE_CATEGORIES = [
   { key: 'gardening', label: 'Gardening' },
   { key: 'maintenance', label: 'Maintenance' },
 ];
+const PROVIDER_MODULE_SERVICES = new Set(['managed_collection', 'rental_property']);
 
 interface RegisterScreenProps {
   onBackToLogin: () => void;
@@ -64,8 +65,35 @@ export function RegisterScreen({
     bio: '',
   });
   const [selectedCategories, setSelectedCategories] = useState<string[]>(['appliance_repair']);
+  const [categoryOptions, setCategoryOptions] = useState(SERVICE_CATEGORIES);
   const [profilePhotoUri, setProfilePhotoUri] = useState('');
   const [profilePhotoDataUri, setProfilePhotoDataUri] = useState('');
+
+  useEffect(() => {
+    const countryCode = formData.countryCode.trim().toUpperCase();
+    if (!countryCode) {
+      setCategoryOptions(SERVICE_CATEGORIES);
+      return;
+    }
+
+    let isCurrent = true;
+    apiService.getMarketAvailability({ countryCode, city: formData.city.trim() })
+      .then((result) => {
+        if (!isCurrent) return;
+        const activeServices = result.availability.services
+          .filter((service) => service.canBook && !PROVIDER_MODULE_SERVICES.has(service.serviceKey))
+          .map((service) => ({ key: service.serviceKey, label: service.label }));
+        const nextOptions = activeServices;
+        const allowedKeys = new Set(nextOptions.map((service) => service.key));
+        setCategoryOptions(nextOptions);
+        setSelectedCategories((current) => current.filter((serviceKey) => allowedKeys.has(serviceKey)));
+      })
+      .catch(() => setCategoryOptions(SERVICE_CATEGORIES));
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [formData.countryCode, formData.city]);
 
   const updateField = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -215,7 +243,7 @@ export function RegisterScreen({
 
           <Text style={styles.label}>Service Categories</Text>
           <View style={styles.categoryGrid}>
-            {SERVICE_CATEGORIES.map((category) => {
+            {categoryOptions.map((category) => {
               const isSelected = selectedCategories.includes(category.key);
               return (
                 <TouchableOpacity
@@ -228,6 +256,9 @@ export function RegisterScreen({
               );
             })}
           </View>
+          {!categoryOptions.length && (
+            <Text style={styles.helperText}>No active provider services are available for this country or city yet.</Text>
+          )}
 
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
@@ -293,6 +324,7 @@ const styles = StyleSheet.create({
   categoryChipActive: { backgroundColor: '#00FF8715', borderColor: '#00FF87' },
   categoryText: { color: '#64748B', fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
   categoryTextActive: { color: '#00FF87' },
+  helperText: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 8 },
   submitButton: { backgroundColor: '#00FF87', borderRadius: 12, height: 52, alignItems: 'center', justifyContent: 'center', marginTop: 24 },
   submitText: { color: '#090D14', fontSize: 15, fontWeight: '900' },
   loginLink: { alignItems: 'center', paddingVertical: 18 },

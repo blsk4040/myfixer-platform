@@ -3,9 +3,9 @@ import { Audio } from 'expo-av';
 type SoundKey = 'incoming-job' | 'job-accepted' | 'job-cancelled' | 'payment' | 'message' | 'arrival';
 
 const SOUND_ASSETS: Record<SoundKey, number> = {
-  'incoming-job': require('../../assets/sounds/incoming-job.wav'),
-  'job-accepted': require('../../assets/sounds/job-accepted.wav'),
-  'job-cancelled': require('../../assets/sounds/job-cancelled.wav'),
+  'incoming-job': require('../../assets/sounds/incoming_job.wav'),
+  'job-accepted': require('../../assets/sounds/job_accepted.wav'),
+  'job-cancelled': require('../../assets/sounds/job_cancelled.wav'),
   payment: require('../../assets/sounds/payment.wav'),
   message: require('../../assets/sounds/message.wav'),
   arrival: require('../../assets/sounds/arrival.wav'),

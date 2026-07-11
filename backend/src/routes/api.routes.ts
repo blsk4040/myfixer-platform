@@ -17,6 +17,7 @@ import {
 } from '../controllers/booking.controller';
 import {
   bootstrapAdmin,
+  changeOwnPassword,
   completeGoogleClientProfile,
   forgotPassword,
   getMyProfile,
@@ -63,6 +64,7 @@ import {
 } from '../controllers/booking-chat.controller';
 import {
   getAvailableJobsForTechnician,
+  getMyTechnicianJobs,
   listTechnicianApplications,
   reviewTechnicianProfilePhoto,
   reviewTechnicianApplication,
@@ -71,18 +73,23 @@ import {
 import {
   getAdminBookingById,
   getAdminBookings,
+  getAdminClients,
+  createAdminPromotion,
   createAdminUser,
   getAdminAuditLogs,
   getAdminInvoices,
   getAdminMarkets,
   getAdminOverview,
+  listAdminPromotions,
   getAdminQuotes,
   getAdminWalletTransactions,
   getPublicMarketAvailability,
   getPublicMarkets,
   listAdminUsers,
+  revealAdminClientContact,
   updateTechnicianCapabilityStatus,
   updateAdminMarket,
+  updateAdminPromotion,
   updateAdminUser,
 } from '../controllers/admin.controller';
 import { joinServiceWaitlist } from '../controllers/waitlist.controller';
@@ -138,6 +145,7 @@ apiRouter.get('/auth/verify-email', verifyEmail);
 apiRouter.post('/auth/verify-email', verifyEmail);
 apiRouter.post('/auth/forgot-password', forgotPassword);
 apiRouter.post('/auth/reset-password', resetPassword);
+apiRouter.post('/auth/change-password', authenticateToken, changeOwnPassword);
 
 apiRouter.get('/markets', getPublicMarkets);
 apiRouter.get('/markets/public', getPublicMarkets);
@@ -186,12 +194,15 @@ apiRouter.post('/quotes/:quoteId/approve', authenticateToken, approveJobQuote);
 apiRouter.post('/quotes/:quoteId/reject', authenticateToken, rejectJobQuote);
 apiRouter.post('/quotes/:quoteId/request-clarification', authenticateToken, requestQuoteClarification);
 apiRouter.get('/technician/available-jobs', authenticateToken, requireRole([UserRole.TECHNICIAN]), getAvailableJobsForTechnician);
+apiRouter.get('/technician/jobs', authenticateToken, requireRole([UserRole.TECHNICIAN]), getMyTechnicianJobs);
 
 apiRouter.get('/admin/technicians', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.TECHNICIANS_READ), listTechnicianApplications);
 apiRouter.patch('/admin/technicians/:id/review', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.TECHNICIANS_REVIEW), reviewTechnicianApplication);
 apiRouter.patch('/admin/technicians/:id/profile-photo', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.TECHNICIANS_REVIEW), reviewTechnicianProfilePhoto);
 apiRouter.put('/admin/capabilities/:capabilityId/status', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.TECHNICIANS_REVIEW), updateTechnicianCapabilityStatus);
 apiRouter.get('/admin/overview', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.OVERVIEW_READ), getAdminOverview);
+apiRouter.get('/admin/clients', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.OVERVIEW_READ), getAdminClients);
+apiRouter.get('/admin/clients/:id/contact', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.CLIENTS_CONTACT_READ), revealAdminClientContact);
 apiRouter.get('/admin/bookings', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_READ), getAdminBookings);
 apiRouter.get('/admin/bookings/:id', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_READ), getAdminBookingById);
 apiRouter.get('/admin/managed-collections', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_READ), listAdminManagedCollections);
@@ -202,6 +213,9 @@ apiRouter.patch('/admin/managed-collection-reminders/:id', authenticateToken, re
 apiRouter.get('/admin/quotes', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_READ), getAdminQuotes);
 apiRouter.get('/admin/invoices', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminInvoices);
 apiRouter.get('/admin/wallet-transactions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminWalletTransactions);
+apiRouter.get('/admin/promotions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), listAdminPromotions);
+apiRouter.post('/admin/promotions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), createAdminPromotion);
+apiRouter.patch('/admin/promotions/:id', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), updateAdminPromotion);
 apiRouter.get('/admin/settlements', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminSettlements);
 apiRouter.post('/admin/settlements/:settlementId/approve', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), approveAdminSettlement);
 apiRouter.post('/admin/settlements/:id/hold', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), holdAdminSettlement);

@@ -5,6 +5,7 @@ export interface DashboardStats {
   completed: number;
   earnings: number;
   rating: number;
+  ratingLabel?: string;
 }
 
 export interface IncomingJob {

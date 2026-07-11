@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.registerTechnician = exports.resetPassword = exports.forgotPassword = exports.bootstrapAdmin = exports.completeGoogleClientProfile = exports.googleAuth = exports.verifyEmail = exports.loginUser = exports.registerUser = exports.updateMyDefaultAddress = exports.getMyProfile = void 0;
+exports.registerTechnician = exports.resetPassword = exports.forgotPassword = exports.bootstrapAdmin = exports.completeGoogleClientProfile = exports.googleAuth = exports.verifyEmail = exports.changeOwnPassword = exports.loginUser = exports.registerUser = exports.updateMyDefaultAddress = exports.getMyProfile = void 0;
 // mobile_apps/backend/src/controllers/auth.controller.ts
 const google_auth_library_1 = require("google-auth-library");
 const bcrypt_1 = __importDefault(require("bcrypt"));
@@ -44,6 +44,7 @@ const crypto_1 = __importDefault(require("crypto"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const user_model_1 = __importStar(require("../models/user.model"));
 const market_config_1 = require("../config/market.config");
+const payment_capabilities_config_1 = require("../config/payment-capabilities.config");
 const technician_model_1 = __importStar(require("../models/technician.model"));
 const technician_capability_model_1 = __importStar(require("../models/technician-capability.model"));
 const technician_telemetry_model_1 = __importDefault(require("../models/technician-telemetry.model"));
@@ -282,8 +283,45 @@ const buildSessionUser = (user, req) => ({
     currency: user.currency,
     profileCompleted: isCustomerProfileComplete(user),
     isEmailVerified: user.isEmailVerified || user.emailVerified,
+    mustChangePassword: Boolean(user.mustChangePassword),
     greeting: req ? getLocalizedGreeting(req) : undefined,
 });
+const buildSessionTechnician = (technicianProfile, user) => {
+    if (!technicianProfile)
+        return undefined;
+    const countryCode = (0, market_config_1.normalizeCountryCode)(technicianProfile.countryCode || user?.countryCode);
+    const market = (0, market_config_1.getMarketByCountry)(countryCode);
+    const payoutCapabilities = (0, payment_capabilities_config_1.getCountryPaymentCapabilities)(market.countryCode);
+    const reviewCount = Number(technicianProfile.stats?.reviewCount || 0);
+    const averageRating = reviewCount > 0 ? Number(technicianProfile.stats?.averageRating || 0) : null;
+    return {
+        id: technicianProfile._id,
+        approvalStatus: technicianProfile.approvalStatus,
+        countryCode: market.countryCode,
+        currency: market.currency,
+        serviceCategories: technicianProfile.serviceCategories,
+        city: technicianProfile.city,
+        businessName: technicianProfile.businessName,
+        yearsExperience: technicianProfile.yearsExperience,
+        profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user?.profilePhotoUrl,
+        profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
+        stats: {
+            averageRating,
+            reviewCount,
+            completedJobs: Number(technicianProfile.stats?.completedJobs || 0),
+            cancelledJobs: Number(technicianProfile.stats?.cancelledJobs || 0),
+            lifetimeEarningsMinor: Number(technicianProfile.stats?.lifetimeEarningsMinor || 0),
+        },
+        payoutCapabilities: {
+            countryCode: payoutCapabilities.countryCode,
+            currency: payoutCapabilities.currency,
+            providerPayoutMethods: payoutCapabilities.providerPayoutMethods,
+            defaultProviderPayoutMethod: payoutCapabilities.defaultProviderPayoutMethod,
+            payoutsEnabled: payoutCapabilities.payoutsEnabled,
+            adminApprovalRequired: payoutCapabilities.adminApprovalRequired,
+        },
+    };
+};
 const serializeCustomerProfile = async (user, req) => {
     const userId = user._id.toString();
     const [activeRequestCount, completedBookingCount] = await Promise.all([
@@ -537,16 +575,7 @@ const loginUser = async (req, res) => {
             token,
             user: buildSessionUser(user, req),
             technician: technicianProfile
-                ? {
-                    id: technicianProfile._id,
-                    approvalStatus: technicianProfile.approvalStatus,
-                    serviceCategories: technicianProfile.serviceCategories,
-                    city: technicianProfile.city,
-                    businessName: technicianProfile.businessName,
-                    yearsExperience: technicianProfile.yearsExperience,
-                    profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user.profilePhotoUrl,
-                    profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
-                }
+                ? buildSessionTechnician(technicianProfile, user)
                 : undefined,
         });
     }
@@ -556,6 +585,58 @@ const loginUser = async (req, res) => {
     }
 };
 exports.loginUser = loginUser;
+const changeOwnPassword = async (req, res) => {
+    const authUser = getAuthenticatedUser(req);
+    const userId = String(authUser?.id ?? authUser?._id ?? '').trim();
+    const currentPassword = typeof req.body.currentPassword === 'string' ? req.body.currentPassword : '';
+    const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';
+    if (!userId) {
+        res.status(401).json({ message: 'Authentication is required.' });
+        return;
+    }
+    if (!currentPassword || !newPassword) {
+        res.status(400).json({ message: 'Current password and new password are required.' });
+        return;
+    }
+    if (newPassword.length < 8) {
+        res.status(400).json({ message: 'New password must be at least 8 characters long.' });
+        return;
+    }
+    try {
+        const user = await user_model_1.default.findById(userId).select('+password +refreshTokenVersion');
+        if (!user || user.isActive === false) {
+            res.status(404).json({ message: 'Account not found.' });
+            return;
+        }
+        const isPasswordMatch = user.password ? await bcrypt_1.default.compare(currentPassword, user.password) : false;
+        if (!isPasswordMatch) {
+            res.status(401).json({ message: 'Current password is incorrect.' });
+            return;
+        }
+        user.password = await bcrypt_1.default.hash(newPassword, 10);
+        user.mustChangePassword = false;
+        user.lastPasswordChangeAt = new Date();
+        user.refreshTokenVersion = (user.refreshTokenVersion || 0) + 1;
+        await user.save();
+        await logAuthAudit(req, 'password_change.complete', {
+            email: user.email,
+            userId: user._id.toString(),
+            forced: Boolean(req.body.forced),
+        });
+        const token = generateToken(user._id.toString(), (0, user_model_1.normalizeUserRole)(user.role), user.email);
+        res.status(200).json({
+            status: 'success',
+            message: 'Password updated successfully.',
+            token,
+            user: buildSessionUser(user, req),
+        });
+    }
+    catch (error) {
+        console.error('Password change failed:', error);
+        res.status(500).json({ message: 'Unable to change password right now.' });
+    }
+};
+exports.changeOwnPassword = changeOwnPassword;
 const verifyEmail = async (req, res) => {
     const shouldReturnJson = wantsJsonResponse(req);
     try {
@@ -684,16 +765,7 @@ const googleAuth = async (req, res) => {
                     status: 'email_verification_required',
                     token,
                     user: sessionUser,
-                    technician: {
-                        id: technicianProfile._id,
-                        approvalStatus: technicianProfile.approvalStatus,
-                        serviceCategories: technicianProfile.serviceCategories,
-                        city: technicianProfile.city,
-                        businessName: technicianProfile.businessName,
-                        yearsExperience: technicianProfile.yearsExperience,
-                        profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user.profilePhotoUrl,
-                        profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
-                    },
+                    technician: buildSessionTechnician(technicianProfile, user),
                     message: 'Please verify your email before accessing the technician dashboard.',
                 });
                 return;
@@ -732,16 +804,7 @@ const googleAuth = async (req, res) => {
             token,
             user: sessionUser,
             technician: technicianProfile
-                ? {
-                    id: technicianProfile._id,
-                    approvalStatus: technicianProfile.approvalStatus,
-                    serviceCategories: technicianProfile.serviceCategories,
-                    city: technicianProfile.city,
-                    businessName: technicianProfile.businessName,
-                    yearsExperience: technicianProfile.yearsExperience,
-                    profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user.profilePhotoUrl,
-                    profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
-                }
+                ? buildSessionTechnician(technicianProfile, user)
                 : undefined,
         });
     }
@@ -1007,6 +1070,7 @@ const resetPassword = async (req, res) => {
             $set: {
                 password: hashedPassword,
                 lastPasswordChangeAt: new Date(),
+                mustChangePassword: false,
                 passwordResetTokenHash: '',
                 passwordResetExpiresAt: null,
                 updatedAt: new Date(),
@@ -1046,10 +1110,6 @@ const registerTechnician = async (req, res) => {
             return;
         }
         const normalizedServiceCategories = Array.from(new Set(serviceCategories.map((item) => (0, service_availability_service_1.normalizeServiceKey)(item)).filter(Boolean)));
-        if (normalizedServiceCategories.length === 0) {
-            res.status(400).json({ message: 'Please select at least one valid service category.' });
-            return;
-        }
         if (password.length < 6) {
             res.status(400).json({ message: 'Password must be at least 6 characters long.' });
             return;
@@ -1062,6 +1122,15 @@ const registerTechnician = async (req, res) => {
         }
         const resolvedCountryCode = (0, market_config_1.normalizeCountryCode)(countryCode ?? location.country);
         const market = (0, market_config_1.getMarketByCountry)(resolvedCountryCode);
+        const marketAvailability = await (0, service_availability_service_1.getMarketAvailability)(resolvedCountryCode, location.city, location.area ?? location.neighbourhood ?? location.neighborhood);
+        const bookableServiceKeys = new Set(marketAvailability.services
+            .filter((service) => service.canBook)
+            .map((service) => service.serviceKey));
+        const availableServiceCategories = normalizedServiceCategories.filter((serviceKey) => bookableServiceKeys.has(serviceKey));
+        if (availableServiceCategories.length === 0) {
+            res.status(400).json({ message: 'Please select at least one active service category in your country or city.' });
+            return;
+        }
         const approvalStatus = technician_model_1.TechnicianApprovalStatus.PENDING_REVIEW;
         const hashedPassword = await bcrypt_1.default.hash(password, 10);
         const user = await user_model_1.default.create({
@@ -1098,7 +1167,7 @@ const registerTechnician = async (req, res) => {
             approvalStatus,
             countryCode: market.countryCode,
             city: location.city.trim(),
-            serviceCategories: normalizedServiceCategories,
+            serviceCategories: availableServiceCategories,
             yearsExperience: Number.isFinite(Number(yearsExperience)) ? Number(yearsExperience) : 0,
             businessName: typeof businessName === 'string' ? businessName.trim() : '',
             idNumberLast4: typeof idNumber === 'string' ? idNumber.trim().slice(-4) : '',
@@ -1161,16 +1230,7 @@ const registerTechnician = async (req, res) => {
                     greeting: getLocalizedGreeting(req),
                 }
                 : null,
-            technician: {
-                id: technician._id,
-                approvalStatus: technician.approvalStatus,
-                serviceCategories: technician.serviceCategories,
-                city: technician.city,
-                businessName: technician.businessName,
-                yearsExperience: technician.yearsExperience,
-                profilePhotoUrl: technician.documents?.profilePhotoUrl || user.profilePhotoUrl,
-                profilePhotoStatus: technician.documents?.profilePhotoStatus,
-            },
+            technician: buildSessionTechnician(technician, user),
             verificationEmailSent,
         });
     }

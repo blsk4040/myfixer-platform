@@ -6,13 +6,13 @@ import {
   View, 
   TextInput, 
   TouchableOpacity, 
-  SafeAreaView, 
   KeyboardAvoidingView, 
   Platform,
   Image,
   Alert,
   ActivityIndicator
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import auth from '@react-native-firebase/auth';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import apiService from '../../services/api.service';
@@ -191,6 +191,12 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
           )}
         </TouchableOpacity>
 
+        <View style={styles.socialDivider}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>or</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
         {/* 4. Native Google Provider Auth Matrix */}
         <TouchableOpacity
           style={[styles.googleButton, (isLoading || isGoogleLoading || !isGoogleConfigured) && styles.googleButtonDisabled]}
@@ -282,12 +288,28 @@ const styles = StyleSheet.create({
     fontSize: 16, 
     fontWeight: '700' 
   },
+  socialDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    gap: 12,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#1E293B',
+  },
+  dividerText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
   googleButton: {
     backgroundColor: '#FFFFFF',
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: 12,
   },
   googleButtonDisabled: {
     opacity: 0.5,

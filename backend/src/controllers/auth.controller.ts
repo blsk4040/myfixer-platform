@@ -6,13 +6,14 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import User, { AdminRole, normalizeUserRole, UserRole } from '../models/user.model';
 import { getMarketByCountry, normalizeCountryCode } from '../config/market.config';
+import { getCountryPaymentCapabilities } from '../config/payment-capabilities.config';
 import Technician, { TechnicianApprovalStatus, VerificationStatus } from '../models/technician.model';
 import TechnicianCapability, { CapabilityStatus } from '../models/technician-capability.model';
 import TechnicianTelemetry from '../models/technician-telemetry.model';
 import AuditLog from '../models/audit-log.model';
 import { EmailService } from '../services/email/email.service';
 import Booking, { BookingStatus } from '../models/booking.model';
-import { normalizeServiceKey } from '../services/service-availability.service';
+import { getMarketAvailability, normalizeServiceKey } from '../services/service-availability.service';
 import { uploadImageToCloudinary } from '../services/media-storage.service';
 
 // --- JWT Helper Generator ---
@@ -282,8 +283,47 @@ const buildSessionUser = (user: any, req?: Request) => ({
   currency: user.currency,
   profileCompleted: isCustomerProfileComplete(user),
   isEmailVerified: user.isEmailVerified || user.emailVerified,
+  mustChangePassword: Boolean(user.mustChangePassword),
   greeting: req ? getLocalizedGreeting(req) : undefined,
 });
+
+const buildSessionTechnician = (technicianProfile: any, user?: any) => {
+  if (!technicianProfile) return undefined;
+
+  const countryCode = normalizeCountryCode(technicianProfile.countryCode || user?.countryCode);
+  const market = getMarketByCountry(countryCode);
+  const payoutCapabilities = getCountryPaymentCapabilities(market.countryCode);
+  const reviewCount = Number(technicianProfile.stats?.reviewCount || 0);
+  const averageRating = reviewCount > 0 ? Number(technicianProfile.stats?.averageRating || 0) : null;
+
+  return {
+    id: technicianProfile._id,
+    approvalStatus: technicianProfile.approvalStatus,
+    countryCode: market.countryCode,
+    currency: market.currency,
+    serviceCategories: technicianProfile.serviceCategories,
+    city: technicianProfile.city,
+    businessName: technicianProfile.businessName,
+    yearsExperience: technicianProfile.yearsExperience,
+    profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user?.profilePhotoUrl,
+    profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
+    stats: {
+      averageRating,
+      reviewCount,
+      completedJobs: Number(technicianProfile.stats?.completedJobs || 0),
+      cancelledJobs: Number(technicianProfile.stats?.cancelledJobs || 0),
+      lifetimeEarningsMinor: Number(technicianProfile.stats?.lifetimeEarningsMinor || 0),
+    },
+    payoutCapabilities: {
+      countryCode: payoutCapabilities.countryCode,
+      currency: payoutCapabilities.currency,
+      providerPayoutMethods: payoutCapabilities.providerPayoutMethods,
+      defaultProviderPayoutMethod: payoutCapabilities.defaultProviderPayoutMethod,
+      payoutsEnabled: payoutCapabilities.payoutsEnabled,
+      adminApprovalRequired: payoutCapabilities.adminApprovalRequired,
+    },
+  };
+};
 
 const serializeCustomerProfile = async (user: any, req?: Request) => {
   const userId = user._id.toString();
@@ -571,21 +611,71 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
       token,
       user: buildSessionUser(user, req),
       technician: technicianProfile
-        ? {
-            id: technicianProfile._id,
-            approvalStatus: technicianProfile.approvalStatus,
-            serviceCategories: technicianProfile.serviceCategories,
-            city: technicianProfile.city,
-            businessName: technicianProfile.businessName,
-            yearsExperience: technicianProfile.yearsExperience,
-            profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user.profilePhotoUrl,
-            profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
-          }
+        ? buildSessionTechnician(technicianProfile, user)
         : undefined,
     });
   } catch (error: any) {
     console.error('❌ Login authentication mechanism failure:', error);
     res.status(500).json({ message: 'Internal server error verifying profile authentication states.' });
+  }
+};
+
+export const changeOwnPassword = async (req: Request, res: Response): Promise<void> => {
+  const authUser = getAuthenticatedUser(req);
+  const userId = String(authUser?.id ?? authUser?._id ?? '').trim();
+  const currentPassword = typeof req.body.currentPassword === 'string' ? req.body.currentPassword : '';
+  const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';
+
+  if (!userId) {
+    res.status(401).json({ message: 'Authentication is required.' });
+    return;
+  }
+
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ message: 'Current password and new password are required.' });
+    return;
+  }
+
+  if (newPassword.length < 8) {
+    res.status(400).json({ message: 'New password must be at least 8 characters long.' });
+    return;
+  }
+
+  try {
+    const user = await User.findById(userId).select('+password +refreshTokenVersion');
+    if (!user || user.isActive === false) {
+      res.status(404).json({ message: 'Account not found.' });
+      return;
+    }
+
+    const isPasswordMatch = user.password ? await bcrypt.compare(currentPassword, user.password) : false;
+    if (!isPasswordMatch) {
+      res.status(401).json({ message: 'Current password is incorrect.' });
+      return;
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.mustChangePassword = false;
+    user.lastPasswordChangeAt = new Date();
+    user.refreshTokenVersion = (user.refreshTokenVersion || 0) + 1;
+    await user.save();
+
+    await logAuthAudit(req, 'password_change.complete', {
+      email: user.email,
+      userId: user._id.toString(),
+      forced: Boolean(req.body.forced),
+    });
+
+    const token = generateToken(user._id.toString(), normalizeUserRole(user.role), user.email);
+    res.status(200).json({
+      status: 'success',
+      message: 'Password updated successfully.',
+      token,
+      user: buildSessionUser(user, req),
+    });
+  } catch (error) {
+    console.error('Password change failed:', error);
+    res.status(500).json({ message: 'Unable to change password right now.' });
   }
 };
 
@@ -737,16 +827,7 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
           status: 'email_verification_required',
           token,
           user: sessionUser,
-          technician: {
-            id: technicianProfile._id,
-            approvalStatus: technicianProfile.approvalStatus,
-            serviceCategories: technicianProfile.serviceCategories,
-            city: technicianProfile.city,
-            businessName: technicianProfile.businessName,
-            yearsExperience: technicianProfile.yearsExperience,
-            profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user.profilePhotoUrl,
-            profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
-          },
+          technician: buildSessionTechnician(technicianProfile, user),
           message: 'Please verify your email before accessing the technician dashboard.',
         });
         return;
@@ -789,16 +870,7 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
       token,
       user: sessionUser,
       technician: technicianProfile
-        ? {
-            id: technicianProfile._id,
-            approvalStatus: technicianProfile.approvalStatus,
-            serviceCategories: technicianProfile.serviceCategories,
-            city: technicianProfile.city,
-            businessName: technicianProfile.businessName,
-            yearsExperience: technicianProfile.yearsExperience,
-            profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user.profilePhotoUrl,
-            profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
-          }
+        ? buildSessionTechnician(technicianProfile, user)
         : undefined,
     });
   } catch (error) {
@@ -1099,6 +1171,7 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
         $set: {
           password: hashedPassword,
           lastPasswordChangeAt: new Date(),
+          mustChangePassword: false,
           passwordResetTokenHash: '',
           passwordResetExpiresAt: null,
           updatedAt: new Date(),
@@ -1165,11 +1238,6 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
       new Set(serviceCategories.map((item: unknown) => normalizeServiceKey(item)).filter(Boolean))
     );
 
-    if (normalizedServiceCategories.length === 0) {
-      res.status(400).json({ message: 'Please select at least one valid service category.' });
-      return;
-    }
-
     if (password.length < 6) {
       res.status(400).json({ message: 'Password must be at least 6 characters long.' });
       return;
@@ -1184,6 +1252,19 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
 
     const resolvedCountryCode = normalizeCountryCode(countryCode ?? location.country);
     const market = getMarketByCountry(resolvedCountryCode);
+    const marketAvailability = await getMarketAvailability(resolvedCountryCode, location.city, location.area ?? location.neighbourhood ?? location.neighborhood);
+    const bookableServiceKeys = new Set(
+      marketAvailability.services
+        .filter((service) => service.canBook)
+        .map((service) => service.serviceKey)
+    );
+    const availableServiceCategories = normalizedServiceCategories.filter((serviceKey) => bookableServiceKeys.has(serviceKey));
+
+    if (availableServiceCategories.length === 0) {
+      res.status(400).json({ message: 'Please select at least one active service category in your country or city.' });
+      return;
+    }
+
     const approvalStatus = TechnicianApprovalStatus.PENDING_REVIEW;
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -1225,7 +1306,7 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
       approvalStatus,
       countryCode: market.countryCode,
       city: location.city.trim(),
-      serviceCategories: normalizedServiceCategories,
+      serviceCategories: availableServiceCategories,
       yearsExperience: Number.isFinite(Number(yearsExperience)) ? Number(yearsExperience) : 0,
       businessName: typeof businessName === 'string' ? businessName.trim() : '',
       idNumberLast4: typeof idNumber === 'string' ? idNumber.trim().slice(-4) : '',
@@ -1295,16 +1376,7 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
             greeting: getLocalizedGreeting(req),
           }
         : null,
-      technician: {
-        id: technician._id,
-        approvalStatus: technician.approvalStatus,
-        serviceCategories: technician.serviceCategories,
-        city: technician.city,
-        businessName: technician.businessName,
-        yearsExperience: technician.yearsExperience,
-        profilePhotoUrl: technician.documents?.profilePhotoUrl || user.profilePhotoUrl,
-        profilePhotoStatus: technician.documents?.profilePhotoStatus,
-      },
+      technician: buildSessionTechnician(technician, user),
       verificationEmailSent,
     });
   } catch (error) {

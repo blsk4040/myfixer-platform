@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import Booking, { BookingStatus } from '../models/booking.model';
 import JobQuote, { QuoteStatus } from '../models/quote.model';
@@ -12,6 +13,8 @@ import User, { AdminPermission, AdminRole, UserRole } from '../models/user.model
 import { CountryCode, CurrencyCode, MARKET_CONFIG, PaymentProviderCode } from '../config/market.config';
 import MarketSetting, { MarketStatus } from '../models/market-setting.model';
 import AuditLog from '../models/audit-log.model';
+import Promotion, { PromotionDiscountType, PromotionStatus } from '../models/promotion.model';
+import { EmailService } from '../services/email/email.service';
 import {
   DEFAULT_SERVICE_DEFINITIONS,
   buildCityAvailability,
@@ -25,17 +28,6 @@ const parseLimit = (value: unknown, fallback = 50): number => {
   return Math.min(Math.max(Math.floor(parsed), 1), 200);
 };
 
-const DEFAULT_SERVICE_CATEGORIES = [
-  'Cleaning',
-  'Plumbing',
-  'Electrical',
-  'Mechanic',
-  'Appliance Repair',
-  'Gardening',
-  'Painting',
-  'Pest Control',
-];
-
 const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
   [AdminRole.SUPER_ADMIN]: Object.values(AdminPermission),
   [AdminRole.OPERATIONS_MANAGER]: [
@@ -44,6 +36,7 @@ const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
     AdminPermission.BOOKINGS_UPDATE,
     AdminPermission.TECHNICIANS_READ,
     AdminPermission.TECHNICIANS_REVIEW,
+    AdminPermission.CLIENTS_CONTACT_READ,
     AdminPermission.SETTINGS_READ,
   ],
   [AdminRole.DISPATCHER]: [
@@ -60,6 +53,7 @@ const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
     AdminPermission.OVERVIEW_READ,
     AdminPermission.BOOKINGS_READ,
     AdminPermission.TECHNICIANS_READ,
+    AdminPermission.CLIENTS_CONTACT_READ,
   ],
   [AdminRole.TECHNICIAN_REVIEWER]: [
     AdminPermission.OVERVIEW_READ,
@@ -133,6 +127,64 @@ const logAdminAction = async (
 const resolveAdminPermissions = (adminRole: AdminRole, extraPermissions: AdminPermission[] = []) =>
   Array.from(new Set([...(ADMIN_ROLE_PERMISSIONS[adminRole] || []), ...extraPermissions]));
 
+const normalizeAdminPermissionsInput = (value: unknown): AdminPermission[] =>
+  Array.isArray(value)
+    ? Array.from(
+        new Set(
+          value.filter((permission): permission is AdminPermission =>
+            Object.values(AdminPermission).includes(permission as AdminPermission)
+          )
+        )
+      )
+    : [];
+
+const generateTemporaryPassword = (): string =>
+  `${crypto.randomBytes(9).toString('base64url')}A1!`;
+
+const normalizePromotionCode = (value: unknown): string =>
+  String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+
+const optionalDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const normalizePromotionPayload = (body: Record<string, unknown>) => {
+  const discountType = Object.values(PromotionDiscountType).includes(body.discountType as PromotionDiscountType)
+    ? body.discountType as PromotionDiscountType
+    : PromotionDiscountType.PERCENTAGE;
+  const discountValue = Number(body.discountValue);
+  const countryCode = String(body.countryCode || '').trim().toUpperCase();
+  const currency = String(body.currency || '').trim().toUpperCase();
+
+  if (!Number.isFinite(discountValue) || discountValue <= 0) {
+    throw new Error('Discount value must be greater than zero.');
+  }
+
+  if (discountType === PromotionDiscountType.PERCENTAGE && discountValue > 100) {
+    throw new Error('Percentage discounts cannot exceed 100%.');
+  }
+
+  return {
+    name: String(body.name || '').trim(),
+    description: String(body.description || '').trim(),
+    status: Object.values(PromotionStatus).includes(body.status as PromotionStatus)
+      ? body.status as PromotionStatus
+      : PromotionStatus.ACTIVE,
+    discountType,
+    discountValue,
+    maxDiscountMinor: Number.isFinite(Number(body.maxDiscountMinor)) ? Number(body.maxDiscountMinor) : null,
+    minBookingAmountMinor: Number.isFinite(Number(body.minBookingAmountMinor)) ? Number(body.minBookingAmountMinor) : 0,
+    countryCode: Object.values(CountryCode).includes(countryCode as CountryCode) ? countryCode : null,
+    currency: Object.values(CurrencyCode).includes(currency as CurrencyCode) ? currency : null,
+    startsAt: optionalDate(body.startsAt),
+    expiresAt: optionalDate(body.expiresAt),
+    usageLimit: Number.isFinite(Number(body.usageLimit)) ? Number(body.usageLimit) : null,
+    perClientLimit: Number.isFinite(Number(body.perClientLimit)) ? Number(body.perClientLimit) : null,
+  };
+};
+
 const splitCsv = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
   if (typeof value !== 'string') return [];
@@ -191,6 +243,80 @@ const buildDefaultProviderSettings = (providers: string[]) =>
     payoutEnabled: false,
     configReference: `${provider}_CONFIG_REF`,
   }));
+
+const serviceStatusScopeKey = (scope: string, serviceKey: string) => `${scope}:${serviceKey}`;
+
+const collectServiceStatuses = (args: {
+  serviceCategories?: unknown[];
+  cityServiceAvailability?: unknown[];
+}): Map<string, MarketStatus> => {
+  const statuses = new Map<string, MarketStatus>();
+
+  normalizeServiceEntries(args.serviceCategories).forEach((service) => {
+    statuses.set(serviceStatusScopeKey('country', service.serviceKey), service.status);
+  });
+
+  safeJsonArray(args.cityServiceAvailability)
+    .map((row) => buildCityAvailability(row, args.serviceCategories))
+    .filter((row): row is NonNullable<ReturnType<typeof buildCityAvailability>> => Boolean(row))
+    .forEach((row) => {
+      row.services.forEach((service) => {
+        statuses.set(serviceStatusScopeKey(`city:${row.city.toLowerCase()}`, service.serviceKey), service.status);
+      });
+      row.areas.forEach((area) => {
+        area.services.forEach((service) => {
+          statuses.set(serviceStatusScopeKey(`area:${row.city.toLowerCase()}:${area.name.toLowerCase()}`, service.serviceKey), service.status);
+        });
+      });
+    });
+
+  return statuses;
+};
+
+const getServiceActivations = (
+  nextStatuses: Map<string, MarketStatus>,
+  previousStatuses: Map<string, MarketStatus>
+) =>
+  Array.from(nextStatuses.entries())
+    .filter(([key, status]) => status === MarketStatus.ACTIVE && previousStatuses.get(key) !== MarketStatus.ACTIVE)
+    .map(([key]) => key);
+
+const canActivateMarketServices = (admin: any): boolean =>
+  Boolean(
+    admin?.role === UserRole.ADMIN &&
+      (
+        (admin.adminRole || AdminRole.SUPER_ADMIN) === AdminRole.SUPER_ADMIN ||
+        (Array.isArray(admin.adminPermissions) && admin.adminPermissions.includes(AdminPermission.MARKETS_SERVICES_ACTIVATE))
+      )
+  );
+
+const adminHasPermission = (admin: any, permission: AdminPermission): boolean => {
+  if (!admin || admin.role !== UserRole.ADMIN) return false;
+  const adminRole = Object.values(AdminRole).includes(admin.adminRole)
+    ? admin.adminRole as AdminRole
+    : AdminRole.READ_ONLY_ADMIN;
+  const allowed = new Set([
+    ...(ADMIN_ROLE_PERMISSIONS[adminRole] || []),
+    ...(Array.isArray(admin.adminPermissions) ? admin.adminPermissions : []),
+  ]);
+  return allowed.has(permission);
+};
+
+const maskEmail = (email: unknown): string => {
+  const value = String(email || '').trim();
+  const [local, domain] = value.split('@');
+  if (!local || !domain) return value ? 'hidden' : '';
+  const visible = local.slice(0, Math.min(2, local.length));
+  return `${visible}${'*'.repeat(Math.max(3, local.length - visible.length))}@${domain}`;
+};
+
+const maskPhone = (phone: unknown): string => {
+  const value = String(phone || '').trim();
+  if (!value) return '';
+  const digits = value.replace(/\D/g, '');
+  const last = digits.slice(-4);
+  return last ? `*** *** ${last}` : 'hidden';
+};
 
 const mergeMarketSetting = (setting: any) => {
   const identity = setting.identity || {};
@@ -379,6 +505,75 @@ export const getAdminOverview = async (_req: Request, res: Response): Promise<vo
   } catch (error) {
     console.error('Failed to load admin overview:', error);
     res.status(500).json({ success: false, message: 'Failed to load admin overview.' });
+  }
+};
+
+export const getAdminClients = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const limit = parseLimit(req.query.limit, 100);
+    const clients = await User.find({ role: UserRole.CUSTOMER })
+      .select('name email phone countryCode accountStatus isEmailVerified profileCompleted location createdAt updatedAt')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      contactAccess: false,
+      clients: clients.map((client) => ({
+        ...client,
+        email: maskEmail(client.email),
+        phone: maskPhone(client.phone),
+        contactMasked: true,
+      })),
+    });
+  } catch (error) {
+    console.error('Failed to load admin clients:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch clients.' });
+  }
+};
+
+export const revealAdminClientContact = async (req: Request, res: Response): Promise<void> => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    res.status(400).json({ message: 'Invalid client id.' });
+    return;
+  }
+
+  try {
+    const admin = await getRequesterAdmin(req);
+    if (!adminHasPermission(admin, AdminPermission.CLIENTS_CONTACT_READ)) {
+      res.status(403).json({ message: 'You do not have permission to view client contact details.' });
+      return;
+    }
+
+    const client = await User.findOne({ _id: id, role: UserRole.CUSTOMER })
+      .select('name email phone')
+      .lean();
+
+    if (!client) {
+      res.status(404).json({ message: 'Client not found.' });
+      return;
+    }
+
+    await logAdminAction(req, 'client.contact.reveal', 'User', id, {
+      clientName: client.name,
+      revealTtlSeconds: 15,
+    });
+
+    res.status(200).json({
+      success: true,
+      contact: {
+        id: client._id,
+        name: client.name,
+        email: client.email,
+        phone: client.phone,
+        expiresInSeconds: 15,
+      },
+    });
+  } catch (error) {
+    console.error('Failed to reveal client contact:', error);
+    res.status(500).json({ success: false, message: 'Failed to reveal client contact.' });
   }
 };
 
@@ -607,7 +802,7 @@ export const getAdminMarkets = async (_req: Request, res: Response): Promise<voi
       availableMarkets: await getAvailableMarketOptions(),
       availableStatuses: Object.values(MarketStatus),
       availablePaymentProviders: ['PAYSTACK', 'FLUTTERWAVE', 'MPESA', 'MTN_MOMO', 'AIRTEL_MONEY', 'YOCO', 'OZOW'],
-      defaultServiceCategories: DEFAULT_SERVICE_CATEGORIES,
+      defaultServiceCategories: DEFAULT_SERVICE_DEFINITIONS,
       serviceDefinitions: DEFAULT_SERVICE_DEFINITIONS,
     });
   } catch (error) {
@@ -662,6 +857,26 @@ export const updateAdminMarket = async (req: Request, res: Response): Promise<vo
     const cityServiceAvailability = normalizeCityServiceAvailability(coverage.cityServiceAvailability ?? req.body.cityServiceAvailability);
     const paymentProviderSettings = normalizePaymentProviderSettings(payments.providerSettings ?? req.body.paymentProviderSettings);
     const actor = getActor(req);
+    const admin = await getRequesterAdmin(req);
+    const existingMarket = await MarketSetting.findOne({ 'identity.countryCode': countryCode }).lean();
+    const previousServiceStatuses = collectServiceStatuses({
+      serviceCategories: existingMarket?.coverage?.serviceCategories ?? [],
+      cityServiceAvailability: existingMarket?.coverage?.cityServiceAvailability ?? [],
+    });
+    const nextServiceStatuses = collectServiceStatuses({
+      serviceCategories,
+      cityServiceAvailability,
+    });
+    const serviceActivations = getServiceActivations(nextServiceStatuses, previousServiceStatuses);
+
+    if (serviceActivations.length && !canActivateMarketServices(admin)) {
+      res.status(403).json({
+        message: 'Only a super admin or an admin with service activation permission can activate services.',
+        requiredPermission: AdminPermission.MARKETS_SERVICES_ACTIVATE,
+        attemptedActivations: serviceActivations,
+      });
+      return;
+    }
     const requestedCurrency =
       typeof (identity.currency ?? req.body.currency) === 'string' && String(identity.currency ?? req.body.currency).trim()
         ? String(identity.currency ?? req.body.currency).trim().toUpperCase()
@@ -740,6 +955,7 @@ export const updateAdminMarket = async (req: Request, res: Response): Promise<vo
       enabled: market.identity.enabled,
       defaultCalloutFeeMinor: market.pricing.defaultCalloutFeeMinor,
       platformCommissionBps: market.pricing.platformCommissionBps,
+      serviceActivations,
     });
 
     res.status(200).json({ success: true, market });
@@ -773,9 +989,9 @@ export const createAdminUser = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const { name, email, phone, password, adminRole, countryCode, location } = req.body;
-    if (!name || !email || !phone || !password) {
-      res.status(400).json({ message: 'Name, email, phone, and password are required.' });
+    const { name, email, phone, password, adminRole, adminPermissions, countryCode, location } = req.body;
+    if (!name || !email || !phone) {
+      res.status(400).json({ message: 'Name, email, and phone are required.' });
       return;
     }
 
@@ -787,7 +1003,15 @@ export const createAdminUser = async (req: Request, res: Response): Promise<void
     }
 
     const selectedRole = Object.values(AdminRole).includes(adminRole) ? adminRole : AdminRole.READ_ONLY_ADMIN;
-    const baseMarket = MARKET_CONFIG[(String(countryCode || 'ZA').toUpperCase() as CountryCode)] ?? MARKET_CONFIG[CountryCode.ZA];
+    const requestedCountryCode = String(countryCode || 'ZA').toUpperCase() as CountryCode;
+    const baseMarket = MARKET_CONFIG[requestedCountryCode];
+    if (!baseMarket) {
+      res.status(400).json({ message: 'This country is not configured as a MyFixer market yet. Add it in Settings before assigning staff to it.' });
+      return;
+    }
+    const temporaryPassword = typeof password === 'string' && password.trim().length >= 8
+      ? password
+      : generateTemporaryPassword();
     const admin = await User.create({
       name: String(name).trim(),
       email: normalizedEmail,
@@ -798,21 +1022,34 @@ export const createAdminUser = async (req: Request, res: Response): Promise<void
       },
       countryCode: baseMarket.countryCode,
       currency: baseMarket.currency,
-      password: await bcrypt.hash(String(password), 10),
+      password: await bcrypt.hash(temporaryPassword, 10),
       role: UserRole.ADMIN,
       adminRole: selectedRole,
-      adminPermissions: resolveAdminPermissions(selectedRole),
+      adminPermissions: resolveAdminPermissions(selectedRole, normalizeAdminPermissionsInput(adminPermissions)),
       isActive: true,
+      mustChangePassword: true,
     });
+
+    const portalUrl = process.env.ADMIN_PORTAL_URL?.trim().replace(/\/$/, '') || '';
+    const onboardingEmailSent = portalUrl
+      ? await EmailService.sendStaffOnboardingEmail({
+          recipientEmail: admin.email,
+          name: admin.name,
+          portalUrl,
+          username: admin.email,
+          temporaryPassword,
+        })
+      : false;
 
     await logAdminAction(req, 'admin.create', 'User', admin._id.toString(), {
       email: admin.email,
       adminRole: admin.adminRole,
+      onboardingEmailSent,
     });
 
     const result = admin.toObject();
     delete (result as any).password;
-    res.status(201).json({ success: true, admin: result });
+    res.status(201).json({ success: true, admin: result, onboardingEmailSent });
   } catch (error) {
     console.error('Admin create failed:', error);
     res.status(500).json({ success: false, message: 'Failed to create admin user.' });
@@ -832,10 +1069,21 @@ export const updateAdminUser = async (req: Request, res: Response): Promise<void
       return;
     }
 
+    const targetAdmin = await User.findOne({ _id: id, role: UserRole.ADMIN }).select('adminRole adminPermissions');
+    if (!targetAdmin) {
+      res.status(404).json({ message: 'Admin user not found.' });
+      return;
+    }
+
     const updates: Record<string, unknown> = {};
     if (Object.values(AdminRole).includes(req.body.adminRole)) {
+      const requestedPermissions = Array.isArray(req.body.adminPermissions)
+        ? normalizeAdminPermissionsInput(req.body.adminPermissions)
+        : normalizeAdminPermissionsInput(targetAdmin.adminPermissions);
       updates.adminRole = req.body.adminRole;
-      updates.adminPermissions = resolveAdminPermissions(req.body.adminRole);
+      updates.adminPermissions = resolveAdminPermissions(req.body.adminRole, requestedPermissions);
+    } else if (Array.isArray(req.body.adminPermissions)) {
+      updates.adminPermissions = resolveAdminPermissions(targetAdmin.adminRole || AdminRole.READ_ONLY_ADMIN, normalizeAdminPermissionsInput(req.body.adminPermissions));
     }
     if (typeof req.body.isActive === 'boolean') updates.isActive = req.body.isActive;
     if (typeof req.body.name === 'string' && req.body.name.trim()) updates.name = req.body.name.trim();
@@ -847,15 +1095,92 @@ export const updateAdminUser = async (req: Request, res: Response): Promise<void
       { new: true, runValidators: true }
     ).select('-password');
 
-    if (!admin) {
-      res.status(404).json({ message: 'Admin user not found.' });
-      return;
-    }
-
     await logAdminAction(req, 'admin.update', 'User', id, updates);
     res.status(200).json({ success: true, admin });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to update admin user.' });
+  }
+};
+
+export const listAdminPromotions = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const promotions = await Promotion.find().sort({ createdAt: -1 }).limit(200).lean();
+    res.status(200).json({
+      success: true,
+      promotions,
+      discountTypes: Object.values(PromotionDiscountType),
+      statuses: Object.values(PromotionStatus),
+    });
+  } catch (error) {
+    console.error('Failed to load promotions:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch promotions.' });
+  }
+};
+
+export const createAdminPromotion = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = getActor(req);
+    const code = normalizePromotionCode(req.body.code);
+    const payload = normalizePromotionPayload(req.body);
+
+    if (!code) {
+      res.status(400).json({ message: 'Promo code is required.' });
+      return;
+    }
+
+    if (!payload.name) {
+      res.status(400).json({ message: 'Promotion name is required.' });
+      return;
+    }
+
+    const promotion = await Promotion.create({
+      ...payload,
+      code,
+      createdBy: actor?.id,
+      updatedBy: actor?.id,
+    });
+
+    await logAdminAction(req, 'promotion.create', 'Promotion', promotion._id.toString(), {
+      code: promotion.code,
+      discountType: promotion.discountType,
+      discountValue: promotion.discountValue,
+    });
+
+    res.status(201).json({ success: true, promotion });
+  } catch (error: any) {
+    if (error?.code === 11000) {
+      res.status(409).json({ message: 'A promotion with this code already exists.' });
+      return;
+    }
+    res.status(400).json({ success: false, message: error.message || 'Failed to create promotion.' });
+  }
+};
+
+export const updateAdminPromotion = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid promotion id.' });
+      return;
+    }
+
+    const actor = getActor(req);
+    const updates = normalizePromotionPayload(req.body);
+    const promotion = await Promotion.findByIdAndUpdate(
+      id,
+      { $set: { ...updates, updatedBy: actor?.id } },
+      { new: true, runValidators: true }
+    );
+
+    if (!promotion) {
+      res.status(404).json({ message: 'Promotion not found.' });
+      return;
+    }
+
+    await logAdminAction(req, 'promotion.update', 'Promotion', id, updates);
+    res.status(200).json({ success: true, promotion });
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message || 'Failed to update promotion.' });
   }
 };
 

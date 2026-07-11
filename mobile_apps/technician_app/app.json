@@ -29,9 +29,9 @@
         "expo-notifications",
         {
           "sounds": [
-            "./assets/sounds/incoming-job.wav",
-            "./assets/sounds/job-accepted.wav",
-            "./assets/sounds/job-cancelled.wav",
+            "./assets/sounds/incoming_job.wav",
+            "./assets/sounds/job_accepted.wav",
+            "./assets/sounds/job_cancelled.wav",
             "./assets/sounds/payment.wav",
             "./assets/sounds/message.wav",
             "./assets/sounds/arrival.wav"

@@ -27,8 +27,10 @@ export enum AdminPermission {
   TECHNICIANS_READ = 'technicians.read',
   TECHNICIANS_REVIEW = 'technicians.review',
   FINANCE_READ = 'finance.read',
+  CLIENTS_CONTACT_READ = 'clients.contact.read',
   MARKETS_READ = 'markets.read',
   MARKETS_UPDATE = 'markets.update',
+  MARKETS_SERVICES_ACTIVATE = 'markets.services.activate',
   ADMINS_READ = 'admins.read',
   ADMINS_CREATE = 'admins.create',
   ADMINS_UPDATE = 'admins.update',
@@ -117,6 +119,7 @@ export interface IUserDocument extends Document {
 
   lastLoginAt?: Date | null;
   lastPasswordChangeAt?: Date | null;
+  mustChangePassword: boolean;
 
   passwordResetTokenHash?: string;
   passwordResetExpiresAt?: Date | null;
@@ -344,6 +347,12 @@ const UserSchema = new Schema<IUserDocument>(
     lastPasswordChangeAt: {
       type: Date,
       default: null,
+    },
+
+    mustChangePassword: {
+      type: Boolean,
+      default: false,
+      index: true,
     },
 
     passwordResetTokenHash: {

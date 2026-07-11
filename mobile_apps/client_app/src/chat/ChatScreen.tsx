@@ -34,7 +34,7 @@ const toDataUri = (asset: ImagePicker.ImagePickerAsset): string | null => {
 };
 
 export function ChatScreen({ route }: any): React.JSX.Element {
-  const { bookingId, jobId, techName = 'Assigned technician' } = route?.params || {};
+  const { bookingId, jobId, techName = 'Assigned provider' } = route?.params || {};
   const chatId = bookingId ?? jobId;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);

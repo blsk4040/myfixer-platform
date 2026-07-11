@@ -1,7 +1,7 @@
 // C:\myfixer-platform\mobile_apps\technician_app\App.tsx
 import React, { useEffect, useState } from 'react';
-import { Linking, Platform, SafeAreaView, StatusBar, StyleSheet } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Linking, Platform, StatusBar, StyleSheet } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
 import { SocketProvider } from './src/context/SocketContext';
 import { AppNavigator } from './src/navigation/AppNavigator';
@@ -40,7 +40,7 @@ export default function App(): React.JSX.Element {
           importance: Notifications.AndroidImportance.MAX,
           vibrationPattern: [0, 250, 250, 250],
           lightColor: '#00FF87',
-          sound: 'incoming-job.wav',
+          sound: 'incoming_job.wav',
         });
       }
     }

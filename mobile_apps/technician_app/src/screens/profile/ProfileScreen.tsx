@@ -13,16 +13,26 @@ interface ProfileScreenProps {
   setIsAuthenticated: (auth: boolean) => void;
 }
 
+const formatServiceCategory = (value: string): string =>
+  value
+    .replace(/[_-]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+
 export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React.JSX.Element {
   const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const { isOnDuty, toggleDutyStatus, disconnectSocket } = useSocketConnection();
   const completedJobs = useJobStore((state) => state.completedJobs);
   const technicianIdentity = getTechnicianIdentity();
 
-  const totalCompletedCount = completedJobs.length;
-  const currentRating = '5.00';
+  const totalCompletedCount = Math.max(technicianIdentity.stats.completedJobs, completedJobs.length);
+  const currentRating = technicianIdentity.stats.reviewCount > 0 && technicianIdentity.stats.averageRating !== null
+    ? technicianIdentity.stats.averageRating.toFixed(1)
+    : 'New';
   const serviceCategories = technicianIdentity.serviceCategories.length
-    ? technicianIdentity.serviceCategories
+    ? technicianIdentity.serviceCategories.map(formatServiceCategory)
     : ['No service categories set'];
 
   const handleToggleDuty = () => {
@@ -114,7 +124,7 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Service Areas</Text>
+        <Text style={styles.sectionTitle}>Service Categories</Text>
         <View style={styles.badgeWrapper}>
           {serviceCategories.map((spec) => (
             <View key={spec} style={styles.badge}>

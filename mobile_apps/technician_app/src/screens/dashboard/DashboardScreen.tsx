@@ -53,9 +53,12 @@ export function DashboardScreen(): React.JSX.Element {
 
   const [stats, setStats] = useState<DashboardStats>({
     jobsToday: 0,
-    completed: 0,
+    completed: technicianIdentity.stats.completedJobs,
     earnings: 0,
-    rating: 5,
+    rating: technicianIdentity.stats.averageRating || 0,
+    ratingLabel: technicianIdentity.stats.reviewCount > 0 && technicianIdentity.stats.averageRating !== null
+      ? technicianIdentity.stats.averageRating.toFixed(1)
+      : 'New',
   });
   const [upcomingBookings] = useState<UpcomingJob[]>([]);
 

@@ -198,6 +198,7 @@ const getMyNotifications = async (req, res) => {
     try {
         const filter = {
             'recipient.userId': userId,
+            channel: notification_model_1.NotificationChannel.IN_APP,
             status: { $ne: notification_model_1.NotificationStatus.ARCHIVED },
         };
         if (typeof req.query.status === 'string' && req.query.status)
@@ -205,6 +206,7 @@ const getMyNotifications = async (req, res) => {
         const notifications = await notification_model_1.default.find(filter).sort({ createdAt: -1 }).limit(100).lean();
         const unreadCount = await notification_model_1.default.countDocuments({
             'recipient.userId': userId,
+            channel: notification_model_1.NotificationChannel.IN_APP,
             readAt: null,
             status: { $nin: [notification_model_1.NotificationStatus.ARCHIVED, notification_model_1.NotificationStatus.CANCELLED] },
         });

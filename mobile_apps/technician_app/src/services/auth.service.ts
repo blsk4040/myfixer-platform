@@ -21,12 +21,29 @@ export interface AuthUser {
 export interface AuthTechnicianProfile {
   id: string;
   approvalStatus?: string;
+  countryCode?: string;
+  currency?: string;
   serviceCategories?: string[];
   city?: string;
   businessName?: string;
   yearsExperience?: number;
   profilePhotoUrl?: string;
   profilePhotoStatus?: string;
+  stats?: {
+    averageRating?: number | null;
+    reviewCount?: number;
+    completedJobs?: number;
+    cancelledJobs?: number;
+    lifetimeEarningsMinor?: number;
+  };
+  payoutCapabilities?: {
+    countryCode: string;
+    currency: string;
+    providerPayoutMethods: Array<'BANK_ACCOUNT' | 'MOBILE_MONEY'>;
+    defaultProviderPayoutMethod: 'BANK_ACCOUNT' | 'MOBILE_MONEY';
+    payoutsEnabled: boolean;
+    adminApprovalRequired: boolean;
+  };
 }
 
 export interface AuthSession {

@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { CheckCircle2 as LucideCheckCircle, FileText as LucideFileText, X as LucideX } from 'lucide-react-native';
 import apiService, { BookingHistoryItem } from '../../services/api.service';
 import { formatBookingStatus } from '../../types/booking';
@@ -23,6 +24,7 @@ const CheckCircle = LucideCheckCircle as any;
 const money = (currency: string, amountMinor = 0) => `${currency} ${(amountMinor / 100).toFixed(2)}`;
 
 export function BookingHistoryScreen(): React.JSX.Element {
+  const navigation = useNavigation<any>();
   const [loading, setLoading] = useState(true);
   const [bookings, setBookings] = useState<BookingHistoryItem[]>([]);
   const [selectedBooking, setSelectedBooking] = useState<BookingHistoryItem | null>(null);
@@ -48,6 +50,36 @@ export function BookingHistoryScreen(): React.JSX.Element {
     if (!item.invoice) return;
     setSelectedBooking(item);
     setInvoiceModalVisible(true);
+  };
+
+  const handleBookAgain = (item: BookingHistoryItem) => {
+    if (item.status !== 'COMPLETED') {
+      Alert.alert('Book Again', 'You can rebook a provider after a completed MyFixer job.');
+      return;
+    }
+
+    const hasPreferredProvider = Boolean(item.technician?.id);
+    Alert.alert(
+      'Book through MyFixer',
+      hasPreferredProvider
+        ? `We will prioritize ${item.technician?.name || 'your previous provider'} if they are available while keeping payment, tracking, support, and job protection inside MyFixer.`
+        : 'This will create a fresh request for the same service. Preferred provider rebooking is only available after a completed job with an assigned provider.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          onPress: () => navigation.navigate('BookingWizard', {
+            category: item.serviceKey || 'maintenance',
+            serviceKey: item.serviceKey || 'maintenance',
+            subCategory: item.applianceType,
+            basePrice: Math.round((item.priceMinor || 0) / 100),
+            preferredTechnicianId: hasPreferredProvider ? item.technician?.id : undefined,
+            preferredTechnicianName: hasPreferredProvider ? item.technician?.name : undefined,
+            rebookFromBookingId: hasPreferredProvider ? item.id : undefined,
+          }),
+        },
+      ]
+    );
   };
 
   const renderBookingItem = ({ item }: { item: BookingHistoryItem }) => {
@@ -79,14 +111,21 @@ export function BookingHistoryScreen(): React.JSX.Element {
         <View style={styles.cardFooter}>
           <Text style={styles.dateText}>{item.status === 'COMPLETED' ? 'Completed' : 'Updated'}: {completedDate}</Text>
 
-          <TouchableOpacity
-            style={styles.invoiceButton}
-            onPress={() => handleViewInvoice(item)}
-            disabled={!item.invoice}
-          >
-            <FileText color={item.invoice ? '#00FF87' : '#64748B'} size={14} style={{ marginRight: 6 }} />
-            <Text style={[styles.invoiceButtonText, !item.invoice && { color: '#64748B' }]}>Invoice</Text>
-          </TouchableOpacity>
+          <View style={styles.footerActions}>
+            {item.status === 'COMPLETED' ? (
+              <TouchableOpacity style={styles.rebookButton} onPress={() => handleBookAgain(item)}>
+                <Text style={styles.rebookButtonText}>Book again</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={styles.invoiceButton}
+              onPress={() => handleViewInvoice(item)}
+              disabled={!item.invoice}
+            >
+              <FileText color={item.invoice ? '#00FF87' : '#64748B'} size={14} style={{ marginRight: 6 }} />
+              <Text style={[styles.invoiceButtonText, !item.invoice && { color: '#64748B' }]}>Invoice</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     );
@@ -167,6 +206,9 @@ const styles = StyleSheet.create({
   serviceDetails: { color: '#E2E8F0', fontSize: 13, fontWeight: '500', marginVertical: 14, lineHeight: 18 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#1E293B', paddingTop: 12 },
   dateText: { color: '#64748B', fontSize: 12 },
+  footerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rebookButton: { backgroundColor: '#00FF87', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8 },
+  rebookButtonText: { color: '#052E16', fontSize: 12, fontWeight: '900' },
   invoiceButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E293B', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#334155' },
   invoiceButtonText: { color: '#00FF87', fontSize: 12, fontWeight: '700' },
   emptyContainer: { alignItems: 'center', marginTop: 40 },

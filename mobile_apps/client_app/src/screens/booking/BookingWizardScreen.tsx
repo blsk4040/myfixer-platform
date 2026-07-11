@@ -37,16 +37,26 @@ const CheckCircle = LucideCheckCircle as any;
 
 const DEFAULT_COORDINATE: Coordinate = { latitude: -26.2041, longitude: 28.0473 };
 
+const formatScheduledDate = (value: Date): string =>
+  value.toLocaleString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
 export default function BookingWizardScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
 
-  const { category, serviceKey, subCategory, basePrice } = route.params || {
+  const { category, serviceKey, subCategory, basePrice, preferredTechnicianId, preferredTechnicianName, rebookFromBookingId } = route.params || {
     category: 'appliance_repair',
     serviceKey: 'appliance_repair',
     subCategory: 'General Appliance Fix',
     basePrice: 350
   };
+  const isPreferredProviderRebook = Boolean(preferredTechnicianId && rebookFromBookingId);
 
   const [notes, setNotes] = useState('');
   const [scheduleMode, setScheduleMode] = useState<'NOW' | 'LATER'>('NOW');
@@ -177,14 +187,22 @@ export default function BookingWizardScreen() {
         latitude: selectedLocation.latitude,
         longitude: selectedLocation.longitude,
       };
-      const formattedTimestamp = scheduleMode === 'NOW' ? 'Urgent / Right Now' : selectedDate.toLocaleString();
+      if (scheduleMode === 'LATER' && selectedDate.getTime() <= Date.now() + 5 * 60 * 1000) {
+        Alert.alert('Choose a later time', 'Please schedule at least 5 minutes from now.');
+        setIsSearchingProvider(false);
+        return;
+      }
+
       const readableAddress = selectedLocation.fullAddress;
       const currency = (session?.user.currency ?? 'ZAR') as any;
       const faultDescription = notes.trim() || 'No description provided.';
+      const scheduledEndTime = scheduleMode === 'LATER'
+        ? new Date(selectedDate.getTime() + 60 * 60 * 1000)
+        : null;
 
       const response = await apiService.createBooking({
         customerName: session?.user.name ?? 'Client',
-        applianceType: `${subCategory} (${formattedTimestamp})`,
+        applianceType: subCategory,
         faultDescription,
         latitude: customerCoordinate.latitude,
         longitude: customerCoordinate.longitude,
@@ -200,6 +218,10 @@ export default function BookingWizardScreen() {
         area: selectedLocation.area || suburb.trim() || profile?.location?.area,
         serviceKey: serviceKey || category,
         category,
+        scheduledStartTime: scheduleMode === 'LATER' ? selectedDate.toISOString() : undefined,
+        scheduledEndTime: scheduledEndTime ? scheduledEndTime.toISOString() : undefined,
+        preferredTechnicianId,
+        rebookFromBookingId,
         saveAsDefaultAddress: useDifferentAddress && saveAsDefaultAddress,
         isForSomeoneElse: selectedLocation.isForSomeoneElse,
         contactName: selectedLocation.contactName,
@@ -256,12 +278,24 @@ export default function BookingWizardScreen() {
             <Text style={styles.headerLabel}>SERVICE DISPATCH</Text>
             <Text style={styles.headerTitle}>{subCategory}</Text>
             <Text style={styles.headerSubtitle}>Call-out fee: <Text style={styles.greenText}>R{basePrice}</Text></Text>
+            {isPreferredProviderRebook && (
+              <View style={styles.preferredBox}>
+                <Text style={styles.preferredTitle}>Preferred provider request</Text>
+                <Text style={styles.preferredText}>
+                  We will prioritize {preferredTechnicianName || 'your previous provider'} if they are available. MyFixer matching, payment, tracking, and support stay in-app.
+                </Text>
+              </View>
+            )}
           </View>
 
           {isSearchingProvider && (
-            <View style={styles.matchingBox}>
-              <ActivityIndicator size="large" color="#00FF87" />
-              <Text style={styles.matchingText}>Finding available specialists near you...</Text>
+          <View style={styles.matchingBox}>
+            <ActivityIndicator size="large" color="#00FF87" />
+              <Text style={styles.matchingText}>
+                {scheduleMode === 'LATER'
+                  ? `Scheduling your request for ${formatScheduledDate(selectedDate)}...`
+                  : 'Finding available specialists near you...'}
+              </Text>
             </View>
           )}
 
@@ -439,6 +473,9 @@ const styles = StyleSheet.create({
   headerTitle: { color: '#FFFFFF', fontSize: 26, fontWeight: '900', marginTop: 4 },
   headerSubtitle: { color: '#E2E8F0', fontSize: 14, marginTop: 4 },
   greenText: { color: '#00FF87', fontWeight: '700' },
+  preferredBox: { marginTop: 14, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, padding: 12 },
+  preferredTitle: { color: '#00FF87', fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
+  preferredText: { color: '#CBD5E1', fontSize: 12, lineHeight: 18, marginTop: 5 },
   formContainer: { gap: 20 },
   sectionTitle: { color: '#94A3B8', fontSize: 13, fontWeight: '700' },
   instructionInput: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 16, color: '#FFFFFF', fontSize: 14, minHeight: 90, textAlignVertical: 'top' },

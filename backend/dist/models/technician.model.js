@@ -227,6 +227,11 @@ const TechnicianSchema = new mongoose_1.Schema({
             min: 0,
             max: 5,
         },
+        reviewCount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
         completedJobs: {
             type: Number,
             default: 0,

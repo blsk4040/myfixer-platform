@@ -26,7 +26,7 @@ export function ScheduledJobsTab(): React.JSX.Element {
           </View>
 
           <Text style={styles.applianceText}>{job.applianceType}</Text>
-          <Text style={styles.areaText}>{job.generalArea || 'Local area'} • {job.distance || 'Nearby'}</Text>
+          <Text style={styles.areaText}>{job.generalArea || 'Local area'} - {job.distance || 'Nearby'}</Text>
         </View>
       ))}
     </ScrollView>

@@ -171,12 +171,14 @@ export const getMyNotifications = async (req: Request, res: Response): Promise<v
   try {
     const filter: Record<string, unknown> = {
       'recipient.userId': userId,
+      channel: NotificationChannel.IN_APP,
       status: { $ne: NotificationStatus.ARCHIVED },
     };
     if (typeof req.query.status === 'string' && req.query.status) filter.status = req.query.status;
     const notifications = await Notification.find(filter).sort({ createdAt: -1 }).limit(100).lean();
     const unreadCount = await Notification.countDocuments({
       'recipient.userId': userId,
+      channel: NotificationChannel.IN_APP,
       readAt: null,
       status: { $nin: [NotificationStatus.ARCHIVED, NotificationStatus.CANCELLED] },
     });

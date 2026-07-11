@@ -13,7 +13,7 @@ import { Socket } from 'socket.io-client';
 import { useJobStore } from '../store/useJobStore';
 import { NotificationService } from '../services/notification.service';
 import techSocketService from '../services/tech_socket.service';
-import { normalizeJobPayload, refreshAvailableJobs } from '../services/jobWorkflow.service';
+import { normalizeJobPayload, refreshAvailableJobs, refreshTechnicianJobBuckets } from '../services/jobWorkflow.service';
 import {
   clearBackgroundLocationUpdateEmitter,
   registerBackgroundLocationUpdateEmitter,
@@ -89,7 +89,14 @@ export function SocketProvider({
 
     const nextSocket = techSocketService.initializeConnection(connectionConfig.technicianId);
 
+    const refreshAssignedJobs = (context: string) => {
+      void refreshTechnicianJobBuckets().catch((error) => {
+        console.warn(`Failed to refresh technician jobs ${context}:`, error);
+      });
+    };
+
     const emitOnlineAndRefresh = () => {
+      refreshAssignedJobs('after reconnect');
       if (!isOnDutyRef.current) return;
       nextSocket.emit('technician_status_change', {
         status: 'ONLINE',
@@ -163,6 +170,7 @@ export function SocketProvider({
       if (payload?.status === 'CANCELLED') {
         void NotificationService.handleJobCancelled(String(payload.bookingId || 'cancelled'));
       }
+      refreshAssignedJobs('after status change');
     };
 
     nextSocket.on('connect', handleConnect);
@@ -218,6 +226,9 @@ export function SocketProvider({
     socket.emit('technician_status_change', { status: 'ONLINE', technicianId: connectionConfig.technicianId });
     void refreshAvailableJobs().catch((error) => {
       console.warn('Failed to refresh available jobs after duty change:', error);
+    });
+    void refreshTechnicianJobBuckets().catch((error) => {
+      console.warn('Failed to refresh technician jobs after duty change:', error);
     });
 
     registerBackgroundLocationUpdateEmitter((payload) => {

@@ -1,4 +1,12 @@
-let API_BASE_URL = window.MYFIXER_ADMIN_CONFIG?.API_BASE_URL || '';
+function resolveApiBaseUrl() {
+  const configured = window.MYFIXER_ADMIN_CONFIG?.API_BASE_URL;
+  if (configured) return configured;
+
+  const { protocol, hostname } = window.location;
+  return `${protocol}//${hostname}:5000/api/v1`;
+}
+
+let API_BASE_URL = resolveApiBaseUrl();
 
 const state = {
   token: localStorage.getItem('myfixer_admin_token') || '',
@@ -8,6 +16,9 @@ const state = {
   authMessage: '',
   loading: false,
   error: '',
+  idleWarning: '',
+  revealedClientContacts: {},
+  revealTimers: {},
   collectionOperationFilters: {
     countryCode: '',
     city: '',
@@ -26,6 +37,8 @@ const state = {
   },
   data: {
     overview: null,
+    clients: [],
+    clientsContactAccess: false,
     technicians: [],
     bookings: [],
     managedCollections: [],
@@ -56,6 +69,11 @@ const state = {
     invoices: [],
     ledger: [],
     settlements: [],
+    promotions: [],
+    promotionMeta: {
+      discountTypes: [],
+      statuses: [],
+    },
     markets: [],
     adminUsers: [],
     auditLogs: [],
@@ -76,6 +94,7 @@ const state = {
 
 const views = [
   { id: 'overview', label: 'Overview', icon: 'O', permission: 'overview.read' },
+  { id: 'clients', label: 'Clients', icon: 'C', permission: 'overview.read' },
   { id: 'technicians', label: 'Technicians', icon: 'T', permission: 'technicians.read' },
   { id: 'bookings', label: 'Bookings', icon: 'B', permission: 'bookings.read' },
   { id: 'managedCollections', label: 'Managed Collection', icon: 'M', permission: 'bookings.read' },
@@ -85,6 +104,7 @@ const views = [
   { id: 'quotes', label: 'Quotes', icon: 'Q', permission: 'bookings.read' },
   { id: 'invoices', label: 'Invoices', icon: '$', permission: 'finance.read' },
   { id: 'settlements', label: 'Settlements', icon: 'P', permission: 'finance.read' },
+  { id: 'promotions', label: 'Promotions', icon: '%', permission: 'finance.read' },
   { id: 'ledger', label: 'Wallet Ledger', icon: 'L', permission: 'finance.read' },
   { id: 'adminUsers', label: 'Admin Users', icon: 'A', permission: 'admins.read' },
   { id: 'settings', label: 'Settings', icon: 'S', permission: 'markets.read' },
@@ -95,14 +115,29 @@ const app = document.getElementById('app');
 
 const rolePermissions = {
   SUPER_ADMIN: ['*'],
-  OPERATIONS_MANAGER: ['overview.read', 'bookings.read', 'bookings.update', 'technicians.read', 'settings.read'],
+  OPERATIONS_MANAGER: ['overview.read', 'bookings.read', 'bookings.update', 'technicians.read', 'clients.contact.read', 'settings.read'],
   DISPATCHER: ['overview.read', 'bookings.read', 'bookings.update'],
   FINANCE_ADMIN: ['overview.read', 'finance.read', 'settings.read'],
-  SUPPORT_AGENT: ['overview.read', 'bookings.read', 'technicians.read'],
+  SUPPORT_AGENT: ['overview.read', 'bookings.read', 'technicians.read', 'clients.contact.read'],
   TECHNICIAN_REVIEWER: ['overview.read', 'technicians.read', 'technicians.review'],
   MARKET_MANAGER: ['overview.read', 'markets.read', 'markets.update', 'settings.read'],
   READ_ONLY_ADMIN: ['overview.read', 'bookings.read', 'technicians.read', 'finance.read', 'markets.read', 'admins.read', 'settings.read'],
 };
+
+const SERVICE_ACTIVATION_PERMISSION = 'markets.services.activate';
+const CLIENT_CONTACT_PERMISSION = 'clients.contact.read';
+const CLIENT_CONTACT_REVEAL_SECONDS = 15;
+const IDLE_TIMEOUT_MS = 8 * 60 * 1000;
+const IDLE_WARNING_MS = 60 * 1000;
+let idleWarningTimer = null;
+let idleLogoutTimer = null;
+
+const FALLBACK_COUNTRIES = [
+  ['ZA', 'South Africa'], ['GH', 'Ghana'], ['NG', 'Nigeria'], ['KE', 'Kenya'], ['UG', 'Uganda'], ['TZ', 'Tanzania'], ['RW', 'Rwanda'], ['ZM', 'Zambia'],
+  ['US', 'United States'], ['GB', 'United Kingdom'], ['CA', 'Canada'], ['AU', 'Australia'], ['NZ', 'New Zealand'], ['IE', 'Ireland'],
+  ['BW', 'Botswana'], ['NA', 'Namibia'], ['ZW', 'Zimbabwe'], ['MW', 'Malawi'], ['MZ', 'Mozambique'], ['AO', 'Angola'], ['CD', 'Congo - Kinshasa'],
+  ['ET', 'Ethiopia'], ['EG', 'Egypt'], ['MA', 'Morocco'], ['CI', "Cote d'Ivoire"], ['SN', 'Senegal'], ['IN', 'India'], ['AE', 'United Arab Emirates'],
+];
 
 function hasPermission(permission) {
   if (!permission) return true;
@@ -150,6 +185,32 @@ function formatMoney(amount, currency = '') {
   } catch {
     return `${currency} ${amount.toFixed(2)}`;
   }
+}
+
+function getCountryOptions() {
+  const source = FALLBACK_COUNTRIES;
+  const knownMarkets = new Map([
+    ...state.data.markets.map((market) => {
+      const view = getMarketView(market);
+      return [view.countryCode, view.countryName || view.countryCode];
+    }),
+    ...state.data.marketMeta.availableMarkets.map((market) => [market.countryCode, market.countryName || market.countryCode]),
+  ]);
+
+  return source
+    .map(([code, name]) => ({
+      code,
+      name,
+      supported: knownMarkets.has(code),
+      label: `${name} (${code})${knownMarkets.has(code) ? '' : ' - not configured'}`,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function renderCountryOptions(selected = '') {
+  return getCountryOptions()
+    .map((country) => `<option value="${escapeHtml(country.code)}" ${country.code === selected ? 'selected' : ''}>${escapeHtml(country.label)}</option>`)
+    .join('');
 }
 
 function moneyFromMinor(minor, currency = 'ZAR') {
@@ -238,6 +299,54 @@ function formatServiceList(services = []) {
     .join(', ');
 }
 
+function countStatuses(items = []) {
+  return items.reduce((counts, item) => {
+    const status = String(item?.status || 'ACTIVE').toUpperCase();
+    counts[status] = (counts[status] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function statusSummaryPills(counts = {}) {
+  const statuses = ['ACTIVE', 'COMING_SOON', 'PAUSED', 'DISABLED'];
+  return statuses
+    .filter((status) => counts[status])
+    .map((status) => `<span class="status ${statusClass(status)}">${status.replace('_', ' ')} ${counts[status]}</span>`)
+    .join('');
+}
+
+function marketStatusSummary(marketView) {
+  const cityRows = Array.isArray(marketView.cityServiceAvailability) ? marketView.cityServiceAvailability : [];
+  const countryServices = normalizeServiceEntries(marketView.serviceCategories || state.data.marketMeta.defaultServiceCategories || []);
+  const cityServices = cityRows.flatMap((row) => normalizeServiceEntries(row.services || []));
+  const areas = cityRows.flatMap((row) => Array.isArray(row.areas) ? row.areas : []);
+  const areaServices = areas.flatMap((area) => normalizeServiceEntries(area.services || []));
+  const serviceCounts = countStatuses([...countryServices, ...cityServices, ...areaServices]);
+  const cityCounts = countStatuses(cityRows);
+  const areaCounts = countStatuses(areas);
+
+  return `
+    <div class="market-summary-grid">
+      <div>
+        <span>Country</span>
+        <strong class="status ${statusClass(marketView.status)}">${escapeHtml(String(marketView.status || 'DISABLED').replace('_', ' '))}</strong>
+      </div>
+      <div>
+        <span>Services</span>
+        <div class="status-chip-row">${statusSummaryPills(serviceCounts) || '<span class="status info">No services</span>'}</div>
+      </div>
+      <div>
+        <span>Cities</span>
+        <div class="status-chip-row">${statusSummaryPills(cityCounts) || '<span class="status info">No cities</span>'}</div>
+      </div>
+      <div>
+        <span>Areas</span>
+        <div class="status-chip-row">${statusSummaryPills(areaCounts) || '<span class="status info">No areas</span>'}</div>
+      </div>
+    </div>
+  `;
+}
+
 function formatDate(value) {
   if (!value) return '-';
   return new Date(value).toLocaleString();
@@ -308,7 +417,13 @@ async function login(event) {
     state.user = result.user;
     localStorage.setItem('myfixer_admin_token', result.token);
     localStorage.setItem('myfixer_admin_user', JSON.stringify(result.user));
+    if (result.user?.mustChangePassword) {
+      state.authView = 'changePassword';
+      render();
+      return;
+    }
     await loadAllData();
+    resetIdleTimer();
     render();
   } catch (error) {
     errorBox.textContent = error.message;
@@ -377,11 +492,51 @@ async function resetPassword(event) {
   }
 }
 
+async function changePassword(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const currentPassword = String(form.get('currentPassword') || '');
+  const newPassword = String(form.get('newPassword') || '');
+  const confirmPassword = String(form.get('confirmPassword') || '');
+  const errorBox = document.querySelector('[data-login-error]');
+
+  if (newPassword !== confirmPassword) {
+    if (errorBox) errorBox.textContent = 'New passwords do not match.';
+    return;
+  }
+
+  try {
+    state.loading = true;
+    if (errorBox) errorBox.textContent = '';
+    const result = await api('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword, forced: true }),
+    });
+    state.token = result.token;
+    state.user = result.user;
+    state.authView = 'login';
+    localStorage.setItem('myfixer_admin_token', result.token);
+    localStorage.setItem('myfixer_admin_user', JSON.stringify(result.user));
+    await loadAllData();
+    resetIdleTimer();
+    render();
+  } catch (error) {
+    if (errorBox) errorBox.textContent = error.message;
+  } finally {
+    state.loading = false;
+  }
+}
+
 function logout() {
   state.token = '';
   state.user = null;
+  state.idleWarning = '';
+  state.revealedClientContacts = {};
+  Object.values(state.revealTimers || {}).forEach((timer) => clearTimeout(timer));
+  state.revealTimers = {};
   localStorage.removeItem('myfixer_admin_token');
   localStorage.removeItem('myfixer_admin_user');
+  clearIdleTimers();
   render();
 }
 
@@ -392,6 +547,9 @@ async function loadAllData() {
   try {
     const requests = {
       overview: hasPermission('overview.read') ? api('/admin/overview') : Promise.resolve({ overview: null }),
+      clients: hasPermission('overview.read')
+        ? api('/admin/clients?limit=200').catch(() => ({ clients: [] }))
+        : Promise.resolve({ clients: [] }),
       technicians: hasPermission('technicians.read') ? api('/admin/technicians') : Promise.resolve({ technicians: [] }),
       bookings: hasPermission('bookings.read') ? api('/admin/bookings?limit=100') : Promise.resolve({ bookings: [] }),
       managedCollections: hasPermission('bookings.read') ? api('/admin/managed-collections') : Promise.resolve({ profiles: [], reminders: [] }),
@@ -401,15 +559,18 @@ async function loadAllData() {
       quotes: hasPermission('bookings.read') ? api('/admin/quotes?limit=100') : Promise.resolve({ quotes: [] }),
       invoices: hasPermission('finance.read') ? api('/admin/invoices?limit=100') : Promise.resolve({ invoices: [] }),
       settlements: hasPermission('finance.read') ? api('/admin/settlements') : Promise.resolve({ settlements: [] }),
+      promotions: hasPermission('finance.read') ? api('/admin/promotions') : Promise.resolve({ promotions: [], discountTypes: [], statuses: [] }),
       ledger: hasPermission('finance.read') ? api('/admin/wallet-transactions?limit=100') : Promise.resolve({ transactions: [] }),
       markets: hasPermission('markets.read') ? api('/admin/markets') : Promise.resolve({ markets: [], availableStatuses: [], availablePaymentProviders: [], defaultServiceCategories: [], availableMarkets: [] }),
       adminUsers: hasPermission('admins.read') ? api('/admin/users') : Promise.resolve({ admins: [], roles: [], permissionsByRole: {} }),
       auditLogs: hasPermission('admins.read') ? api('/admin/audit-logs?limit=100') : Promise.resolve({ logs: [] }),
     };
 
-    const [overview, technicians, bookings, managedCollections, collectionOperations, notifications, subscriptions, quotes, invoices, settlements, ledger, markets, adminUsers, auditLogs] = await Promise.all(Object.values(requests));
+    const [overview, clients, technicians, bookings, managedCollections, collectionOperations, notifications, subscriptions, quotes, invoices, settlements, promotions, ledger, markets, adminUsers, auditLogs] = await Promise.all(Object.values(requests));
 
     state.data.overview = overview.overview;
+    state.data.clients = clients.clients || [];
+    state.data.clientsContactAccess = hasPermission(CLIENT_CONTACT_PERMISSION);
     state.data.technicians = technicians.technicians || [];
     state.data.bookings = bookings.bookings || [];
     state.data.managedCollections = managedCollections.profiles || [];
@@ -439,6 +600,11 @@ async function loadAllData() {
     state.data.quotes = quotes.quotes || [];
     state.data.invoices = invoices.invoices || [];
     state.data.settlements = settlements.settlements || [];
+    state.data.promotions = promotions.promotions || [];
+    state.data.promotionMeta = {
+      discountTypes: promotions.discountTypes || [],
+      statuses: promotions.statuses || [],
+    };
     state.data.ledger = ledger.transactions || [];
     state.data.markets = markets.markets || [];
     state.data.marketMeta = {
@@ -681,17 +847,23 @@ async function createAdminUser(event) {
     name: String(form.get('name') || '').trim(),
     email: String(form.get('email') || '').trim(),
     phone: String(form.get('phone') || '').trim(),
-    password: String(form.get('password') || ''),
     adminRole: String(form.get('adminRole') || 'READ_ONLY_ADMIN'),
+    adminPermissions: [
+      ...(form.get('canActivateServices') === 'on' ? [SERVICE_ACTIVATION_PERMISSION] : []),
+      ...(form.get('canViewClientContact') === 'on' ? [CLIENT_CONTACT_PERMISSION] : []),
+    ],
     countryCode: String(form.get('countryCode') || 'ZA'),
     location: { city: String(form.get('city') || 'Head Office') },
   };
 
   try {
-    await api('/admin/users', {
+    const result = await api('/admin/users', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    alert(result.onboardingEmailSent
+      ? 'User created and onboarding email sent.'
+      : 'User created. Onboarding email was not sent; check ADMIN_PORTAL_URL, RESEND_API_KEY, and RESEND_FROM_EMAIL.');
     event.currentTarget.reset();
     await refresh();
   } catch (error) {
@@ -720,7 +892,26 @@ function renderLogin() {
   const params = new URLSearchParams(window.location.search);
   const resetToken = params.get('resetToken') || '';
   const resetEmail = params.get('email') || '';
-  const authForm = state.authView === 'forgot'
+  const authForm = state.authView === 'changePassword'
+    ? `
+        <form class="login-card" onsubmit="changePassword(event)">
+          <div class="login-heading">
+            <span class="eyebrow">First sign-in</span>
+            <h2>Change temporary password</h2>
+            <p>Create a permanent password before opening the internal dashboard.</p>
+          </div>
+          <label>Temporary Password</label>
+          <input name="currentPassword" type="password" autocomplete="current-password" required />
+          <label>New Password</label>
+          <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+          <label>Confirm New Password</label>
+          <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
+          <p class="form-error" data-login-error></p>
+          <button class="primary-button" type="submit">${state.loading ? 'Updating...' : 'Update Password'}</button>
+          <button class="text-button" type="button" onclick="logout()">Sign out</button>
+        </form>
+      `
+    : state.authView === 'forgot'
     ? `
         <form class="login-card" onsubmit="forgotPassword(event)">
           <div class="login-heading">
@@ -858,12 +1049,49 @@ function renderShell() {
         <section class="content" aria-busy="${state.loading ? 'true' : 'false'}">
           ${state.loading ? '<div class="notice">Loading live operations data...</div>' : ''}
           ${state.error ? `<div class="notice error">${escapeHtml(state.error)}</div>` : ''}
+          ${state.idleWarning ? `<div class="notice warn">${escapeHtml(state.idleWarning)}</div>` : ''}
           ${renderActiveView()}
         </section>
       </main>
       ${state.selectedBooking ? renderBookingDrawer() : ''}
     </div>
   `;
+}
+
+function clearIdleTimers() {
+  if (idleWarningTimer) clearTimeout(idleWarningTimer);
+  if (idleLogoutTimer) clearTimeout(idleLogoutTimer);
+  idleWarningTimer = null;
+  idleLogoutTimer = null;
+}
+
+function resetIdleTimer() {
+  clearIdleTimers();
+  if (!state.token) return;
+
+  if (state.idleWarning) {
+    state.idleWarning = '';
+    render();
+  }
+
+  idleWarningTimer = setTimeout(() => {
+    if (!state.token) return;
+    state.idleWarning = 'Security timeout: you will be signed out in 60 seconds unless activity continues.';
+    render();
+  }, IDLE_TIMEOUT_MS - IDLE_WARNING_MS);
+
+  idleLogoutTimer = setTimeout(() => {
+    if (!state.token) return;
+    alert('You have been signed out because the admin portal was inactive.');
+    logout();
+  }, IDLE_TIMEOUT_MS);
+}
+
+function setupIdleSecurity() {
+  ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach((eventName) => {
+    window.addEventListener(eventName, resetIdleTimer, { passive: true });
+  });
+  resetIdleTimer();
 }
 
 function setView(view) {
@@ -878,6 +1106,7 @@ function renderActiveView() {
     return '<section class="panel"><p class="empty">You do not have access to this section.</p></section>';
   }
   if (state.activeView === 'overview') return renderOverview();
+  if (state.activeView === 'clients') return renderClients();
   if (state.activeView === 'technicians') return renderTechnicians();
   if (state.activeView === 'bookings') return renderBookings();
   if (state.activeView === 'managedCollections') return renderManagedCollections();
@@ -887,6 +1116,7 @@ function renderActiveView() {
   if (state.activeView === 'quotes') return renderQuotes();
   if (state.activeView === 'invoices') return renderInvoices();
   if (state.activeView === 'settlements') return renderSettlements();
+  if (state.activeView === 'promotions') return renderPromotions();
   if (state.activeView === 'ledger') return renderLedger();
   if (state.activeView === 'adminUsers') return renderAdminUsers();
   if (state.activeView === 'settings') return renderSettings();
@@ -897,20 +1127,20 @@ function renderActiveView() {
 function renderOverview() {
   const overview = state.data.overview || {};
   const cards = [
-    ['Active bookings', overview.activeBookings || 0],
-    ['Pending providers', overview.pendingTechnicians || 0],
-    ['Pending quotes', overview.pendingQuotes || 0],
-    ['Unpaid invoices', overview.unpaidInvoices || 0],
-    ['Clients', overview.clients || 0],
-    ['Completed jobs', overview.completedBookings || 0],
+    { label: 'Active bookings', value: overview.activeBookings || 0 },
+    { label: 'Pending providers', value: overview.pendingTechnicians || 0 },
+    { label: 'Pending quotes', value: overview.pendingQuotes || 0 },
+    { label: 'Unpaid invoices', value: overview.unpaidInvoices || 0 },
+    { label: 'Clients', value: overview.clients || 0, view: 'clients' },
+    { label: 'Completed jobs', value: overview.completedBookings || 0 },
   ];
 
   return `
     <div class="metric-grid">
-      ${cards.map(([label, value]) => `
-        <article class="metric-card">
-          <span>${label}</span>
-          <strong>${value}</strong>
+      ${cards.map((card) => `
+        <article class="metric-card ${card.view ? 'clickable' : ''}" ${card.view ? `onclick="setView('${card.view}')"` : ''}>
+          <span>${card.label}</span>
+          <strong>${card.value}</strong>
         </article>
       `).join('')}
     </div>
@@ -925,6 +1155,71 @@ function renderOverview() {
       </section>
     </div>
   `;
+}
+
+function renderClients() {
+  const rows = state.data.clients || [];
+  const contactAccess = state.data.clientsContactAccess === true;
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Clients</h2>
+          <span>${rows.length} customer accounts - contact details masked by default</span>
+        </div>
+      </div>
+      ${renderGenericTable(rows, ['Name', 'Contact', 'Country', 'Location', 'Status', 'Verified', 'Joined', 'Actions'], (client) => {
+        const revealed = state.revealedClientContacts?.[client._id];
+        return [
+        `${escapeHtml(client.name || 'Unnamed client')}<span>${escapeHtml(client._id || '')}</span>`,
+        `${escapeHtml(revealed?.email || client.email || '-')}<span>${escapeHtml(revealed?.phone || client.phone || '-')}</span>`,
+        escapeHtml(client.countryCode || '-'),
+        `${escapeHtml(client.location?.city || '-')}<span>${escapeHtml(client.location?.area || '')}</span>`,
+        `<span class="status ${statusClass(client.accountStatus || 'ACTIVE')}">${escapeHtml(client.accountStatus || 'ACTIVE')}</span>`,
+        client.isEmailVerified ? '<span class="status good">EMAIL VERIFIED</span>' : '<span class="status warn">EMAIL PENDING</span>',
+        formatDate(client.createdAt),
+        contactAccess
+          ? `<button class="ghost-button compact" onclick="${revealed ? `hideClientContact('${client._id}')` : `revealClientContact('${client._id}')`}">${revealed ? 'Hide Contact' : 'View Contact'}</button>${revealed ? '<span>Auto-hides soon</span>' : ''}`
+          : '<span class="status info">Masked</span>',
+      ];
+      })}
+    </section>
+  `;
+}
+
+async function revealClientContact(clientId) {
+  if (!clientId || !hasPermission(CLIENT_CONTACT_PERMISSION)) {
+    alert('You do not have permission to view client contact details.');
+    return;
+  }
+
+  try {
+    const result = await api(`/admin/clients/${clientId}/contact`);
+    state.revealedClientContacts = {
+      ...state.revealedClientContacts,
+      [clientId]: result.contact,
+    };
+
+    if (state.revealTimers?.[clientId]) clearTimeout(state.revealTimers[clientId]);
+    state.revealTimers = {
+      ...state.revealTimers,
+      [clientId]: setTimeout(() => hideClientContact(clientId), (result.contact?.expiresInSeconds || CLIENT_CONTACT_REVEAL_SECONDS) * 1000),
+    };
+    render();
+  } catch (error) {
+    alert(error.message || 'Unable to reveal client contact.');
+  }
+}
+
+function hideClientContact(clientId) {
+  if (state.revealTimers?.[clientId]) clearTimeout(state.revealTimers[clientId]);
+  const nextContacts = { ...(state.revealedClientContacts || {}) };
+  const nextTimers = { ...(state.revealTimers || {}) };
+  delete nextContacts[clientId];
+  delete nextTimers[clientId];
+  state.revealedClientContacts = nextContacts;
+  state.revealTimers = nextTimers;
+  render();
 }
 
 function renderCurrencyTotals(totals) {
@@ -1718,6 +2013,156 @@ async function retrySettlementPayout(id) {
   render();
 }
 
+async function createPromotion(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const discountType = String(form.get('discountType') || 'PERCENTAGE');
+  const discountValueRaw = Number(form.get('discountValue') || 0);
+  const discountValue = discountType === 'FIXED_AMOUNT'
+    ? Math.round(discountValueRaw * 100)
+    : discountValueRaw;
+
+  const payload = {
+    code: String(form.get('code') || '').trim().toUpperCase(),
+    name: String(form.get('name') || '').trim(),
+    description: String(form.get('description') || '').trim(),
+    status: String(form.get('status') || 'ACTIVE').toUpperCase(),
+    discountType,
+    discountValue,
+    maxDiscountMinor: Math.round(Number(form.get('maxDiscount') || 0) * 100) || null,
+    minBookingAmountMinor: Math.round(Number(form.get('minBookingAmount') || 0) * 100) || 0,
+    countryCode: String(form.get('countryCode') || ''),
+    currency: String(form.get('currency') || ''),
+    startsAt: String(form.get('startsAt') || '') || null,
+    expiresAt: String(form.get('expiresAt') || '') || null,
+    usageLimit: Number(form.get('usageLimit') || 0) || null,
+  };
+
+  try {
+    await api('/admin/promotions', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    event.currentTarget.reset();
+    await refresh();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function updatePromotion(id, patch) {
+  if (!patch || typeof patch !== 'object') return;
+  try {
+    await api(`/admin/promotions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+    await refresh();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+function renderPromotions() {
+  const promotions = state.data.promotions || [];
+  const discountTypes = state.data.promotionMeta.discountTypes.length
+    ? state.data.promotionMeta.discountTypes
+    : ['PERCENTAGE', 'FIXED_AMOUNT'];
+  return `
+    <div class="two-column">
+      <section class="panel">
+        <div class="panel-header"><h2>Promo Codes</h2><span>${promotions.length} configured</span></div>
+        ${renderGenericTable(promotions, ['Code', 'Discount', 'Scope', 'Usage', 'Status', 'Actions'], (promotion) => [
+          `<strong>${escapeHtml(promotion.code)}</strong><span>${escapeHtml(promotion.name || '-')}</span>`,
+          promotion.discountType === 'PERCENTAGE'
+            ? `${escapeHtml(promotion.discountValue)}%<span>Max ${promotion.maxDiscountMinor ? moneyFromMinor(promotion.maxDiscountMinor, promotion.currency || 'ZAR') : 'No cap'}</span>`
+            : `${moneyFromMinor(promotion.discountValue, promotion.currency || 'ZAR')}<span>Fixed amount</span>`,
+          `${escapeHtml(promotion.countryCode || 'All countries')}<span>${escapeHtml(promotion.currency || 'Any currency')}</span>`,
+          `${promotion.usageCount || 0}<span>${promotion.usageLimit ? `of ${promotion.usageLimit}` : 'unlimited'}</span>`,
+          `<span class="status ${statusClass(promotion.status)}">${escapeHtml(promotion.status)}</span>`,
+          `<button class="ghost-button compact" onclick="updatePromotion('${promotion._id}', { status: '${promotion.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'}' })">${promotion.status === 'ACTIVE' ? 'Pause' : 'Activate'}</button>`,
+        ])}
+      </section>
+      <section class="panel">
+        <div class="panel-header"><h2>Create Promo</h2><span>Uber-style client discounts</span></div>
+        <form class="settings-form" onsubmit="createPromotion(event)">
+          <label>Promo Code</label>
+          <input name="code" required placeholder="FIXER50" />
+          <label>Name</label>
+          <input name="name" required placeholder="Launch discount" />
+          <label>Description</label>
+          <input name="description" placeholder="Optional internal note" />
+          <div class="form-grid">
+            <div>
+              <label>Discount Type</label>
+              <select name="discountType">
+                ${discountTypes.map((type) => `<option value="${type}">${type}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label>Discount Value</label>
+              <input name="discountValue" type="number" min="0" step="0.01" required placeholder="10" />
+            </div>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label>Status</label>
+              <select name="status">
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="PAUSED">PAUSED</option>
+                <option value="EXPIRED">EXPIRED</option>
+              </select>
+            </div>
+            <div>
+              <label>Max Discount Amount</label>
+              <input name="maxDiscount" type="number" min="0" step="0.01" placeholder="0 for no cap" />
+            </div>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label>Minimum Booking Amount</label>
+              <input name="minBookingAmount" type="number" min="0" step="0.01" placeholder="0" />
+            </div>
+            <div>
+              <label>Country</label>
+              <select name="countryCode">
+                <option value="">All configured countries</option>
+                ${renderCountryOptions('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label>Country</label>
+              <select name="countryCode">
+                <option value="">All configured countries</option>
+                ${renderCountryOptions('')}
+              </select>
+            </div>
+            <div>
+              <label>Currency</label>
+              <input name="currency" placeholder="Optional, e.g. ZAR" />
+            </div>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label>Starts At</label>
+              <input name="startsAt" type="datetime-local" />
+            </div>
+            <div>
+              <label>Expires At</label>
+              <input name="expiresAt" type="datetime-local" />
+            </div>
+          </div>
+          <label>Usage Limit</label>
+          <input name="usageLimit" type="number" min="0" step="1" placeholder="0 for unlimited" />
+          <button class="primary-button" type="submit">Create Promo</button>
+        </form>
+      </section>
+    </div>
+  `;
+}
+
 function renderLedger() {
   const rows = state.data.ledger;
   return `
@@ -1744,7 +2189,7 @@ function renderAdminUsers() {
       <section class="panel">
         <div class="panel-header">
           <h2>Internal Staff</h2>
-          <span>${state.data.adminUsers.length} admins</span>
+          <span>${state.data.adminUsers.length} users</span>
         </div>
         ${renderGenericTable(state.data.adminUsers, ['Name', 'Role', 'Status', 'Email', 'Actions'], (admin) => [
           `<strong>${escapeHtml(admin.name)}</strong><span>${escapeHtml(admin.phone || '-')}</span>`,
@@ -1756,45 +2201,46 @@ function renderAdminUsers() {
               <select onchange="updateAdminUser('${admin._id}', { adminRole: this.value })">
                 ${roles.map((role) => `<option value="${role}" ${role === admin.adminRole ? 'selected' : ''}>${role}</option>`).join('')}
               </select>
+              ${renderServiceActivationToggle(admin)}
+              ${renderClientContactToggle(admin)}
               <button class="ghost-button compact" onclick="updateAdminUser('${admin._id}', { isActive: ${admin.isActive === false ? 'true' : 'false'} })">${admin.isActive === false ? 'Activate' : 'Deactivate'}</button>
             `
             : '<span class="status info">Read only</span>',
         ])}
       </section>
 
-      ${canCreateAdmins ? `<section class="panel">
-        <div class="panel-header"><h2>Create Admin</h2><span>Super admin only</span></div>
-        <form class="settings-form" onsubmit="createAdminUser(event)">
+      <section class="panel">
+        <div class="panel-header"><h2>Create Users</h2><span>${canCreateAdmins ? 'Super admin only' : 'Admin access required'}</span></div>
+        <form class="settings-form" onsubmit="${canCreateAdmins ? 'createAdminUser(event)' : 'event.preventDefault()'}">
           <label>Name</label>
-          <input name="name" required placeholder="Operations Manager" />
+          <input name="name" required placeholder="Operations Manager" ${canCreateAdmins ? '' : 'disabled'} />
           <label>Email</label>
-          <input name="email" type="email" required placeholder="ops@myfixer.com" />
+          <input name="email" type="email" required placeholder="ops@myfixer.com" ${canCreateAdmins ? '' : 'disabled'} />
           <label>Phone</label>
-          <input name="phone" required placeholder="+27000000000" />
-          <label>Temporary Password</label>
-          <input name="password" type="password" required minlength="6" placeholder="Minimum 6 characters" />
+          <input name="phone" required placeholder="+27000000000" ${canCreateAdmins ? '' : 'disabled'} />
+          <p class="setting-help">A secure temporary password is generated automatically and sent by onboarding email.</p>
           <div class="form-grid">
             <div>
               <label>Role</label>
-              <select name="adminRole">
+              <select name="adminRole" ${canCreateAdmins ? '' : 'disabled'}>
                 ${roles.map((role) => `<option value="${role}">${role}</option>`).join('')}
               </select>
             </div>
             <div>
               <label>Country</label>
-              <select name="countryCode">
-                ${state.data.markets.map((market) => {
-                  const marketView = getMarketView(market);
-                  return `<option value="${marketView.countryCode}">${marketView.countryCode}</option>`;
-                }).join('')}
+              <select name="countryCode" ${canCreateAdmins ? '' : 'disabled'}>
+                ${renderCountryOptions('ZA')}
               </select>
             </div>
           </div>
           <label>City</label>
-          <input name="city" placeholder="Head Office" />
-          <button class="primary-button" type="submit">Create Admin</button>
+          <input name="city" placeholder="Head Office" ${canCreateAdmins ? '' : 'disabled'} />
+          <label class="inline-check"><input name="canActivateServices" type="checkbox" ${canCreateAdmins ? '' : 'disabled'} /> Can activate market services</label>
+          <label class="inline-check"><input name="canViewClientContact" type="checkbox" ${canCreateAdmins ? '' : 'disabled'} /> Can view client contact details</label>
+          <button class="primary-button" type="submit" ${canCreateAdmins ? '' : 'disabled'}>${canCreateAdmins ? 'Create Users' : 'Create Users (permission required)'}</button>
+          ${canCreateAdmins ? '' : '<p class="empty">Only a super admin or an admin with create permissions can add new internal staff.</p>'}
         </form>
-      </section>` : ''}
+      </section>
     </div>
     <section class="panel">
       <div class="panel-header"><h2>Role Access</h2><span>Portal visibility map</span></div>
@@ -1807,6 +2253,39 @@ function renderAdminUsers() {
         `).join('')}
       </div>
     </section>
+  `;
+}
+
+function renderServiceActivationToggle(admin) {
+  const currentPermissions = Array.isArray(admin.adminPermissions) ? admin.adminPermissions : [];
+  const hasActivation = currentPermissions.includes(SERVICE_ACTIVATION_PERMISSION);
+  const nextPermissions = hasActivation
+    ? currentPermissions.filter((permission) => permission !== SERVICE_ACTIVATION_PERMISSION)
+    : Array.from(new Set([...currentPermissions, SERVICE_ACTIVATION_PERMISSION]));
+
+  return `
+    <button class="ghost-button compact" onclick='updateAdminUser("${admin._id}", { adminPermissions: ${JSON.stringify(nextPermissions)} })'>
+      ${hasActivation ? 'Remove Service Activation' : 'Allow Service Activation'}
+    </button>
+  `;
+}
+
+function renderClientContactToggle(admin) {
+  const currentPermissions = Array.isArray(admin.adminPermissions) ? admin.adminPermissions : [];
+  const roleGrantsContact = (rolePermissions[admin.adminRole || 'READ_ONLY_ADMIN'] || []).includes(CLIENT_CONTACT_PERMISSION);
+  if (roleGrantsContact) {
+    return '<span class="status good">Role grants client contact</span>';
+  }
+
+  const hasContactAccess = currentPermissions.includes(CLIENT_CONTACT_PERMISSION);
+  const nextPermissions = hasContactAccess
+    ? currentPermissions.filter((permission) => permission !== CLIENT_CONTACT_PERMISSION)
+    : Array.from(new Set([...currentPermissions, CLIENT_CONTACT_PERMISSION]));
+
+  return `
+    <button class="ghost-button compact" onclick='updateAdminUser("${admin._id}", { adminPermissions: ${JSON.stringify(nextPermissions)} })'>
+      ${hasContactAccess ? 'Remove Client Contact' : 'Allow Client Contact'}
+    </button>
   `;
 }
 
@@ -1828,6 +2307,11 @@ function renderSettings() {
         <article class="mini-card">
           <strong>Cities, Areas & Services</strong>
           <p>Control which services are active, coming soon, paused, or disabled for each city and area.</p>
+        </article>
+        <article class="mini-card">
+          <strong>Business Modules</strong>
+          <p>Managed Collection, Rental Property Listings, and future modules stay hidden while DISABLED, visible as COMING SOON, and bookable only when ACTIVE.</p>
+          <p>Keep marketplace modules on COMING SOON until their app screens, review workflow, and launch rules are ready.</p>
         </article>
         <article class="mini-card">
           <strong>Call-out Fees</strong>
@@ -1924,6 +2408,7 @@ function renderAddMarketForm() {
 
   return `
     <form class="settings-form" onsubmit="saveMarket(event, '')">
+      <p class="setting-help">Preloaded countries, including Zambia, are launch options from backend config. They are not client-bookable until saved here with ACTIVE country, city and service statuses.</p>
       <label>Country</label>
       <select name="countryCode" onchange="prefillMarketDefaults(this)">
         <option value="">Choose country</option>
@@ -1938,7 +2423,7 @@ function renderAddMarketForm() {
               data-callout="${marketView.defaultCalloutFee}"
               data-commission="${marketView.platformCommissionBps / 100}"
               data-providers="${escapeHtml((marketView.paymentProviders || []).join(', '))}"
-            >${escapeHtml(marketView.countryName)} (${escapeHtml(marketView.countryCode)})</option>
+            >${escapeHtml(marketView.countryName)} (${escapeHtml(marketView.countryCode)}) - setup option</option>
           `;
         }).join('')}
       </select>
@@ -2035,11 +2520,18 @@ function renderCityServiceEditor(rows = [], defaultServices = [], disabled = fal
   return `
     <details class="nested-settings" open>
       <summary>Cities & Services</summary>
-      <p class="setting-help">Add cities and choose exactly which services are available in each city.</p>
+      <p class="setting-help">Add cities and choose exactly which services are available in each city. COMING_SOON shows a non-bookable client card; ACTIVE requires super admin or service activation permission.</p>
+      <div class="status-legend">
+        <span class="status good">ACTIVE: bookable</span>
+        <span class="status warn">COMING SOON: visible, not clickable</span>
+        <span class="status warn">PAUSED: temporarily unavailable</span>
+        <span class="status bad">DISABLED: hidden</span>
+      </div>
+      ${renderServiceDefinitionDatalist()}
       <div data-city-service-list>
         ${normalizedRows.map((row) => renderCityServiceRow(row, disabled)).join('')}
       </div>
-      ${disabled ? '' : '<button class="ghost-button compact" type="button" onclick="addCityServiceRow(this)">Add City</button>'}
+      ${disabled ? '' : '<button class="ghost-button compact" type="button" onclick="addCityServiceRow(this)">Add another city</button>'}
     </details>
   `;
 }
@@ -2051,22 +2543,60 @@ function renderCityServiceRow(row, disabled = false) {
     ? row.services.join(', ')
     : '';
   const areas = Array.isArray(row.areas) ? row.areas : [];
+  const cityName = row.city || 'this city';
+  const serviceCounts = countStatuses(services);
+  const areaCounts = countStatuses(areas);
   return `
-    <div class="nested-row" data-city-service-row>
-      <input data-city placeholder="City" value="${escapeHtml(row.city || '')}" ${disabledAttr} />
-      <select data-city-status ${disabledAttr}>
-        ${['ACTIVE', 'COMING_SOON', 'PAUSED', 'DISABLED'].map((status) => `<option value="${status}" ${status === row.status ? 'selected' : ''}>${status}</option>`).join('')}
-      </select>
-      <input data-city-services placeholder="Legacy services CSV" value="${escapeHtml(legacyServices)}" ${disabledAttr} />
-      ${disabled ? '' : '<button class="danger-button compact" type="button" onclick="removeNestedRow(this)">Remove</button>'}
-      <div class="nested-sublist" data-service-entry-list>
-        ${services.map((service) => renderServiceEntryRow(service, disabled)).join('') || renderServiceEntryRow({ serviceKey: '', label: '', status: 'ACTIVE' }, disabled)}
+    <div class="city-service-card" data-city-service-row>
+      <div class="city-service-header">
+        <div>
+          <span class="eyebrow">City configuration</span>
+          <strong>${escapeHtml(cityName)}</strong>
+          <div class="status-chip-row">
+            <span class="status ${statusClass(row.status || 'ACTIVE')}">${escapeHtml(row.status || 'ACTIVE')}</span>
+            ${statusSummaryPills(serviceCounts)}
+            ${areas.length ? statusSummaryPills(areaCounts) : '<span class="status info">No areas</span>'}
+          </div>
+        </div>
+        ${disabled ? '' : '<button class="danger-button compact" type="button" onclick="removeNestedRow(this)">Remove city</button>'}
       </div>
-      ${disabled ? '' : '<button class="ghost-button compact" type="button" onclick="addServiceEntryRow(this)">Add Service</button>'}
-      <div class="nested-sublist" data-area-entry-list>
-        ${areas.map((area) => renderAreaEntryRow(area, disabled)).join('')}
+      <div class="city-row-grid">
+        <label>City
+          <input data-city placeholder="Johannesburg" value="${escapeHtml(row.city || '')}" ${disabledAttr} />
+        </label>
+        <label>City status
+          <select data-city-status ${disabledAttr}>
+            ${['ACTIVE', 'COMING_SOON', 'PAUSED', 'DISABLED'].map((status) => `<option value="${status}" ${status === row.status ? 'selected' : ''}>${status}</option>`).join('')}
+          </select>
+        </label>
+        <label>Legacy services CSV
+          <input data-city-services placeholder="Optional legacy fallback only" value="${escapeHtml(legacyServices)}" ${disabledAttr} />
+        </label>
       </div>
-      ${disabled ? '' : '<button class="ghost-button compact" type="button" onclick="addAreaEntryRow(this)">Add Area</button>'}
+      <div class="nested-section">
+        <div class="nested-section-header">
+          <strong>Services in ${escapeHtml(cityName)}</strong>
+          ${disabled ? '' : `<button class="ghost-button compact" type="button" onclick="addServiceEntryRow(this)">Add service to ${escapeHtml(cityName)}</button>`}
+        </div>
+        <div class="service-entry-head">
+          <span>Key</span><span>Display name</span><span>Status</span><span></span>
+        </div>
+        <div class="nested-sublist" data-service-entry-list>
+          ${services.map((service) => renderServiceEntryRow(service, disabled)).join('') || renderServiceEntryRow({ serviceKey: '', label: '', status: 'ACTIVE' }, disabled)}
+        </div>
+      </div>
+      <div class="nested-section">
+        <div class="nested-section-header">
+          <strong>Areas in ${escapeHtml(cityName)}</strong>
+          ${disabled ? '' : `<button class="ghost-button compact" type="button" onclick="addAreaEntryRow(this)">Add area to ${escapeHtml(cityName)}</button>`}
+        </div>
+        <div class="area-entry-head">
+          <span>Area</span><span>Status</span><span>Area-level service overrides</span><span></span>
+        </div>
+        <div class="nested-sublist" data-area-entry-list>
+          ${areas.map((area) => renderAreaEntryRow(area, disabled)).join('') || '<p class="setting-help tight">No area overrides. The city service statuses apply everywhere in this city.</p>'}
+        </div>
+      </div>
     </div>
   `;
 }
@@ -2077,13 +2607,22 @@ function renderServiceEntryRow(service, disabled = false) {
   const label = service.label || labelFromServiceKey(serviceKey);
   return `
     <div class="nested-row service-entry-row" data-service-entry-row>
-      <input data-service-key placeholder="service_key" value="${escapeHtml(serviceKey)}" ${disabledAttr} />
+      <input data-service-key list="service-key-options" placeholder="service_key" value="${escapeHtml(serviceKey)}" ${disabledAttr} />
       <input data-service-label placeholder="Display label" value="${escapeHtml(label)}" ${disabledAttr} />
       <select data-service-status ${disabledAttr}>
         ${['ACTIVE', 'COMING_SOON', 'PAUSED', 'DISABLED'].map((status) => `<option value="${status}" ${status === service.status ? 'selected' : ''}>${status}</option>`).join('')}
       </select>
       ${disabled ? '' : '<button class="danger-button compact" type="button" onclick="removeNestedRow(this)">Remove</button>'}
     </div>
+  `;
+}
+
+function renderServiceDefinitionDatalist() {
+  const definitions = normalizeServiceEntries(state.data.marketMeta.serviceDefinitions || []);
+  return `
+    <datalist id="service-key-options">
+      ${definitions.map((service) => `<option value="${escapeHtml(service.serviceKey)}">${escapeHtml(service.label)}</option>`).join('')}
+    </datalist>
   `;
 }
 
@@ -2139,7 +2678,7 @@ function renderProviderRow(row, disabled = false) {
 function addCityServiceRow(button) {
   const list = button.closest('.nested-settings')?.querySelector('[data-city-service-list]');
   if (!list) return;
-  list.insertAdjacentHTML('beforeend', renderCityServiceRow({ city: '', status: 'ACTIVE', services: '' }));
+  list.insertAdjacentHTML('beforeend', renderCityServiceRow({ city: '', status: 'ACTIVE', services: [] }));
 }
 
 function addServiceEntryRow(button) {
@@ -2162,7 +2701,7 @@ function addProviderRow(button) {
 }
 
 function removeNestedRow(button) {
-  button.closest('.nested-row')?.remove();
+  button.closest('.nested-row, .city-service-card')?.remove();
 }
 
 function setProviderRows(form, rows) {
@@ -2191,10 +2730,11 @@ function renderMarketForm(market) {
       <div class="market-card-header">
         <div>
           <strong>${escapeHtml(marketView.countryName)} (${escapeHtml(marketView.countryCode)})</strong>
-          <span>${escapeHtml(marketView.currency)} - ${marketView.hasCustomSettings ? 'custom settings' : 'default config'}</span>
+          <span>${escapeHtml(marketView.currency)} - ${marketView.hasCustomSettings ? 'custom settings' : 'default config'}${marketView.status === 'DISABLED' ? ' - not visible to clients' : ''}</span>
         </div>
         <span class="status ${statusClass(marketView.status)}">${escapeHtml(marketView.status || (marketView.enabled ? 'ACTIVE' : 'DISABLED'))}</span>
       </div>
+      ${marketStatusSummary(marketView)}
       <div class="form-grid">
         <div>
           <label>Status</label>
@@ -2400,10 +2940,13 @@ function render() {
 window.login = login;
 window.forgotPassword = forgotPassword;
 window.resetPassword = resetPassword;
+window.changePassword = changePassword;
 window.setAuthView = setAuthView;
 window.logout = logout;
 window.refresh = refresh;
 window.setView = setView;
+window.revealClientContact = revealClientContact;
+window.hideClientContact = hideClientContact;
 window.reviewTechnician = reviewTechnician;
 window.openBooking = openBooking;
 window.updateManagedCollectionReminder = updateManagedCollectionReminder;
@@ -2422,6 +2965,8 @@ window.retryNotification = retryNotification;
 window.cancelNotification = cancelNotification;
 window.createSubscriptionPlan = createSubscriptionPlan;
 window.generateSubscriptionInvoices = generateSubscriptionInvoices;
+window.createPromotion = createPromotion;
+window.updatePromotion = updatePromotion;
 window.saveMarket = saveMarket;
 window.createAdminUser = createAdminUser;
 window.updateAdminUser = updateAdminUser;
@@ -2434,11 +2979,19 @@ window.removeNestedRow = removeNestedRow;
 window.state = state;
 window.render = render;
 
-if (state.token) {
+setupIdleSecurity();
+
+if (state.token && state.user?.mustChangePassword) {
+  state.authView = 'changePassword';
+  render();
+} else if (state.token) {
   loadAllData().catch(() => {
     state.token = '';
     localStorage.removeItem('myfixer_admin_token');
-  }).finally(render);
+  }).finally(() => {
+    resetIdleTimer();
+    render();
+  });
 } else {
   render();
 }

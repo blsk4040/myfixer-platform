@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { initiateNativeCall } from '../../utils/communications';
 import socketService from '../../services/socket.service';
 import apiService, { JobQuote } from '../../services/api.service';
+import { getProviderRoleForService } from '../../utils/providerRole';
 
 interface TechnicianLocation {
   latitude: number;
@@ -29,13 +30,24 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
   const {
     bookingId,
     jobId,
-    techName = 'Assigned technician',
+    techName,
     techPhone = '',
     techPhotoUrl = '',
+    providerRole,
+    providerRoleCapitalized,
+    serviceKey,
+    applianceType,
     currentStatus = 'Dispatched',
     lastGpsUpdate = '',
   } = route?.params || {};
   const trackingId = bookingId ?? jobId;
+  const resolvedProviderRole = providerRole
+    ? {
+        singular: String(providerRole),
+        capitalized: String(providerRoleCapitalized || providerRole).charAt(0).toUpperCase() + String(providerRoleCapitalized || providerRole).slice(1),
+      }
+    : getProviderRoleForService(serviceKey, applianceType);
+  const displayProviderName = techName || `Assigned ${resolvedProviderRole.singular}`;
 
   const [isLoading, setIsLoading] = useState(true);
   const [techLocation, setTechLocation] = useState<TechnicianLocation | null>(null);
@@ -148,7 +160,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
         Alert.alert('Paystack checkout opened', 'Payment is confirmed only after MyFixer verifies it with Paystack.');
       } else {
         await apiService.rejectJobQuote(pendingQuote.id, 'Client rejected the quote in the app.');
-        Alert.alert('Quote Rejected', 'The technician has been notified.');
+        Alert.alert('Quote Rejected', `The ${resolvedProviderRole.singular} has been notified.`);
       }
       if (decision === 'REJECT') setPendingQuote(null);
     } catch (error: any) {
@@ -163,7 +175,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
     try {
       setIsQuoteDecisionLoading(true);
       await apiService.requestQuoteClarification(pendingQuote.id, 'Please clarify this quote before I approve it.');
-      Alert.alert('Clarification requested', 'The technician has been asked to send a revised quote.');
+      Alert.alert('Clarification requested', `The ${resolvedProviderRole.singular} has been asked to send a revised quote.`);
       setPendingQuote(null);
     } catch (error: any) {
       Alert.alert('Quote Error', error.message || 'Could not request clarification.');
@@ -200,6 +212,10 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
     }
   };
 
+  const paymentStatusLabel = typeof paymentStatus === 'string' && paymentStatus.trim()
+    ? paymentStatus.replace(/_/g, ' ')
+    : 'PENDING';
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -224,10 +240,10 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
           {techLocation ? (
             <View style={styles.techMarkerPulse}>
               <Text style={styles.markerIcon}>•</Text>
-              <Text style={styles.markerBadgeText}>{techName.split(' ')[0]}</Text>
+              <Text style={styles.markerBadgeText}>{displayProviderName.split(' ')[0]}</Text>
             </View>
           ) : (
-            <Text style={styles.searchingText}>Waiting for the technician's latest location...</Text>
+            <Text style={styles.searchingText}>Waiting for the {resolvedProviderRole.singular}'s latest location...</Text>
           )}
         </View>
       </View>
@@ -237,8 +253,8 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
           <View style={styles.identityContainer}>
             {techPhotoUrl ? <Image source={{ uri: techPhotoUrl }} style={styles.techAvatar} /> : null}
             <View style={styles.metaLeft}>
-              <Text style={styles.techNameText} numberOfLines={1}>{techName}</Text>
-              <Text style={styles.techMetaText}>Verified technician</Text>
+              <Text style={styles.techNameText} numberOfLines={1}>{displayProviderName}</Text>
+              <Text style={styles.techMetaText}>Verified {resolvedProviderRole.singular}</Text>
             </View>
             <View style={styles.etaBadgeSmall}>
               <Text style={styles.etaCalculatingText}>ETA calculating...</Text>
@@ -268,7 +284,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
             <TouchableOpacity
               style={[styles.actionButton, styles.chatButton]}
               activeOpacity={0.8}
-              onPress={() => Alert.alert('Chat Unavailable', 'Chat is not available for this booking yet. You can still call your technician.')}
+              onPress={() => Alert.alert('Chat Unavailable', `Chat is not available for this booking yet. You can still call your ${resolvedProviderRole.singular}.`)}
             >
               <Text style={styles.actionButtonText}>Chat</Text>
             </TouchableOpacity>
@@ -294,9 +310,9 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
         <View style={styles.quoteModalOverlay}>
           <View style={styles.quoteModalContent}>
             <Text style={styles.quoteTitle}>Approve Work Order {pendingQuote?.version ? `v${pendingQuote.version}` : ''}</Text>
-            <Text style={styles.quoteSubtitle}>Review the technician's quote before work continues.</Text>
+            <Text style={styles.quoteSubtitle}>Review the {resolvedProviderRole.singular}'s quote before work continues.</Text>
             <Text style={styles.quoteWarning}>Only pay through MyFixer. Payments made outside the app may not qualify for refunds, dispute support, invoices or service guarantees.</Text>
-            <Text style={styles.paymentStatusText}>Payment status: {paymentStatus.replace(/_/g, ' ')}</Text>
+            <Text style={styles.paymentStatusText}>Payment status: {paymentStatusLabel}</Text>
 
             <View style={styles.quoteLineList}>
               {pendingQuote?.lineItems.map((item, index) => (

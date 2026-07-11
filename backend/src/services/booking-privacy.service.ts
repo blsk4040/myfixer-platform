@@ -29,7 +29,21 @@ interface BookingLike {
   countryCode?: string;
   currency?: string;
   status?: string;
+  paymentStatus?: string;
+  inspection?: {
+    status?: string;
+    quoteRequired?: boolean;
+  };
+  workAuthorization?: {
+    status?: string;
+    reasonCode?: string;
+  };
   scheduledAt?: Date | string | null;
+  appointmentWindow?: {
+    isPreBook?: boolean;
+    scheduledStartTime?: Date | string | null;
+    scheduledEndTime?: Date | string | null;
+  };
   acceptedAt?: Date | string | null;
   createdAt?: Date | string;
   updatedAt?: Date | string;
@@ -115,8 +129,14 @@ export const serializeBookingForAssignedTechnician = (booking: BookingLike) => {
     serviceRecipient: recipient,
     customerPhone: recipient.phoneNumber || '',
     recipientPhone: recipient.phoneNumber || '',
-    scheduledAt: booking.scheduledAt ?? null,
+    scheduledAt: booking.scheduledAt ?? booking.appointmentWindow?.scheduledStartTime ?? null,
+    appointmentWindow: booking.appointmentWindow,
     status: booking.status,
+    paymentStatus: booking.paymentStatus,
+    inspectionStatus: booking.inspection?.status,
+    quoteRequired: booking.inspection?.quoteRequired,
+    workAuthorizationStatus: booking.workAuthorization?.status,
+    workAuthorizationReason: booking.workAuthorization?.reasonCode,
     technicianId: booking.technicianId ? String(booking.technicianId) : null,
     hasPreciseLocation: true,
     createdAt: booking.createdAt,

@@ -58,6 +58,10 @@ export interface CreateBookingRequest {
   area?: string;
   serviceKey?: string;
   category?: string;
+  scheduledStartTime?: string;
+  scheduledEndTime?: string;
+  preferredTechnicianId?: string;
+  rebookFromBookingId?: string;
   saveAsDefaultAddress?: boolean;
   isForSomeoneElse?: boolean;
   contactName?: string;
@@ -147,6 +151,7 @@ export interface ActiveBookingResponse {
 
 export interface BookingHistoryItem {
   id: string;
+  serviceKey?: string;
   applianceType: string;
   faultDescription?: string;
   status: BookingStatus;
@@ -394,6 +399,10 @@ class ApiService {
         area: payload.area,
         service_key: payload.serviceKey,
         category: payload.category,
+        scheduled_start_time: payload.scheduledStartTime,
+        scheduled_end_time: payload.scheduledEndTime,
+        preferred_technician_id: payload.preferredTechnicianId,
+        rebook_from_booking_id: payload.rebookFromBookingId,
         save_as_default_address: payload.saveAsDefaultAddress,
         service_recipient: payload.serviceRecipient,
         is_for_someone_else: payload.isForSomeoneElse,

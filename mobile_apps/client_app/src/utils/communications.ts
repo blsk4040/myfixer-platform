@@ -5,8 +5,8 @@ import { Linking, Alert, Platform } from 'react-native';
  * Invokes the system native phone application interface layer safely
  * @param phoneNumber Destination contact string (e.g., '+27821234567')
  */
-export const initiateNativeCall = (phoneNumber: string): void => {
-  if (!phoneNumber) {
+export const initiateNativeCall = (phoneNumber: unknown): void => {
+  if (typeof phoneNumber !== 'string' || !phoneNumber.trim()) {
     Alert.alert('Error', 'No valid communication number mapped for this specialist.');
     return;
   }

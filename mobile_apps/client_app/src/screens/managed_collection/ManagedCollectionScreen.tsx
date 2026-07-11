@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -31,6 +31,33 @@ export function ManagedCollectionScreen({ navigation }: any): React.JSX.Element 
   const [frequency, setFrequency] = useState<ManagedCollectionFrequency>('WEEKLY');
   const [preferredDay, setPreferredDay] = useState<ManagedCollectionDay>('MONDAY');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const countryCode = session?.user.countryCode;
+    const city = session?.user.location?.city || '';
+    if (!countryCode) return;
+
+    apiService.getMarketAvailability({
+      countryCode,
+      city,
+      area: session?.user.location?.area,
+    })
+      .then((result) => {
+        const managedCollection = result.availability.services.find((service) => service.serviceKey === 'managed_collection');
+        if (!managedCollection?.canBook) {
+          Alert.alert(
+            'Service Unavailable',
+            managedCollection?.message || 'Managed Collection Services are not available in your country yet.',
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
+        }
+      })
+      .catch(() => {
+        Alert.alert('Service Check Failed', 'Unable to confirm Managed Collection availability right now.', [
+          { text: 'OK', onPress: () => navigation.goBack() },
+        ]);
+      });
+  }, [navigation, session?.user.countryCode, session?.user.location?.area, session?.user.location?.city]);
 
   const toggleBin = (bin: ManagedCollectionBinColor) => {
     setBinPackage((current) => (
@@ -147,9 +174,11 @@ export function ManagedCollectionScreen({ navigation }: any): React.JSX.Element 
 }
 
 function OptionButton({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+  const displayLabel = typeof label === 'string' ? label.replace(/_/g, ' ') : '';
+
   return (
     <TouchableOpacity style={[styles.optionButton, selected && styles.optionButtonSelected]} onPress={onPress}>
-      <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{label.replace(/_/g, ' ')}</Text>
+      <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{displayLabel}</Text>
     </TouchableOpacity>
   );
 }

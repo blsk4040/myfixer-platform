@@ -24,6 +24,14 @@ interface SendPasswordResetEmailArgs {
   resetUrl: string;
 }
 
+interface SendStaffOnboardingEmailArgs {
+  recipientEmail: string;
+  name: string;
+  portalUrl: string;
+  username: string;
+  temporaryPassword: string;
+}
+
 interface SendEmailVerificationArgs {
   recipientEmail: string;
   name: string;
@@ -107,6 +115,39 @@ export class EmailService {
       return true;
     } catch (err) {
       console.error('Password reset email worker failed:', err);
+      return false;
+    }
+  }
+
+  static async sendStaffOnboardingEmail(args: SendStaffOnboardingEmailArgs): Promise<boolean> {
+    try {
+      if (!resend || !process.env.RESEND_FROM_EMAIL) {
+        return false;
+      }
+
+      const { error } = await resend.emails.send({
+        from: process.env.RESEND_FROM_EMAIL,
+        to: args.recipientEmail,
+        subject: 'Your MyFixer internal portal access',
+        html: `
+          <p>Hello ${args.name || 'there'},</p>
+          <p>Your MyFixer internal staff account has been created.</p>
+          <p><strong>Portal:</strong> <a href="${args.portalUrl}">${args.portalUrl}</a></p>
+          <p><strong>Username:</strong> ${args.username}</p>
+          <p><strong>Temporary password:</strong> ${args.temporaryPassword}</p>
+          <p>You will be asked to change this temporary password the first time you sign in.</p>
+          <p>If you were not expecting this account, contact MyFixer support immediately.</p>
+        `,
+      });
+
+      if (error) {
+        console.error('Staff onboarding email dispatch failed:', error);
+        return false;
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Staff onboarding email worker failed:', err);
       return false;
     }
   }

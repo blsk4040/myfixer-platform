@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 
 // 🚀 Upgraded JobStatus to include all operational evolution checkpoints
-export type JobStatus = 'IDLE' | 'ACCEPTED' | 'IN_ROUTE' | 'ARRIVED' | 'IN_PROGRESS' | 'DIAGNOSTIC_DONE' | 'COMPLETED';
+export type JobStatus = 'IDLE' | 'SCHEDULED' | 'ACCEPTED' | 'IN_ROUTE' | 'ARRIVED' | 'IN_PROGRESS' | 'DIAGNOSTIC_DONE' | 'COMPLETED';
 export type InspectionStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'NOT_REQUIRED';
 export type QuoteStatus =
   | 'NOT_REQUIRED'
@@ -90,6 +90,11 @@ interface JobStoreState {
   setOnlineStatus: (isOnline: boolean) => void;
   upsertIncomingJob: (jobPayload: JobPayload) => boolean;
   replaceIncomingJobs: (jobs: JobPayload[]) => void;
+  replaceJobBuckets: (buckets: {
+    activeJobs?: JobPayload[];
+    scheduledJobs?: JobPayload[];
+    completedJobs?: JobPayload[];
+  }) => void;
   removeIncomingJob: (jobId: string) => void;
   acceptJob: (jobPayload: JobPayload) => void;
   declineJob: (jobId: string) => void;
@@ -139,6 +144,26 @@ export const useJobStore = create<JobStoreState>((set) => ({
     ),
   }),
 
+  replaceJobBuckets: (buckets) => set((state) => {
+    const dedupe = (jobs: JobPayload[] = []) => Array.from(
+      new Map(jobs.filter((job) => job.id).map((job) => [job.id, job])).values()
+    );
+    const activeJobs = buckets.activeJobs ? dedupe(buckets.activeJobs) : state.activeJobs;
+    const scheduledJobs = buckets.scheduledJobs ? dedupe(buckets.scheduledJobs) : state.scheduledJobs;
+    const completedJobs = buckets.completedJobs ? dedupe(buckets.completedJobs) : state.completedJobs;
+    const currentJob = state.currentJob
+      ? activeJobs.find((job) => job.id === state.currentJob?.id) ?? state.currentJob
+      : activeJobs[0] ?? null;
+
+    return {
+      activeJobs,
+      scheduledJobs,
+      completedJobs,
+      currentJob,
+      jobStatus: currentJob?.jobStatus ?? (currentJob ? 'ACCEPTED' : 'IDLE'),
+    };
+  }),
+
   removeIncomingJob: (jobId) => set((state) => ({
     incomingJobs: state.incomingJobs.filter(j => j.id !== jobId)
   })),
@@ -176,8 +201,10 @@ export const useJobStore = create<JobStoreState>((set) => ({
 
   patchJob: (jobId, patch) => set((state) => {
     const patchOne = (job: JobPayload): JobPayload => job.id === jobId ? { ...job, ...patch } as JobPayload : job;
+    const patchedCurrentJob = state.currentJob && state.currentJob.id === jobId ? patchOne(state.currentJob) : state.currentJob;
     return {
-      currentJob: state.currentJob && state.currentJob.id === jobId ? patchOne(state.currentJob) : state.currentJob,
+      currentJob: patchedCurrentJob,
+      jobStatus: patchedCurrentJob && patchedCurrentJob.id === jobId && patch.jobStatus ? patch.jobStatus : state.jobStatus,
       activeJobs: state.activeJobs.map(patchOne),
       incomingJobs: state.incomingJobs.map(patchOne),
       scheduledJobs: state.scheduledJobs.map(patchOne),
@@ -223,7 +250,7 @@ export const useJobStore = create<JobStoreState>((set) => ({
     } 
     // Stage 4: Work in progress -> Collect Payment, close, and add to earnings.
     else if (job.jobStatus === 'IN_PROGRESS' || job.jobStatus === 'DIAGNOSTIC_DONE') {
-      const finalizedJob = { ...job, jobStatus: 'COMPLETED' as const, rating: 5 };
+      const finalizedJob = { ...job, jobStatus: 'COMPLETED' as const };
       
       return {
         currentJob: state.currentJob && state.currentJob.id === jobId ? null : state.currentJob,
@@ -243,7 +270,7 @@ export const useJobStore = create<JobStoreState>((set) => ({
     const targetJob = state.activeJobs.find(j => j.id === jobId) || state.currentJob;
     if (!targetJob) return {};
 
-    const finishedJob = { ...targetJob, jobStatus: 'COMPLETED' as const, rating: 5 };
+    const finishedJob = { ...targetJob, jobStatus: 'COMPLETED' as const };
 
     return {
       currentJob: null,

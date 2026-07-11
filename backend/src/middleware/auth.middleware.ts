@@ -9,6 +9,7 @@ const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
     AdminPermission.BOOKINGS_READ,
     AdminPermission.BOOKINGS_UPDATE,
     AdminPermission.TECHNICIANS_READ,
+    AdminPermission.CLIENTS_CONTACT_READ,
     AdminPermission.SETTINGS_READ,
   ],
   [AdminRole.DISPATCHER]: [
@@ -25,6 +26,7 @@ const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
     AdminPermission.OVERVIEW_READ,
     AdminPermission.BOOKINGS_READ,
     AdminPermission.TECHNICIANS_READ,
+    AdminPermission.CLIENTS_CONTACT_READ,
   ],
   [AdminRole.TECHNICIAN_REVIEWER]: [
     AdminPermission.OVERVIEW_READ,

@@ -13,5 +13,10 @@ module.exports = {
     SOCKET_URL: config.SOCKET_URL,
     ADMIN_PORTAL_URL: config.ADMIN_PORTAL_URL,
     APP_ENV: config.APP_ENV,
+    EAS_PROJECT_ID: process.env.EXPO_PUBLIC_EAS_PROJECT_ID || process.env.EAS_PROJECT_ID || '',
+    eas: {
+      ...(appJson.expo.extra?.eas || {}),
+      projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID || process.env.EAS_PROJECT_ID || '',
+    },
   },
 };

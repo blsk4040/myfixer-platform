@@ -59,6 +59,8 @@ const serializeSettlement = (settlement: IProviderSettlement) => ({
   holdReason: settlement.holdReason || '',
   payoutMethodId: settlement.payoutMethodId?.toString() || null,
   payoutTransactionId: settlement.payoutTransactionId?.toString() || null,
+  createdAt: settlement.createdAt,
+  updatedAt: settlement.updatedAt,
   metadata: settlement.metadata || {},
 });
 

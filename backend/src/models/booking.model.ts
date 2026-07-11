@@ -237,6 +237,7 @@ export interface IBooking extends Document {
     sentToTechnicians: mongoose.Types.ObjectId[];
     declinedByTechnicians: mongoose.Types.ObjectId[];
     acceptedByTechnician?: mongoose.Types.ObjectId | null;
+    preferredTechnicianId?: mongoose.Types.ObjectId | null;
   };
 
   metadata: Record<string, unknown>;
@@ -349,6 +350,12 @@ const DispatchSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: 'User',
       default: null,
+    },
+    preferredTechnicianId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true,
     },
   },
   { _id: false }

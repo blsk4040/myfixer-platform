@@ -22,6 +22,7 @@ import { RouteLine } from '../../components/maps/RouteLine';
 import { useJobRoute } from '../../hooks/useJobRoute';
 import { distanceMetersBetween } from '../../utils/distance';
 import { formatEta, formatTravelTime } from '../../utils/formatEta';
+import { getProviderRoleForService } from '../../utils/providerRole';
 
 // ✅ Clean type bypass declarations to silence strict SVGSVGElement type checking
 const Phone = LucidePhone as any;
@@ -105,6 +106,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
   const [customerLocation, setCustomerLocation] = useState<Coordinate | null>(initialCustomerCoordinate);
   const [technicianLocation, setTechnicianLocation] = useState<Coordinate | null>(null);
   const [technician, setTechnician] = useState<BookingDetails['technician'] | null>(null);
+  const [bookingService, setBookingService] = useState<{ serviceKey?: unknown; applianceType?: unknown }>({});
   const [isLoadingBooking, setIsLoadingBooking] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastLocationUpdatedAt, setLastLocationUpdatedAt] = useState<string | null>(null);
@@ -125,6 +127,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
         }
         if (isMounted) {
           setTechnician(booking.technician || null);
+          setBookingService({ serviceKey: booking.serviceKey, applianceType: booking.applianceType });
         }
       } catch (error) {
         if (isMounted) setErrorMessage(error instanceof Error ? error.message : 'Unable to load booking.');
@@ -199,6 +202,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
   const lastUpdatedText = lastLocationUpdatedAt
     ? new Date(lastLocationUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : 'Waiting';
+  const providerRole = getProviderRoleForService(bookingService.serviceKey, bookingService.applianceType);
 
   if (isLoadingBooking || !mapCenter || !customerLocation) {
     return (
@@ -241,7 +245,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
       <View style={styles.topStatusIndicator}>
         <View style={[styles.statusDot, { backgroundColor: technicianLocation ? '#00FF87' : '#38BDF8' }]} />
         <Text style={styles.topStatusText}>
-          {technicianLocation ? 'Live tracking verified specialist' : 'Dispatched: Finding live coordinates...'}
+          {technicianLocation ? `Live tracking verified ${providerRole.singular}` : 'Dispatched: Finding live coordinates...'}
         </Text>
       </View>
 
@@ -258,7 +262,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
             )}
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.providerName}>{technician?.name || (technicianLocation ? "Assigned Professional" : "Securing Nearest Fixer")}</Text>
+            <Text style={styles.providerName}>{technician?.name || (technicianLocation ? `Assigned ${providerRole.capitalized}` : `Securing nearest ${providerRole.singular}`)}</Text>
             <View style={styles.verificationBadgeRow}>
               <ShieldCheck color="#00FF87" size={14} />
               <Text style={styles.verificationText}>Verified MyFixer Pro</Text>
@@ -272,7 +276,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
           <MapPin color="#64748B" size={18} />
           <View style={styles.etaTextBlock}>
             <Text style={styles.etaText}>
-              {technicianLocation ? `Estimated travel time: ${travelTimeText}` : "Awaiting technician location..."}
+              {technicianLocation ? `Estimated travel time: ${travelTimeText}` : `Awaiting ${providerRole.singular} location...`}
             </Text>
             <Text style={styles.etaSubText}>
               {routeState.isLoading ? 'Calculating road route...' : `${distanceText} • Last update ${lastUpdatedText}`}

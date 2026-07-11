@@ -41,7 +41,8 @@ export const DEFAULT_SERVICE_DEFINITIONS: ServiceDefinition[] = [
   { serviceKey: 'gardening', label: 'Gardening', status: MarketStatus.ACTIVE },
   { serviceKey: 'maintenance', label: 'Maintenance', status: MarketStatus.ACTIVE },
   { serviceKey: 'automotive', label: 'Automotive', status: MarketStatus.ACTIVE },
-  { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.COMING_SOON },
+  { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.DISABLED },
+  { serviceKey: 'rental_property', label: 'Rental Property Listings', status: MarketStatus.DISABLED },
 ];
 
 const SERVICE_ALIASES: Record<string, string> = {
@@ -63,6 +64,19 @@ const SERVICE_ALIASES: Record<string, string> = {
   'garbage collection': 'managed_collection',
   'managed collection': 'managed_collection',
   'managed collection services': 'managed_collection',
+  rental: 'rental_property',
+  rentals: 'rental_property',
+  'rental property': 'rental_property',
+  'rental property listings': 'rental_property',
+  'property listing': 'rental_property',
+  'property listings': 'rental_property',
+  'property rental': 'rental_property',
+  'rental listing': 'rental_property',
+  'rental listings': 'rental_property',
+  landlord: 'rental_property',
+  landlords: 'rental_property',
+  'long term rental': 'rental_property',
+  'long term rentals': 'rental_property',
 };
 
 const statusPriority: Record<MarketStatus, number> = {

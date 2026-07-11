@@ -36,8 +36,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAdminAuditLogs = exports.updateAdminUser = exports.createAdminUser = exports.listAdminUsers = exports.updateAdminMarket = exports.getPublicMarketAvailability = exports.getPublicMarkets = exports.getAdminMarkets = exports.getAdminWalletTransactions = exports.getAdminInvoices = exports.getAdminQuotes = exports.updateTechnicianCapabilityStatus = exports.getAdminBookingById = exports.getAdminBookings = exports.getAdminOverview = void 0;
+exports.getAdminAuditLogs = exports.updateAdminPromotion = exports.createAdminPromotion = exports.listAdminPromotions = exports.updateAdminUser = exports.createAdminUser = exports.listAdminUsers = exports.updateAdminMarket = exports.getPublicMarketAvailability = exports.getPublicMarkets = exports.getAdminMarkets = exports.getAdminWalletTransactions = exports.getAdminInvoices = exports.getAdminQuotes = exports.updateTechnicianCapabilityStatus = exports.getAdminBookingById = exports.getAdminBookings = exports.revealAdminClientContact = exports.getAdminClients = exports.getAdminOverview = void 0;
 const bcrypt_1 = __importDefault(require("bcrypt"));
+const crypto_1 = __importDefault(require("crypto"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const booking_model_1 = __importStar(require("../models/booking.model"));
 const quote_model_1 = __importStar(require("../models/quote.model"));
@@ -50,6 +51,8 @@ const user_model_1 = __importStar(require("../models/user.model"));
 const market_config_1 = require("../config/market.config");
 const market_setting_model_1 = __importStar(require("../models/market-setting.model"));
 const audit_log_model_1 = __importDefault(require("../models/audit-log.model"));
+const promotion_model_1 = __importStar(require("../models/promotion.model"));
+const email_service_1 = require("../services/email/email.service");
 const service_availability_service_1 = require("../services/service-availability.service");
 const parseLimit = (value, fallback = 50) => {
     const parsed = Number(value);
@@ -57,16 +60,6 @@ const parseLimit = (value, fallback = 50) => {
         return fallback;
     return Math.min(Math.max(Math.floor(parsed), 1), 200);
 };
-const DEFAULT_SERVICE_CATEGORIES = [
-    'Cleaning',
-    'Plumbing',
-    'Electrical',
-    'Mechanic',
-    'Appliance Repair',
-    'Gardening',
-    'Painting',
-    'Pest Control',
-];
 const ADMIN_ROLE_PERMISSIONS = {
     [user_model_1.AdminRole.SUPER_ADMIN]: Object.values(user_model_1.AdminPermission),
     [user_model_1.AdminRole.OPERATIONS_MANAGER]: [
@@ -75,6 +68,7 @@ const ADMIN_ROLE_PERMISSIONS = {
         user_model_1.AdminPermission.BOOKINGS_UPDATE,
         user_model_1.AdminPermission.TECHNICIANS_READ,
         user_model_1.AdminPermission.TECHNICIANS_REVIEW,
+        user_model_1.AdminPermission.CLIENTS_CONTACT_READ,
         user_model_1.AdminPermission.SETTINGS_READ,
     ],
     [user_model_1.AdminRole.DISPATCHER]: [
@@ -91,6 +85,7 @@ const ADMIN_ROLE_PERMISSIONS = {
         user_model_1.AdminPermission.OVERVIEW_READ,
         user_model_1.AdminPermission.BOOKINGS_READ,
         user_model_1.AdminPermission.TECHNICIANS_READ,
+        user_model_1.AdminPermission.CLIENTS_CONTACT_READ,
     ],
     [user_model_1.AdminRole.TECHNICIAN_REVIEWER]: [
         user_model_1.AdminPermission.OVERVIEW_READ,
@@ -151,6 +146,48 @@ const logAdminAction = async (req, action, resourceType, resourceId, metadata = 
     });
 };
 const resolveAdminPermissions = (adminRole, extraPermissions = []) => Array.from(new Set([...(ADMIN_ROLE_PERMISSIONS[adminRole] || []), ...extraPermissions]));
+const normalizeAdminPermissionsInput = (value) => Array.isArray(value)
+    ? Array.from(new Set(value.filter((permission) => Object.values(user_model_1.AdminPermission).includes(permission))))
+    : [];
+const generateTemporaryPassword = () => `${crypto_1.default.randomBytes(9).toString('base64url')}A1!`;
+const normalizePromotionCode = (value) => String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+const optionalDate = (value) => {
+    if (!value)
+        return null;
+    const date = new Date(String(value));
+    return Number.isNaN(date.getTime()) ? null : date;
+};
+const normalizePromotionPayload = (body) => {
+    const discountType = Object.values(promotion_model_1.PromotionDiscountType).includes(body.discountType)
+        ? body.discountType
+        : promotion_model_1.PromotionDiscountType.PERCENTAGE;
+    const discountValue = Number(body.discountValue);
+    const countryCode = String(body.countryCode || '').trim().toUpperCase();
+    const currency = String(body.currency || '').trim().toUpperCase();
+    if (!Number.isFinite(discountValue) || discountValue <= 0) {
+        throw new Error('Discount value must be greater than zero.');
+    }
+    if (discountType === promotion_model_1.PromotionDiscountType.PERCENTAGE && discountValue > 100) {
+        throw new Error('Percentage discounts cannot exceed 100%.');
+    }
+    return {
+        name: String(body.name || '').trim(),
+        description: String(body.description || '').trim(),
+        status: Object.values(promotion_model_1.PromotionStatus).includes(body.status)
+            ? body.status
+            : promotion_model_1.PromotionStatus.ACTIVE,
+        discountType,
+        discountValue,
+        maxDiscountMinor: Number.isFinite(Number(body.maxDiscountMinor)) ? Number(body.maxDiscountMinor) : null,
+        minBookingAmountMinor: Number.isFinite(Number(body.minBookingAmountMinor)) ? Number(body.minBookingAmountMinor) : 0,
+        countryCode: Object.values(market_config_1.CountryCode).includes(countryCode) ? countryCode : null,
+        currency: Object.values(market_config_1.CurrencyCode).includes(currency) ? currency : null,
+        startsAt: optionalDate(body.startsAt),
+        expiresAt: optionalDate(body.expiresAt),
+        usageLimit: Number.isFinite(Number(body.usageLimit)) ? Number(body.usageLimit) : null,
+        perClientLimit: Number.isFinite(Number(body.perClientLimit)) ? Number(body.perClientLimit) : null,
+    };
+};
 const splitCsv = (value) => {
     if (Array.isArray(value))
         return value.map((item) => String(item).trim()).filter(Boolean);
@@ -201,6 +238,61 @@ const buildDefaultProviderSettings = (providers) => providers.map((provider, ind
     payoutEnabled: false,
     configReference: `${provider}_CONFIG_REF`,
 }));
+const serviceStatusScopeKey = (scope, serviceKey) => `${scope}:${serviceKey}`;
+const collectServiceStatuses = (args) => {
+    const statuses = new Map();
+    (0, service_availability_service_1.normalizeServiceEntries)(args.serviceCategories).forEach((service) => {
+        statuses.set(serviceStatusScopeKey('country', service.serviceKey), service.status);
+    });
+    safeJsonArray(args.cityServiceAvailability)
+        .map((row) => (0, service_availability_service_1.buildCityAvailability)(row, args.serviceCategories))
+        .filter((row) => Boolean(row))
+        .forEach((row) => {
+        row.services.forEach((service) => {
+            statuses.set(serviceStatusScopeKey(`city:${row.city.toLowerCase()}`, service.serviceKey), service.status);
+        });
+        row.areas.forEach((area) => {
+            area.services.forEach((service) => {
+                statuses.set(serviceStatusScopeKey(`area:${row.city.toLowerCase()}:${area.name.toLowerCase()}`, service.serviceKey), service.status);
+            });
+        });
+    });
+    return statuses;
+};
+const getServiceActivations = (nextStatuses, previousStatuses) => Array.from(nextStatuses.entries())
+    .filter(([key, status]) => status === market_setting_model_1.MarketStatus.ACTIVE && previousStatuses.get(key) !== market_setting_model_1.MarketStatus.ACTIVE)
+    .map(([key]) => key);
+const canActivateMarketServices = (admin) => Boolean(admin?.role === user_model_1.UserRole.ADMIN &&
+    ((admin.adminRole || user_model_1.AdminRole.SUPER_ADMIN) === user_model_1.AdminRole.SUPER_ADMIN ||
+        (Array.isArray(admin.adminPermissions) && admin.adminPermissions.includes(user_model_1.AdminPermission.MARKETS_SERVICES_ACTIVATE))));
+const adminHasPermission = (admin, permission) => {
+    if (!admin || admin.role !== user_model_1.UserRole.ADMIN)
+        return false;
+    const adminRole = Object.values(user_model_1.AdminRole).includes(admin.adminRole)
+        ? admin.adminRole
+        : user_model_1.AdminRole.READ_ONLY_ADMIN;
+    const allowed = new Set([
+        ...(ADMIN_ROLE_PERMISSIONS[adminRole] || []),
+        ...(Array.isArray(admin.adminPermissions) ? admin.adminPermissions : []),
+    ]);
+    return allowed.has(permission);
+};
+const maskEmail = (email) => {
+    const value = String(email || '').trim();
+    const [local, domain] = value.split('@');
+    if (!local || !domain)
+        return value ? 'hidden' : '';
+    const visible = local.slice(0, Math.min(2, local.length));
+    return `${visible}${'*'.repeat(Math.max(3, local.length - visible.length))}@${domain}`;
+};
+const maskPhone = (phone) => {
+    const value = String(phone || '').trim();
+    if (!value)
+        return '';
+    const digits = value.replace(/\D/g, '');
+    const last = digits.slice(-4);
+    return last ? `*** *** ${last}` : 'hidden';
+};
 const mergeMarketSetting = (setting) => {
     const identity = setting.identity || {};
     const pricing = setting.pricing || {};
@@ -362,6 +454,71 @@ const getAdminOverview = async (_req, res) => {
     }
 };
 exports.getAdminOverview = getAdminOverview;
+const getAdminClients = async (req, res) => {
+    try {
+        const limit = parseLimit(req.query.limit, 100);
+        const clients = await user_model_1.default.find({ role: user_model_1.UserRole.CUSTOMER })
+            .select('name email phone countryCode accountStatus isEmailVerified profileCompleted location createdAt updatedAt')
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .lean();
+        res.status(200).json({
+            success: true,
+            contactAccess: false,
+            clients: clients.map((client) => ({
+                ...client,
+                email: maskEmail(client.email),
+                phone: maskPhone(client.phone),
+                contactMasked: true,
+            })),
+        });
+    }
+    catch (error) {
+        console.error('Failed to load admin clients:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch clients.' });
+    }
+};
+exports.getAdminClients = getAdminClients;
+const revealAdminClientContact = async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+        res.status(400).json({ message: 'Invalid client id.' });
+        return;
+    }
+    try {
+        const admin = await getRequesterAdmin(req);
+        if (!adminHasPermission(admin, user_model_1.AdminPermission.CLIENTS_CONTACT_READ)) {
+            res.status(403).json({ message: 'You do not have permission to view client contact details.' });
+            return;
+        }
+        const client = await user_model_1.default.findOne({ _id: id, role: user_model_1.UserRole.CUSTOMER })
+            .select('name email phone')
+            .lean();
+        if (!client) {
+            res.status(404).json({ message: 'Client not found.' });
+            return;
+        }
+        await logAdminAction(req, 'client.contact.reveal', 'User', id, {
+            clientName: client.name,
+            revealTtlSeconds: 15,
+        });
+        res.status(200).json({
+            success: true,
+            contact: {
+                id: client._id,
+                name: client.name,
+                email: client.email,
+                phone: client.phone,
+                expiresInSeconds: 15,
+            },
+        });
+    }
+    catch (error) {
+        console.error('Failed to reveal client contact:', error);
+        res.status(500).json({ success: false, message: 'Failed to reveal client contact.' });
+    }
+};
+exports.revealAdminClientContact = revealAdminClientContact;
 const getAdminBookings = async (req, res) => {
     try {
         const limit = parseLimit(req.query.limit);
@@ -564,7 +721,7 @@ const getAdminMarkets = async (_req, res) => {
             availableMarkets: await getAvailableMarketOptions(),
             availableStatuses: Object.values(market_setting_model_1.MarketStatus),
             availablePaymentProviders: ['PAYSTACK', 'FLUTTERWAVE', 'MPESA', 'MTN_MOMO', 'AIRTEL_MONEY', 'YOCO', 'OZOW'],
-            defaultServiceCategories: DEFAULT_SERVICE_CATEGORIES,
+            defaultServiceCategories: service_availability_service_1.DEFAULT_SERVICE_DEFINITIONS,
             serviceDefinitions: service_availability_service_1.DEFAULT_SERVICE_DEFINITIONS,
         });
     }
@@ -619,6 +776,25 @@ const updateAdminMarket = async (req, res) => {
         const cityServiceAvailability = normalizeCityServiceAvailability(coverage.cityServiceAvailability ?? req.body.cityServiceAvailability);
         const paymentProviderSettings = normalizePaymentProviderSettings(payments.providerSettings ?? req.body.paymentProviderSettings);
         const actor = getActor(req);
+        const admin = await getRequesterAdmin(req);
+        const existingMarket = await market_setting_model_1.default.findOne({ 'identity.countryCode': countryCode }).lean();
+        const previousServiceStatuses = collectServiceStatuses({
+            serviceCategories: existingMarket?.coverage?.serviceCategories ?? [],
+            cityServiceAvailability: existingMarket?.coverage?.cityServiceAvailability ?? [],
+        });
+        const nextServiceStatuses = collectServiceStatuses({
+            serviceCategories,
+            cityServiceAvailability,
+        });
+        const serviceActivations = getServiceActivations(nextServiceStatuses, previousServiceStatuses);
+        if (serviceActivations.length && !canActivateMarketServices(admin)) {
+            res.status(403).json({
+                message: 'Only a super admin or an admin with service activation permission can activate services.',
+                requiredPermission: user_model_1.AdminPermission.MARKETS_SERVICES_ACTIVATE,
+                attemptedActivations: serviceActivations,
+            });
+            return;
+        }
         const requestedCurrency = typeof (identity.currency ?? req.body.currency) === 'string' && String(identity.currency ?? req.body.currency).trim()
             ? String(identity.currency ?? req.body.currency).trim().toUpperCase()
             : '';
@@ -687,6 +863,7 @@ const updateAdminMarket = async (req, res) => {
             enabled: market.identity.enabled,
             defaultCalloutFeeMinor: market.pricing.defaultCalloutFeeMinor,
             platformCommissionBps: market.pricing.platformCommissionBps,
+            serviceActivations,
         });
         res.status(200).json({ success: true, market });
     }
@@ -719,9 +896,9 @@ const createAdminUser = async (req, res) => {
             res.status(403).json({ message: 'Only a super admin can create admin users.' });
             return;
         }
-        const { name, email, phone, password, adminRole, countryCode, location } = req.body;
-        if (!name || !email || !phone || !password) {
-            res.status(400).json({ message: 'Name, email, phone, and password are required.' });
+        const { name, email, phone, password, adminRole, adminPermissions, countryCode, location } = req.body;
+        if (!name || !email || !phone) {
+            res.status(400).json({ message: 'Name, email, and phone are required.' });
             return;
         }
         const normalizedEmail = String(email).toLowerCase().trim();
@@ -731,7 +908,15 @@ const createAdminUser = async (req, res) => {
             return;
         }
         const selectedRole = Object.values(user_model_1.AdminRole).includes(adminRole) ? adminRole : user_model_1.AdminRole.READ_ONLY_ADMIN;
-        const baseMarket = market_config_1.MARKET_CONFIG[String(countryCode || 'ZA').toUpperCase()] ?? market_config_1.MARKET_CONFIG[market_config_1.CountryCode.ZA];
+        const requestedCountryCode = String(countryCode || 'ZA').toUpperCase();
+        const baseMarket = market_config_1.MARKET_CONFIG[requestedCountryCode];
+        if (!baseMarket) {
+            res.status(400).json({ message: 'This country is not configured as a MyFixer market yet. Add it in Settings before assigning staff to it.' });
+            return;
+        }
+        const temporaryPassword = typeof password === 'string' && password.trim().length >= 8
+            ? password
+            : generateTemporaryPassword();
         const admin = await user_model_1.default.create({
             name: String(name).trim(),
             email: normalizedEmail,
@@ -742,19 +927,31 @@ const createAdminUser = async (req, res) => {
             },
             countryCode: baseMarket.countryCode,
             currency: baseMarket.currency,
-            password: await bcrypt_1.default.hash(String(password), 10),
+            password: await bcrypt_1.default.hash(temporaryPassword, 10),
             role: user_model_1.UserRole.ADMIN,
             adminRole: selectedRole,
-            adminPermissions: resolveAdminPermissions(selectedRole),
+            adminPermissions: resolveAdminPermissions(selectedRole, normalizeAdminPermissionsInput(adminPermissions)),
             isActive: true,
+            mustChangePassword: true,
         });
+        const portalUrl = process.env.ADMIN_PORTAL_URL?.trim().replace(/\/$/, '') || '';
+        const onboardingEmailSent = portalUrl
+            ? await email_service_1.EmailService.sendStaffOnboardingEmail({
+                recipientEmail: admin.email,
+                name: admin.name,
+                portalUrl,
+                username: admin.email,
+                temporaryPassword,
+            })
+            : false;
         await logAdminAction(req, 'admin.create', 'User', admin._id.toString(), {
             email: admin.email,
             adminRole: admin.adminRole,
+            onboardingEmailSent,
         });
         const result = admin.toObject();
         delete result.password;
-        res.status(201).json({ success: true, admin: result });
+        res.status(201).json({ success: true, admin: result, onboardingEmailSent });
     }
     catch (error) {
         console.error('Admin create failed:', error);
@@ -773,10 +970,21 @@ const updateAdminUser = async (req, res) => {
             res.status(400).json({ message: 'Invalid admin id.' });
             return;
         }
+        const targetAdmin = await user_model_1.default.findOne({ _id: id, role: user_model_1.UserRole.ADMIN }).select('adminRole adminPermissions');
+        if (!targetAdmin) {
+            res.status(404).json({ message: 'Admin user not found.' });
+            return;
+        }
         const updates = {};
         if (Object.values(user_model_1.AdminRole).includes(req.body.adminRole)) {
+            const requestedPermissions = Array.isArray(req.body.adminPermissions)
+                ? normalizeAdminPermissionsInput(req.body.adminPermissions)
+                : normalizeAdminPermissionsInput(targetAdmin.adminPermissions);
             updates.adminRole = req.body.adminRole;
-            updates.adminPermissions = resolveAdminPermissions(req.body.adminRole);
+            updates.adminPermissions = resolveAdminPermissions(req.body.adminRole, requestedPermissions);
+        }
+        else if (Array.isArray(req.body.adminPermissions)) {
+            updates.adminPermissions = resolveAdminPermissions(targetAdmin.adminRole || user_model_1.AdminRole.READ_ONLY_ADMIN, normalizeAdminPermissionsInput(req.body.adminPermissions));
         }
         if (typeof req.body.isActive === 'boolean')
             updates.isActive = req.body.isActive;
@@ -785,10 +993,6 @@ const updateAdminUser = async (req, res) => {
         if (typeof req.body.phone === 'string' && req.body.phone.trim())
             updates.phone = req.body.phone.trim();
         const admin = await user_model_1.default.findOneAndUpdate({ _id: id, role: user_model_1.UserRole.ADMIN }, updates, { new: true, runValidators: true }).select('-password');
-        if (!admin) {
-            res.status(404).json({ message: 'Admin user not found.' });
-            return;
-        }
         await logAdminAction(req, 'admin.update', 'User', id, updates);
         res.status(200).json({ success: true, admin });
     }
@@ -797,6 +1001,79 @@ const updateAdminUser = async (req, res) => {
     }
 };
 exports.updateAdminUser = updateAdminUser;
+const listAdminPromotions = async (_req, res) => {
+    try {
+        const promotions = await promotion_model_1.default.find().sort({ createdAt: -1 }).limit(200).lean();
+        res.status(200).json({
+            success: true,
+            promotions,
+            discountTypes: Object.values(promotion_model_1.PromotionDiscountType),
+            statuses: Object.values(promotion_model_1.PromotionStatus),
+        });
+    }
+    catch (error) {
+        console.error('Failed to load promotions:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch promotions.' });
+    }
+};
+exports.listAdminPromotions = listAdminPromotions;
+const createAdminPromotion = async (req, res) => {
+    try {
+        const actor = getActor(req);
+        const code = normalizePromotionCode(req.body.code);
+        const payload = normalizePromotionPayload(req.body);
+        if (!code) {
+            res.status(400).json({ message: 'Promo code is required.' });
+            return;
+        }
+        if (!payload.name) {
+            res.status(400).json({ message: 'Promotion name is required.' });
+            return;
+        }
+        const promotion = await promotion_model_1.default.create({
+            ...payload,
+            code,
+            createdBy: actor?.id,
+            updatedBy: actor?.id,
+        });
+        await logAdminAction(req, 'promotion.create', 'Promotion', promotion._id.toString(), {
+            code: promotion.code,
+            discountType: promotion.discountType,
+            discountValue: promotion.discountValue,
+        });
+        res.status(201).json({ success: true, promotion });
+    }
+    catch (error) {
+        if (error?.code === 11000) {
+            res.status(409).json({ message: 'A promotion with this code already exists.' });
+            return;
+        }
+        res.status(400).json({ success: false, message: error.message || 'Failed to create promotion.' });
+    }
+};
+exports.createAdminPromotion = createAdminPromotion;
+const updateAdminPromotion = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose_1.default.Types.ObjectId.isValid(id)) {
+            res.status(400).json({ message: 'Invalid promotion id.' });
+            return;
+        }
+        const actor = getActor(req);
+        const updates = normalizePromotionPayload(req.body);
+        const promotion = await promotion_model_1.default.findByIdAndUpdate(id, { $set: { ...updates, updatedBy: actor?.id } }, { new: true, runValidators: true });
+        if (!promotion) {
+            res.status(404).json({ message: 'Promotion not found.' });
+            return;
+        }
+        await logAdminAction(req, 'promotion.update', 'Promotion', id, updates);
+        res.status(200).json({ success: true, promotion });
+    }
+    catch (error) {
+        res.status(400).json({ success: false, message: error.message || 'Failed to update promotion.' });
+    }
+};
+exports.updateAdminPromotion = updateAdminPromotion;
 const getAdminAuditLogs = async (req, res) => {
     try {
         const logs = await audit_log_model_1.default.find()

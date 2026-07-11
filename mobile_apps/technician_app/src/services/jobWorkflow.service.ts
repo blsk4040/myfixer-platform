@@ -4,6 +4,22 @@ import { TrackingService } from './TrackingService';
 import { NotificationService } from './notification.service';
 import { AssignedBookingDetails, JobPayload, PrivacySafeIncomingJob, useJobStore } from '../store/useJobStore';
 
+const normalizeJobStatus = (status: unknown): JobPayload['jobStatus'] | undefined => {
+  const value = typeof status === 'string' ? status : '';
+  if (
+    value === 'SCHEDULED' ||
+    value === 'ACCEPTED' ||
+    value === 'IN_ROUTE' ||
+    value === 'ARRIVED' ||
+    value === 'IN_PROGRESS' ||
+    value === 'DIAGNOSTIC_DONE' ||
+    value === 'COMPLETED'
+  ) {
+    return value;
+  }
+  return undefined;
+};
+
 export function normalizeJobPayload(payload: any): JobPayload {
   const priceMinor = Number(payload.priceMinor);
   const rawPrice = Number(payload.callOutFee ?? payload.price);
@@ -28,6 +44,7 @@ export function normalizeJobPayload(payload: any): JobPayload {
       distance: payload.distanceText || payload.distance || 'Nearby',
       generalArea: payload.approximateArea || payload.generalArea || 'Local Area',
       scheduledTime: payload.scheduledAt || payload.scheduledTime,
+      jobStatus: normalizeJobStatus(payload.status || payload.jobStatus),
       hasPreciseLocation: false,
     };
     return incoming;
@@ -44,6 +61,13 @@ export function normalizeJobPayload(payload: any): JobPayload {
     longitude: Number(payload.longitude),
     distance: payload.distanceText || payload.distance || 'Nearby',
     generalArea: payload.generalArea || 'Local Area',
+    scheduledTime: payload.scheduledAt || payload.scheduledTime || payload.appointmentWindow?.scheduledStartTime,
+    jobStatus: normalizeJobStatus(payload.status || payload.jobStatus),
+    inspectionStatus: payload.inspectionStatus,
+    quoteRequired: payload.quoteRequired,
+    paymentStatus: payload.paymentStatus,
+    workAuthorizationStatus: payload.workAuthorizationStatus,
+    workAuthorizationReason: payload.workAuthorizationReason,
     customerName: payload.customerName || 'Client',
     fullAddress: payload.fullAddress || '',
     complexDetails: payload.complexDetails || '',
@@ -59,6 +83,15 @@ export async function refreshAvailableJobs(): Promise<void> {
   useJobStore.getState().replaceIncomingJobs(
     Array.isArray(response.jobs) ? response.jobs.map(normalizeJobPayload) : []
   );
+}
+
+export async function refreshTechnicianJobBuckets(): Promise<void> {
+  const response = await apiService.getTechnicianJobs();
+  useJobStore.getState().replaceJobBuckets({
+    activeJobs: Array.isArray(response.activeJobs) ? response.activeJobs.map(normalizeJobPayload) : [],
+    scheduledJobs: Array.isArray(response.scheduledJobs) ? response.scheduledJobs.map(normalizeJobPayload) : [],
+    completedJobs: Array.isArray(response.completedJobs) ? response.completedJobs.map(normalizeJobPayload) : [],
+  });
 }
 
 export async function acceptBookingWorkflow(job: JobPayload, technicianId?: string): Promise<void> {

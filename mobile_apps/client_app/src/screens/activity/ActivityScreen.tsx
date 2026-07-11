@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ShieldAlert } from 'lucide-react-native';
 import { LiveTrackScreen } from '../tracking/LiveTrackScreen';
 import apiService, { BookingDetails } from '../../services/api.service';
+import { getProviderRoleForService } from '../../utils/providerRole';
 
 export function ActivityScreen({ navigation }: any): React.JSX.Element {
   const [checkingActiveJobs, setCheckingActiveJobs] = useState<boolean>(true);
@@ -48,12 +49,17 @@ export function ActivityScreen({ navigation }: any): React.JSX.Element {
 
   if (activeJob) {
     const technician = activeJob.technician;
+    const providerRole = getProviderRoleForService(activeJob.serviceKey, activeJob.applianceType);
     const routeObject = {
       params: {
         bookingId: activeJob.id,
-        techName: technician?.name || 'Assigned technician',
+        techName: technician?.name || `Assigned ${providerRole.singular}`,
         techPhone: technician?.phone || '',
         techPhotoUrl: technician?.profilePhotoUrl || '',
+        providerRole: providerRole.singular,
+        providerRoleCapitalized: providerRole.capitalized,
+        serviceKey: activeJob.serviceKey,
+        applianceType: activeJob.applianceType,
         currentStatus: activeJob.status,
         lastGpsUpdate: (technician as any)?.lastGpsUpdate || activeJob.updatedAt,
       },

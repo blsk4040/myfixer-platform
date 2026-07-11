@@ -22,7 +22,8 @@ import {
   Wrench as LucideWrench,
   Paintbrush as LucidePaintbrush,
   Sprout as LucideSprout,
-  Hammer as LucideHammer
+  Hammer as LucideHammer,
+  Home as LucideHome
 } from 'lucide-react-native';
 import apiService, { ServiceAvailabilityItem } from '../../services/api.service';
 import authService from '../../services/auth.service';
@@ -35,6 +36,7 @@ const Wrench = LucideWrench as any;
 const Paintbrush = LucidePaintbrush as any;
 const Sprout = LucideSprout as any;
 const Hammer = LucideHammer as any;
+const Home = LucideHome as any;
 
 // 📁 Asset registrations
 const FridgeIcon = require('../../assets/services/appliance-repair.png');
@@ -195,6 +197,17 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         { name: 'GENERAL_WASTE', basePrice: 0 },
       ],
     },
+    rental_property: {
+      id: 'rental_property',
+      title: 'Rental Property Listings',
+      subtitle: 'Long-term rentals from verified landlords',
+      icon: Home,
+      isCustomImage: false,
+      color: '#8B5CF6',
+      subCategories: [
+        { name: 'Rental Property Listing', basePrice: 0 },
+      ],
+    },
   };
 
   useEffect(() => {
@@ -260,6 +273,14 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
 
     if (category.serviceKey === 'managed_collection') {
       navigation.navigate('ManagedCollection');
+      return;
+    }
+
+    if (category.serviceKey === 'rental_property') {
+      Alert.alert(
+        'Property Listings Coming Soon',
+        'Rental Property Listings are prepared in your market settings, but the landlord listing and browsing module is not released in this app version yet.'
+      );
       return;
     }
 

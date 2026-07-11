@@ -2,7 +2,6 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Location from 'expo-location';
 import NetInfo from '@react-native-community/netinfo';
 
 import { IncomingJobsTab } from './IncomingJobsTab';
@@ -48,45 +47,6 @@ export function JobsScreen(): React.JSX.Element {
 
     return () => unsubscribe();
   }, [advanceJobStatus, clearQueue, queue, socket]);
-
-  useEffect(() => {
-    let locationSubscription: Location.LocationSubscription | null = null;
-
-    async function startTrackingTechnician() {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Location access needed',
-          'Turn on location permissions so clients can see when you are on the way.'
-        );
-        return;
-      }
-
-      locationSubscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 5000,
-          distanceInterval: 10,
-        },
-        (location) => {
-          const { latitude, longitude } = location.coords;
-          console.log(`Sending location update: Lat ${latitude}, Lon ${longitude}`);
-
-          if (isConnected && socket && typeof socket.emit === 'function') {
-            socket.emit('technician_moved', { latitude, longitude });
-          }
-        }
-      );
-    }
-
-    void startTrackingTechnician();
-
-    return () => {
-      if (locationSubscription) {
-        locationSubscription.remove();
-      }
-    };
-  }, [socket, isConnected]);
 
   const renderTabContent = () => {
     switch (activeTab) {

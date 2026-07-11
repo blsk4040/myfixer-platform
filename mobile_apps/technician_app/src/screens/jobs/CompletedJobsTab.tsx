@@ -23,7 +23,7 @@ export function CompletedJobsTab(): React.JSX.Element {
           <View style={styles.row}>
             <View>
               <Text style={styles.applianceText}>{job.applianceType}</Text>
-              <Text style={styles.ratingText}>5.0 rating</Text>
+              <Text style={styles.ratingText}>{typeof job.rating === 'number' ? `${job.rating.toFixed(1)} rating` : 'Awaiting customer review'}</Text>
             </View>
             <Text style={styles.payoutText}>+{job.currency} {job.price}</Text>
           </View>

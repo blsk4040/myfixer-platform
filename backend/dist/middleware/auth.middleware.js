@@ -46,6 +46,7 @@ const ADMIN_ROLE_PERMISSIONS = {
         user_model_1.AdminPermission.BOOKINGS_READ,
         user_model_1.AdminPermission.BOOKINGS_UPDATE,
         user_model_1.AdminPermission.TECHNICIANS_READ,
+        user_model_1.AdminPermission.CLIENTS_CONTACT_READ,
         user_model_1.AdminPermission.SETTINGS_READ,
     ],
     [user_model_1.AdminRole.DISPATCHER]: [
@@ -62,6 +63,7 @@ const ADMIN_ROLE_PERMISSIONS = {
         user_model_1.AdminPermission.OVERVIEW_READ,
         user_model_1.AdminPermission.BOOKINGS_READ,
         user_model_1.AdminPermission.TECHNICIANS_READ,
+        user_model_1.AdminPermission.CLIENTS_CONTACT_READ,
     ],
     [user_model_1.AdminRole.TECHNICIAN_REVIEWER]: [
         user_model_1.AdminPermission.OVERVIEW_READ,

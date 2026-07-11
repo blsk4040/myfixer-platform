@@ -203,6 +203,12 @@ const DispatchSchema = new mongoose_1.Schema({
         ref: 'User',
         default: null,
     },
+    preferredTechnicianId: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+        index: true,
+    },
 }, { _id: false });
 const ServiceRecipientSchema = new mongoose_1.Schema({
     type: {
