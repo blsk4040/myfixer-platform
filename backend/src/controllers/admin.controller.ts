@@ -185,6 +185,50 @@ const normalizePromotionPayload = (body: Record<string, unknown>) => {
   };
 };
 
+const normalizePromotionPatchPayload = (body: Record<string, unknown>) => {
+  const updates: Record<string, unknown> = {};
+
+  if (body.name !== undefined) updates.name = String(body.name || '').trim();
+  if (body.description !== undefined) updates.description = String(body.description || '').trim();
+  if (body.status !== undefined) {
+    updates.status = Object.values(PromotionStatus).includes(body.status as PromotionStatus)
+      ? body.status as PromotionStatus
+      : PromotionStatus.ACTIVE;
+  }
+  if (body.discountType !== undefined) {
+    updates.discountType = Object.values(PromotionDiscountType).includes(body.discountType as PromotionDiscountType)
+      ? body.discountType as PromotionDiscountType
+      : PromotionDiscountType.PERCENTAGE;
+  }
+  if (body.discountValue !== undefined) {
+    const discountValue = Number(body.discountValue);
+    if (!Number.isFinite(discountValue) || discountValue <= 0) {
+      throw new Error('Discount value must be greater than zero.');
+    }
+    if (updates.discountType === PromotionDiscountType.PERCENTAGE && discountValue > 100) {
+      throw new Error('Percentage discounts cannot exceed 100%.');
+    }
+    updates.discountValue = discountValue;
+  }
+
+  if (body.maxDiscountMinor !== undefined) updates.maxDiscountMinor = Number.isFinite(Number(body.maxDiscountMinor)) ? Number(body.maxDiscountMinor) : null;
+  if (body.minBookingAmountMinor !== undefined) updates.minBookingAmountMinor = Number.isFinite(Number(body.minBookingAmountMinor)) ? Number(body.minBookingAmountMinor) : 0;
+  if (body.countryCode !== undefined) {
+    const countryCode = String(body.countryCode || '').trim().toUpperCase();
+    updates.countryCode = Object.values(CountryCode).includes(countryCode as CountryCode) ? countryCode : null;
+  }
+  if (body.currency !== undefined) {
+    const currency = String(body.currency || '').trim().toUpperCase();
+    updates.currency = Object.values(CurrencyCode).includes(currency as CurrencyCode) ? currency : null;
+  }
+  if (body.startsAt !== undefined) updates.startsAt = optionalDate(body.startsAt);
+  if (body.expiresAt !== undefined) updates.expiresAt = optionalDate(body.expiresAt);
+  if (body.usageLimit !== undefined) updates.usageLimit = Number.isFinite(Number(body.usageLimit)) ? Number(body.usageLimit) : null;
+  if (body.perClientLimit !== undefined) updates.perClientLimit = Number.isFinite(Number(body.perClientLimit)) ? Number(body.perClientLimit) : null;
+
+  return updates;
+};
+
 const splitCsv = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
   if (typeof value !== 'string') return [];
@@ -1165,7 +1209,7 @@ export const updateAdminPromotion = async (req: Request, res: Response): Promise
     }
 
     const actor = getActor(req);
-    const updates = normalizePromotionPayload(req.body);
+    const updates = normalizePromotionPatchPayload(req.body);
     const promotion = await Promotion.findByIdAndUpdate(
       id,
       { $set: { ...updates, updatedBy: actor?.id } },

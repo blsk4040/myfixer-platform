@@ -191,6 +191,18 @@ const calculatePromotionDiscount = async (args: {
     throw new Error('Promo code usage limit has been reached.');
   }
 
+  if (promotion.perClientLimit !== null && promotion.perClientLimit !== undefined) {
+    const clientUsageCount = await Booking.countDocuments({
+      customerId: new mongoose.Types.ObjectId(args.customerId),
+      'metadata.promotion.promotionId': promotion._id.toString(),
+      status: { $ne: BookingStatus.CANCELLED },
+    });
+
+    if (clientUsageCount >= promotion.perClientLimit) {
+      throw new Error('Promo code has already been used by this account.');
+    }
+  }
+
   if (args.amountMinor < promotion.minBookingAmountMinor) {
     throw new Error('Promo code minimum booking amount has not been met.');
   }

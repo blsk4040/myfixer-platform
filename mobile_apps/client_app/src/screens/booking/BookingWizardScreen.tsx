@@ -59,6 +59,7 @@ export default function BookingWizardScreen() {
   const isPreferredProviderRebook = Boolean(preferredTechnicianId && rebookFromBookingId);
 
   const [notes, setNotes] = useState('');
+  const [promoCode, setPromoCode] = useState('');
   const [scheduleMode, setScheduleMode] = useState<'NOW' | 'LATER'>('NOW');
   
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -218,6 +219,7 @@ export default function BookingWizardScreen() {
         area: selectedLocation.area || suburb.trim() || profile?.location?.area,
         serviceKey: serviceKey || category,
         category,
+        promoCode: promoCode.trim() || undefined,
         scheduledStartTime: scheduleMode === 'LATER' ? selectedDate.toISOString() : undefined,
         scheduledEndTime: scheduledEndTime ? scheduledEndTime.toISOString() : undefined,
         preferredTechnicianId,
@@ -371,6 +373,17 @@ export default function BookingWizardScreen() {
                 onChangeText={setNotes}
               />
 
+              <Text style={styles.sectionTitle}>Promo Code</Text>
+              <TextInput
+                style={styles.promoInput}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                placeholder="Optional, e.g. FIXER50"
+                placeholderTextColor="#475569"
+                value={promoCode}
+                onChangeText={(value) => setPromoCode(value.toUpperCase())}
+              />
+
               <Text style={styles.sectionTitle}>When should we arrive?</Text>
               <View style={styles.timeToggleRow}>
                 <TouchableOpacity style={[styles.toggleBtn, scheduleMode === 'NOW' && styles.toggleBtnActive]} onPress={() => setScheduleMode('NOW')}>
@@ -479,6 +492,7 @@ const styles = StyleSheet.create({
   formContainer: { gap: 20 },
   sectionTitle: { color: '#94A3B8', fontSize: 13, fontWeight: '700' },
   instructionInput: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 16, color: '#FFFFFF', fontSize: 14, minHeight: 90, textAlignVertical: 'top' },
+  promoInput: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 16, color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 0 },
   addressRow: { flexDirection: 'row', gap: 12 },
   addressInput: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 14, color: '#FFFFFF', fontSize: 14 },
   defaultAddressNotice: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 12, gap: 8 },

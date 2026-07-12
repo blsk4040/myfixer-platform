@@ -58,6 +58,7 @@ export interface CreateBookingRequest {
   area?: string;
   serviceKey?: string;
   category?: string;
+  promoCode?: string;
   scheduledStartTime?: string;
   scheduledEndTime?: string;
   preferredTechnicianId?: string;
@@ -399,6 +400,7 @@ class ApiService {
         area: payload.area,
         service_key: payload.serviceKey,
         category: payload.category,
+        promo_code: payload.promoCode,
         scheduled_start_time: payload.scheduledStartTime,
         scheduled_end_time: payload.scheduledEndTime,
         preferred_technician_id: payload.preferredTechnicianId,

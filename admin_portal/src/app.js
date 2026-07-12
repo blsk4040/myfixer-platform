@@ -8,6 +8,31 @@ function resolveApiBaseUrl() {
 
 let API_BASE_URL = resolveApiBaseUrl();
 
+function resolveApiHealthUrl() {
+  try {
+    const url = new URL(API_BASE_URL);
+    url.pathname = url.pathname.replace(/\/api\/v1\/?$/, '/api/health');
+    if (!url.pathname.endsWith('/api/health')) url.pathname = '/api/health';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return API_BASE_URL.replace(/\/api\/v1\/?$/, '/api/health');
+  }
+}
+
+function resolveApiEnvironment() {
+  try {
+    const url = new URL(API_BASE_URL);
+    const host = url.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return 'Local';
+    if (host.includes('staging') || host.includes('stage') || host.includes('test') || host.includes('dev')) return 'Staging';
+    return 'Production';
+  } catch {
+    return 'API';
+  }
+}
+
 const state = {
   token: localStorage.getItem('myfixer_admin_token') || '',
   user: JSON.parse(localStorage.getItem('myfixer_admin_user') || 'null'),
@@ -17,6 +42,13 @@ const state = {
   loading: false,
   error: '',
   idleWarning: '',
+  apiHealth: {
+    status: 'checking',
+    environment: resolveApiEnvironment(),
+    responseMs: null,
+    checkedAt: null,
+    message: 'Checking API connection',
+  },
   revealedClientContacts: {},
   revealTimers: {},
   collectionOperationFilters: {
@@ -129,8 +161,13 @@ const CLIENT_CONTACT_PERMISSION = 'clients.contact.read';
 const CLIENT_CONTACT_REVEAL_SECONDS = 15;
 const IDLE_TIMEOUT_MS = 8 * 60 * 1000;
 const IDLE_WARNING_MS = 60 * 1000;
+const API_HEALTH_INTERVAL_MS = 60 * 1000;
+const API_HEALTH_SLOW_MS = 1500;
+const API_HEALTH_TIMEOUT_MS = 5000;
 let idleWarningTimer = null;
 let idleLogoutTimer = null;
+let clockTimer = null;
+let apiHealthTimer = null;
 
 const FALLBACK_COUNTRIES = [
   ['ZA', 'South Africa'], ['GH', 'Ghana'], ['NG', 'Nigeria'], ['KE', 'Kenya'], ['UG', 'Uganda'], ['TZ', 'Tanzania'], ['RW', 'Rwanda'], ['ZM', 'Zambia'],
@@ -192,24 +229,29 @@ function getCountryOptions() {
   const knownMarkets = new Map([
     ...state.data.markets.map((market) => {
       const view = getMarketView(market);
-      return [view.countryCode, view.countryName || view.countryCode];
+      return [view.countryCode, { name: view.countryName || view.countryCode, currency: view.currency || '' }];
     }),
-    ...state.data.marketMeta.availableMarkets.map((market) => [market.countryCode, market.countryName || market.countryCode]),
+    ...state.data.marketMeta.availableMarkets.map((market) => {
+      const view = getMarketView(market);
+      const countryCode = view.countryCode || market.countryCode || '';
+      return [countryCode, { name: view.countryName || market.countryName || countryCode, currency: view.currency || market.currency || '' }];
+    }),
   ]);
 
   return source
     .map(([code, name]) => ({
       code,
-      name,
+      name: knownMarkets.get(code)?.name || name,
+      currency: knownMarkets.get(code)?.currency || '',
       supported: knownMarkets.has(code),
-      label: `${name} (${code})${knownMarkets.has(code) ? '' : ' - not configured'}`,
+      label: `${knownMarkets.get(code)?.name || name} (${code})${knownMarkets.has(code) ? '' : ' - not configured'}`,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function renderCountryOptions(selected = '') {
   return getCountryOptions()
-    .map((country) => `<option value="${escapeHtml(country.code)}" ${country.code === selected ? 'selected' : ''}>${escapeHtml(country.label)}</option>`)
+    .map((country) => `<option value="${escapeHtml(country.code)}" data-currency="${escapeHtml(country.currency || '')}" ${country.code === selected ? 'selected' : ''}>${escapeHtml(country.label)}</option>`)
     .join('');
 }
 
@@ -358,6 +400,100 @@ function statusClass(status) {
   if (normalized.includes('reject') || normalized.includes('fail') || normalized.includes('suspend') || normalized.includes('cancel') || normalized.includes('disabled')) return 'bad';
   if (normalized.includes('pending') || normalized.includes('unpaid') || normalized.includes('review') || normalized.includes('soon') || normalized.includes('paused')) return 'warn';
   return 'info';
+}
+
+function apiHealthStatusClass() {
+  if (state.apiHealth.status === 'connected') return 'good';
+  if (state.apiHealth.status === 'slow') return 'warn';
+  if (state.apiHealth.status === 'unreachable') return 'bad';
+  return 'info';
+}
+
+function apiHealthLabel() {
+  const health = state.apiHealth || {};
+  const environment = health.environment || resolveApiEnvironment();
+  const response = typeof health.responseMs === 'number' ? ` (${health.responseMs}ms)` : '';
+  return health.status === 'unreachable'
+    ? `${environment} API Unreachable`
+    : health.status === 'slow'
+      ? `${environment} API Slow${response}`
+      : health.status === 'connected'
+        ? `${environment} API Connected${response}`
+        : `${environment} API Checking`;
+}
+
+function renderApiHealthBadge() {
+  const health = state.apiHealth || {};
+  const label = apiHealthLabel();
+  const title = health.message || label;
+  return `<span id="api-health-badge" class="status ${apiHealthStatusClass()}" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
+}
+
+function updateTopbarIndicators() {
+  const clock = document.getElementById('topbar-clock');
+  if (clock) clock.textContent = state.currentTime || '';
+
+  const badge = document.getElementById('api-health-badge');
+  if (badge) {
+    const label = apiHealthLabel();
+    badge.className = `status ${apiHealthStatusClass()}`;
+    badge.textContent = label;
+    badge.title = state.apiHealth.message || label;
+  }
+}
+
+async function checkApiHealth({ shouldRender = true } = {}) {
+  const healthUrl = resolveApiHealthUrl();
+  const startedAt = performance.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), API_HEALTH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(healthUrl, {
+      cache: 'no-store',
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+    const responseMs = Math.round(performance.now() - startedAt);
+
+    state.apiHealth = {
+      status: response.ok && responseMs <= API_HEALTH_SLOW_MS ? 'connected' : response.ok ? 'slow' : 'unreachable',
+      environment: resolveApiEnvironment(),
+      responseMs,
+      checkedAt: new Date().toISOString(),
+      message: response.ok
+        ? `Health check passed in ${responseMs}ms at ${healthUrl}`
+        : `Health check failed with HTTP ${response.status} at ${healthUrl}`,
+    };
+  } catch (error) {
+    state.apiHealth = {
+      status: 'unreachable',
+      environment: resolveApiEnvironment(),
+      responseMs: null,
+      checkedAt: new Date().toISOString(),
+      message: error?.name === 'AbortError'
+        ? `Health check timed out after ${API_HEALTH_TIMEOUT_MS}ms at ${healthUrl}`
+        : `Health check could not reach ${healthUrl}`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (shouldRender && state.token) updateTopbarIndicators();
+}
+
+function startApiHealthTimer() {
+  if (apiHealthTimer) return;
+  void checkApiHealth();
+  apiHealthTimer = setInterval(() => {
+    void checkApiHealth();
+  }, API_HEALTH_INTERVAL_MS);
+}
+
+function stopApiHealthTimer() {
+  if (!apiHealthTimer) return;
+  clearInterval(apiHealthTimer);
+  apiHealthTimer = null;
 }
 
 async function api(path, options = {}) {
@@ -537,6 +673,8 @@ function logout() {
   localStorage.removeItem('myfixer_admin_token');
   localStorage.removeItem('myfixer_admin_user');
   clearIdleTimers();
+  stopClockTimer();
+  stopApiHealthTimer();
   render();
 }
 
@@ -634,6 +772,7 @@ async function refresh() {
   const button = document.querySelector('[data-refresh]');
   if (button) button.textContent = 'Refreshing...';
   try {
+    await checkApiHealth({ shouldRender: false });
     await loadAllData();
     render();
   } catch (error) {
@@ -976,10 +1115,14 @@ function renderLogin() {
       <section class="login-media" aria-label="MyFixer operations image">
         <div class="media-overlay">
           <div class="brand-lockup">
-            <span class="brand-mark">MF</span>
+            <img
+              src="https://res.cloudinary.com/dz7dr3wku/image/upload/v1783803342/myfixer_logo_dlan5o.png"
+              alt="MyFixer logo"
+              class="brand-logo"
+            />
             <div>
-              <h1>MyFixer Backoffice</h1>
-              <p>Internal control for markets, staff, dispatch, payouts, and provider trust.</p>
+              <h1>MyFixer Back Office</h1>
+              <p>Centralized platform for managing operations, markets, workforce, dispatch, payments, and provider trust across the MyFixer ecosystem.</p>
             </div>
           </div>
           <div class="media-stats">
@@ -1006,7 +1149,37 @@ function setAuthView(view) {
   render();
 }
 
+function formatClockTime() {
+  const now = new Date();
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(now);
+}
+
+function startClockTimer() {
+  if (clockTimer) return;
+  state.currentTime = formatClockTime();
+  clockTimer = setInterval(() => {
+    state.currentTime = formatClockTime();
+    updateTopbarIndicators();
+  }, 60 * 1000);
+}
+
+function stopClockTimer() {
+  if (!clockTimer) return;
+  clearInterval(clockTimer);
+  clockTimer = null;
+}
+
 function renderShell() {
+  startClockTimer();
+  startApiHealthTimer();
   const navViews = visibleViews();
   const activeView = navViews.find((view) => view.id === state.activeView) || navViews[0];
   if (activeView && activeView.id !== state.activeView) state.activeView = activeView.id;
@@ -1015,11 +1188,11 @@ function renderShell() {
     <div class="admin-shell">
       <aside class="sidebar">
         <div class="sidebar-brand">
-          <span class="brand-mark small">MF</span>
-          <div>
-            <strong>MyFixer</strong>
-            <span>Backoffice</span>
-          </div>
+          <img
+            src="https://res.cloudinary.com/dz7dr3wku/image/upload/v1783803342/myfixer_logo_dlan5o.png"
+            alt="MyFixer logo"
+            class="brand-logo small"
+          />
         </div>
         <div class="sidebar-user">
           <strong>${escapeHtml(state.user?.adminRole || 'ADMIN')}</strong>
@@ -1028,7 +1201,7 @@ function renderShell() {
         <nav>
           ${navViews.map((view) => `
             <button class="nav-item ${state.activeView === view.id ? 'active' : ''}" onclick="setView('${view.id}')">
-              <span>${view.icon}</span>${view.label}
+              ${view.label}
             </button>
           `).join('')}
         </nav>
@@ -1041,7 +1214,8 @@ function renderShell() {
             <h1>${navViews.find((view) => view.id === state.activeView)?.label || 'Overview'}</h1>
           </div>
           <div class="topbar-actions">
-            <span class="status good">Live API</span>
+            ${renderApiHealthBadge()}
+            <span id="topbar-clock" class="topbar-clock">${escapeHtml(state.currentTime || '')}</span>
             <button class="ghost-button" data-refresh onclick="refresh()" ${state.loading ? 'disabled' : ''}>${state.loading ? 'Refreshing...' : 'Refresh'}</button>
             <button class="danger-button" onclick="logout()">Sign Out</button>
           </div>
@@ -1730,6 +1904,7 @@ async function createSubscriptionPlan(event) {
       body: JSON.stringify(payload),
     });
     event.currentTarget.reset();
+    syncPromotionCurrency(event.currentTarget.elements.countryCode);
     await refresh();
   } catch (error) {
     alert(error.message);
@@ -2036,6 +2211,7 @@ async function createPromotion(event) {
     startsAt: String(form.get('startsAt') || '') || null,
     expiresAt: String(form.get('expiresAt') || '') || null,
     usageLimit: Number(form.get('usageLimit') || 0) || null,
+    perClientLimit: Number(form.get('perClientLimit') || 0) || null,
   };
 
   try {
@@ -2048,6 +2224,16 @@ async function createPromotion(event) {
   } catch (error) {
     alert(error.message);
   }
+}
+
+function syncPromotionCurrency(select) {
+  const form = select?.form;
+  const currencyInput = form?.elements?.currency;
+  if (!currencyInput) return;
+
+  const selectedCurrency = select.selectedOptions?.[0]?.dataset?.currency || '';
+  currencyInput.value = selectedCurrency;
+  currencyInput.placeholder = selectedCurrency || 'Optional, e.g. ZAR';
 }
 
 async function updatePromotion(id, patch) {
@@ -2124,26 +2310,17 @@ function renderPromotions() {
               <input name="minBookingAmount" type="number" min="0" step="0.01" placeholder="0" />
             </div>
             <div>
-              <label>Country</label>
-              <select name="countryCode">
+              <label>Applies to Booking Country</label>
+              <select name="countryCode" onchange="syncPromotionCurrency(this)">
                 <option value="">All configured countries</option>
                 ${renderCountryOptions('')}
               </select>
+              <p class="setting-help tight">Checked against the booking market/location, not just the client profile.</p>
             </div>
           </div>
-          <div class="form-grid">
-            <div>
-              <label>Country</label>
-              <select name="countryCode">
-                <option value="">All configured countries</option>
-                ${renderCountryOptions('')}
-              </select>
-            </div>
-            <div>
-              <label>Currency</label>
-              <input name="currency" placeholder="Optional, e.g. ZAR" />
-            </div>
-          </div>
+          <label>Currency</label>
+          <input name="currency" placeholder="Optional, e.g. ZAR" />
+          <p class="setting-help tight">Auto-filled from the selected country. Leave blank only for multi-currency/global promos.</p>
           <div class="form-grid">
             <div>
               <label>Starts At</label>
@@ -2154,8 +2331,16 @@ function renderPromotions() {
               <input name="expiresAt" type="datetime-local" />
             </div>
           </div>
-          <label>Usage Limit</label>
-          <input name="usageLimit" type="number" min="0" step="1" placeholder="0 for unlimited" />
+          <div class="form-grid">
+            <div>
+              <label>Total Usage Limit</label>
+              <input name="usageLimit" type="number" min="0" step="1" placeholder="0 for unlimited" />
+            </div>
+            <div>
+              <label>Per Client Limit</label>
+              <input name="perClientLimit" type="number" min="0" step="1" placeholder="0 for unlimited" />
+            </div>
+          </div>
           <button class="primary-button" type="submit">Create Promo</button>
         </form>
       </section>

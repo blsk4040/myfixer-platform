@@ -94,6 +94,84 @@ select:disabled {
   font-size: 13px;
 }
 
+.brand-logo {
+  width: 96px;
+  height: 96px;
+  display: block;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.brand-lockup {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 18px;
+  max-width: 580px;
+}
+
+.brand-lockup > div {
+  background: rgba(7, 10, 15, 0.72);
+  padding: 16px 18px;
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+}
+
+.brand-lockup h1 {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: 0;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 700;
+  line-height: 1.12;
+}
+
+.brand-lockup p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.75;
+  font-size: 0.98rem;
+  max-width: 40rem;
+  font-weight: 500;
+}
+
+@media (max-width: 920px) {
+  .brand-logo {
+    width: 82px;
+    height: 82px;
+  }
+
+  .brand-lockup {
+    max-width: 520px;
+  }
+}
+
+@media (max-width: 720px) {
+  .brand-logo {
+    width: 74px;
+    height: 74px;
+  }
+
+  .brand-lockup {
+    align-items: center;
+  }
+
+  .brand-lockup h1 {
+    font-size: 28px;
+  }
+}
+
+@media (max-width: 520px) {
+  .brand-logo {
+    width: 64px;
+    height: 64px;
+  }
+
+  .brand-lockup h1 {
+    font-size: 24px;
+  }
+}
+
 .brand-lockup h1 {
   margin: 0;
   font-size: 30px;
@@ -325,12 +403,20 @@ button:focus-visible {
 
 .sidebar-brand {
   margin-bottom: 18px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .sidebar-brand span:not(.brand-mark) {
   display: block;
   color: var(--subtle);
   font-size: 12px;
+}
+
+.brand-logo.small {
+  width: 80px;
+  height: 80px;
 }
 
 .sidebar nav {
@@ -411,6 +497,17 @@ button:focus-visible {
   align-items: center;
   gap: 10px;
   justify-content: flex-end;
+}
+
+.topbar-clock {
+  color: var(--text);
+  opacity: 0.9;
+  font-size: 0.95rem;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 0 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  margin-left: 8px;
 }
 
 .admin-user {
