@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-require('../../config/load-platform-config').loadPlatformConfig({ override: true });
+require('../../config/load-platform-config').loadPlatformConfig({ override: false });
 
 import express, { Application, Request, Response } from 'express';
 import http, { Server as HttpServer } from 'http';

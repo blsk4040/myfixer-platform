@@ -2,7 +2,7 @@
 const { spawnSync } = require('child_process');
 const { loadPlatformConfig } = require('./load-platform-config');
 
-loadPlatformConfig({ override: true });
+loadPlatformConfig({ override: false });
 
 const [command, ...args] = process.argv.slice(2);
 

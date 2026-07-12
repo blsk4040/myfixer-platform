@@ -4,7 +4,7 @@ const path = require('path');
 const { loadPlatformConfig } = require('../config/load-platform-config');
 
 const rootDir = __dirname;
-const platformConfig = loadPlatformConfig({ override: true }).config;
+const platformConfig = loadPlatformConfig({ override: false }).config;
 const configuredPortalUrl = new URL(platformConfig.ADMIN_PORTAL_URL);
 const defaultPort = configuredPortalUrl.port || (configuredPortalUrl.protocol === 'https:' ? '443' : '80');
 const port = Number.parseInt(process.env.PORT || defaultPort, 10);
