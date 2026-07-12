@@ -79,14 +79,18 @@ const loadPlatformConfig = (options = {}) => {
       throw new Error(`Missing ${key} in ${filePath}`);
     }
 
-    config[key] = value.trim();
+    const resolvedValue = override || !process.env[key]
+      ? value.trim()
+      : process.env[key].trim();
+
+    config[key] = resolvedValue;
     if (override || !process.env[key]) {
-      process.env[key] = config[key];
+      process.env[key] = resolvedValue;
     }
 
     const expoKey = EXPO_PUBLIC_KEY_MAP[key];
     if (expoKey && (override || !process.env[expoKey])) {
-      process.env[expoKey] = config[key];
+      process.env[expoKey] = resolvedValue;
     }
   });
 
