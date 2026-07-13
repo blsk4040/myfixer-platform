@@ -1,3 +1,5 @@
+import Constants from 'expo-constants';
+
 declare const process: {
   env?: {
     EXPO_PUBLIC_API_BASE_URL?: string;
@@ -16,6 +18,9 @@ type ExpoConstantsLike = {
   };
   expoConfig?: {
     extra?: {
+      API_BASE_URL?: string;
+      SOCKET_URL?: string;
+      APP_ENV?: string;
       eas?: {
         projectId?: string;
       };
@@ -26,6 +31,9 @@ type ExpoConstantsLike = {
     extra?: {
       expoClient?: {
         extra?: {
+          API_BASE_URL?: string;
+          SOCKET_URL?: string;
+          APP_ENV?: string;
           eas?: {
             projectId?: string;
           };
@@ -43,8 +51,20 @@ function getEnvValue(key: keyof NonNullable<typeof process.env>): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function getExpoExtraValue(key: 'API_BASE_URL' | 'SOCKET_URL' | 'APP_ENV'): string {
+  const constants = Constants as ExpoConstantsLike;
+  const value =
+    constants.expoConfig?.extra?.[key] ||
+    constants.manifest2?.extra?.expoClient?.extra?.[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function isProductionBuild(): boolean {
-  return getEnvValue('NODE_ENV') === 'production' || getEnvValue('EXPO_PUBLIC_APP_ENV') === 'production';
+  return (
+    getEnvValue('NODE_ENV') === 'production' ||
+    getEnvValue('EXPO_PUBLIC_APP_ENV') === 'production' ||
+    getExpoExtraValue('APP_ENV') === 'production'
+  );
 }
 
 export function isSocketDebugEnabled(): boolean {
@@ -77,13 +97,16 @@ function normalizeApiBaseUrl(value: string): string {
 }
 
 export function getApiBaseUrl(): string {
-  const configuredUrl = getEnvValue('EXPO_PUBLIC_API_BASE_URL') || getEnvValue('EXPO_PUBLIC_API_URL');
+  const configuredUrl =
+    getEnvValue('EXPO_PUBLIC_API_BASE_URL') ||
+    getEnvValue('EXPO_PUBLIC_API_URL') ||
+    getExpoExtraValue('API_BASE_URL');
   const requiredUrl = requireExpoUrl(configuredUrl, 'EXPO_PUBLIC_API_BASE_URL');
   return requiredUrl ? normalizeApiBaseUrl(requiredUrl) : '';
 }
 
 export function getSocketUrl(): string {
-  const configuredSocketUrl = getEnvValue('EXPO_PUBLIC_SOCKET_URL');
+  const configuredSocketUrl = getEnvValue('EXPO_PUBLIC_SOCKET_URL') || getExpoExtraValue('SOCKET_URL');
   if (configuredSocketUrl) return normalizeUrl(configuredSocketUrl);
 
   const apiBaseUrl = getApiBaseUrl();
