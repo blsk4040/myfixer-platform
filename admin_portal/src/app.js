@@ -315,6 +315,30 @@ function labelFromServiceKey(serviceKey) {
     .join(' ');
 }
 
+function formatTechnicianServices(services = []) {
+  const labels = normalizeServiceEntries(services)
+    .map((service) => service.label || labelFromServiceKey(service.serviceKey))
+    .filter(Boolean);
+  return labels.length ? labels.join(', ') : 'No service selected';
+}
+
+function formatYearsExperience(years) {
+  const value = Number(years);
+  if (!Number.isFinite(value) || value <= 0) return 'No experience set';
+  return `${value} ${value === 1 ? 'year' : 'years'} experience`;
+}
+
+function formatServiceRadius(radiusKm) {
+  const value = Number(radiusKm);
+  if (!Number.isFinite(value) || value <= 0) return 'No radius set';
+  return `${value} km radius`;
+}
+
+function formatMaskedId(last4) {
+  const value = String(last4 || '').trim();
+  return value ? `**** ${value}` : 'Not provided';
+}
+
 function normalizeServiceEntry(entry) {
   if (typeof entry === 'string') {
     const serviceKey = serviceKeyFrom(entry);
@@ -1298,15 +1322,162 @@ function renderActiveView() {
   return '';
 }
 
+function getOverviewNumber(primary, fallback = 0) {
+  return Number.isFinite(Number(primary)) ? Number(primary) : fallback;
+}
+
+function isPendingProvider(tech = {}) {
+  const status = String(tech.approvalStatus || '').toUpperCase();
+  return status.includes('PENDING') || status.includes('REVIEW');
+}
+
+function isApprovedProvider(tech = {}) {
+  return String(tech.approvalStatus || '').toUpperCase() === 'APPROVED';
+}
+
+function renderProviderReviewQueue() {
+  const pendingProviders = (state.data.technicians || []).filter(isPendingProvider).slice(0, 5);
+  if (!pendingProviders.length) return renderEmpty('No provider applications are waiting for review.');
+
+  return `
+    <div class="overview-list">
+      ${pendingProviders.map((tech) => {
+        const user = tech.userId || {};
+        const serviceLabel = formatTechnicianServices(tech.serviceCategories || []);
+        const location = [tech.city, tech.countryCode].filter(Boolean).join(', ') || '-';
+        return `
+          <article class="overview-row">
+            <div>
+              <strong>${escapeHtml(user.name || 'Provider')}</strong>
+              <span>${escapeHtml(serviceLabel)}</span>
+              <small>${escapeHtml(location)} • ${escapeHtml(formatYearsExperience(tech.yearsExperience))}</small>
+            </div>
+            <span class="status ${statusClass(tech.approvalStatus)}">${escapeHtml(tech.approvalStatus || 'PENDING')}</span>
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderMarketCoverage() {
+  const markets = (state.data.markets || []).map(getMarketView);
+  if (!markets.length) return renderEmpty('No launch markets have been configured yet.');
+
+  return `
+    <div class="coverage-grid">
+      ${markets.slice(0, 6).map((market) => {
+        const activeCities = (market.cityServiceAvailability || [])
+          .filter((city) => String(city.status || '').toUpperCase() === 'ACTIVE' || city.enabled === true);
+        const serviceCount = normalizeServiceEntries(market.serviceCategories || []).length;
+        const providerCount = (market.providerSettings || market.paymentProviders || []).length;
+        return `
+          <article class="coverage-tile">
+            <div class="coverage-tile-head">
+              <strong>${escapeHtml(market.countryName || market.countryCode || 'Market')}</strong>
+              <span class="status ${statusClass(market.status)}">${escapeHtml(market.status || '-')}</span>
+            </div>
+            <span>${escapeHtml(market.currency || '-')} • ${activeCities.length} active ${activeCities.length === 1 ? 'city' : 'cities'}</span>
+            <span>${serviceCount} ${serviceCount === 1 ? 'service' : 'services'} • ${providerCount} payment ${providerCount === 1 ? 'provider' : 'providers'}</span>
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderPlatformReadiness() {
+  const markets = (state.data.markets || []).map(getMarketView);
+  const hasActiveMarket = markets.some((market) => String(market.status || '').toUpperCase() === 'ACTIVE');
+  const hasPaymentProvider = markets.some((market) => (market.paymentProviders || []).length || (market.providerSettings || []).length);
+  const pendingProviders = (state.data.technicians || []).filter(isPendingProvider).length;
+  const unpaidInvoices = getOverviewNumber(state.data.overview?.unpaidInvoices, state.data.invoices.filter((invoice) => String(invoice.status || '').toUpperCase() === 'UNPAID').length);
+  const checks = [
+    {
+      label: 'Backend API',
+      value: apiHealthLabel(),
+      status: state.apiHealth.status === 'connected' ? 'good' : state.apiHealth.status === 'slow' ? 'warn' : 'bad',
+    },
+    {
+      label: 'Active markets',
+      value: hasActiveMarket ? `${markets.filter((market) => String(market.status || '').toUpperCase() === 'ACTIVE').length} active` : 'Needs setup',
+      status: hasActiveMarket ? 'good' : 'warn',
+    },
+    {
+      label: 'Payment providers',
+      value: hasPaymentProvider ? 'Configured' : 'Needs provider',
+      status: hasPaymentProvider ? 'good' : 'warn',
+    },
+    {
+      label: 'Provider reviews',
+      value: pendingProviders ? `${pendingProviders} pending` : 'Clear',
+      status: pendingProviders ? 'warn' : 'good',
+    },
+    {
+      label: 'Unpaid invoices',
+      value: unpaidInvoices ? `${unpaidInvoices} open` : 'Clear',
+      status: unpaidInvoices ? 'warn' : 'good',
+    },
+  ];
+
+  return `
+    <div class="readiness-list">
+      ${checks.map((check) => `
+        <div class="readiness-row">
+          <span>${escapeHtml(check.label)}</span>
+          <strong>${escapeHtml(check.value)}</strong>
+          <span class="status ${check.status}">${check.status === 'good' ? 'OK' : check.status === 'warn' ? 'WATCH' : 'ISSUE'}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderRecentAdminActivity() {
+  const logs = (state.data.auditLogs || []).slice(0, 5);
+  if (!logs.length) return renderEmpty('No admin actions have been recorded yet.');
+
+  return `
+    <div class="overview-list">
+      ${logs.map((log) => {
+        const action = log.event?.action || log.action || '-';
+        const actorEmail = log.actor?.email || log.actorEmail || '-';
+        const resourceType = log.event?.resourceType || log.resourceType || '-';
+        return `
+          <article class="overview-row">
+            <div>
+              <strong>${escapeHtml(action)}</strong>
+              <span>${escapeHtml(actorEmail)}</span>
+              <small>${escapeHtml(resourceType)} • ${escapeHtml(formatDate(log.createdAt))}</small>
+            </div>
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
 function renderOverview() {
   const overview = state.data.overview || {};
+  const fallbackTotalProviders = state.data.technicians.length;
+  const auditAction = hasPermission('admins.read')
+    ? '<button class="ghost-button compact" onclick="setView(\'auditLogs\')">Open</button>'
+    : '<span>Read only</span>';
+  const marketAction = hasPermission('markets.read')
+    ? '<button class="ghost-button compact" onclick="setView(\'settings\')">Open</button>'
+    : '<span>Read only</span>';
+  const technicianAction = hasPermission('technicians.read')
+    ? '<button class="ghost-button compact" onclick="setView(\'technicians\')">Open</button>'
+    : '<span>Read only</span>';
   const cards = [
     { label: 'Active bookings', value: overview.activeBookings || 0 },
-    { label: 'Pending providers', value: overview.pendingTechnicians || 0 },
+    { label: 'Pending providers', value: overview.pendingTechnicians || 0, view: 'technicians' },
+    { label: 'Approved providers', value: overview.approvedTechnicians || 0, view: 'technicians' },
+    { label: 'Clients', value: overview.clients || 0, view: 'clients' },
     { label: 'Pending quotes', value: overview.pendingQuotes || 0 },
     { label: 'Unpaid invoices', value: overview.unpaidInvoices || 0 },
-    { label: 'Clients', value: overview.clients || 0, view: 'clients' },
     { label: 'Completed jobs', value: overview.completedBookings || 0 },
+    { label: 'Total providers', value: getOverviewNumber(overview.totalTechnicians, fallbackTotalProviders), view: 'technicians' },
   ];
 
   return `
@@ -1320,12 +1491,32 @@ function renderOverview() {
     </div>
     <div class="two-column">
       <section class="panel">
+        <div class="panel-header"><h2>Recent Bookings</h2><span>${state.data.bookings.length} latest</span></div>
+        ${renderBookingTable(state.data.bookings.slice(0, 6))}
+      </section>
+      <section class="panel">
+        <div class="panel-header"><h2>Provider Review Queue</h2>${technicianAction}</div>
+        ${renderProviderReviewQueue()}
+      </section>
+    </div>
+    <div class="two-column">
+      <section class="panel">
         <div class="panel-header"><h2>Revenue Snapshot</h2></div>
         ${renderCurrencyTotals(overview.totalsByCurrency || {})}
       </section>
       <section class="panel">
-        <div class="panel-header"><h2>Recent Bookings</h2></div>
-        ${renderBookingTable(state.data.bookings.slice(0, 6))}
+        <div class="panel-header"><h2>Platform Readiness</h2><span>${escapeHtml(resolveApiEnvironment())}</span></div>
+        ${renderPlatformReadiness()}
+      </section>
+    </div>
+    <div class="two-column wide-right">
+      <section class="panel">
+        <div class="panel-header"><h2>Recent Admin Activity</h2>${auditAction}</div>
+        ${renderRecentAdminActivity()}
+      </section>
+      <section class="panel">
+        <div class="panel-header"><h2>Market Coverage</h2>${marketAction}</div>
+        ${renderMarketCoverage()}
       </section>
     </div>
   `;
@@ -1427,6 +1618,12 @@ function renderTechnicians() {
           const user = tech.userId || {};
           const photoUrl = tech.documents?.profilePhotoUrl || user.profilePhotoUrl || '';
           const photoStatus = tech.documents?.profilePhotoStatus || 'NOT_SUBMITTED';
+          const serviceLabel = formatTechnicianServices(tech.serviceCategories || []);
+          const experienceLabel = formatYearsExperience(tech.yearsExperience);
+          const radiusLabel = formatServiceRadius(tech.serviceRadiusKm);
+          const providerLabel = tech.businessName || 'Independent provider';
+          const transportLabel = tech.vehicleType || 'Transport not set';
+          const idLabel = formatMaskedId(tech.idNumberLast4);
           return `
             <article class="review-card">
               <div class="technician-review-main">
@@ -1442,8 +1639,12 @@ function renderTechnicians() {
                     <span class="status ${photoStatus === 'VERIFIED' ? 'success' : photoStatus === 'REJECTED' ? 'danger' : 'info'}">Photo ${escapeHtml(photoStatus)}</span>
                   </div>
                   <p>${escapeHtml(user.email || '-')} - ${escapeHtml(user.phone || '-')} - ${escapeHtml(tech.city)}, ${escapeHtml(tech.countryCode)}</p>
-                  <p>${escapeHtml((tech.serviceCategories || []).join(', '))} - ${tech.yearsExperience || 0} yrs - ${tech.serviceRadiusKm || 0}km radius</p>
-                  <p>${escapeHtml(tech.businessName || 'Independent provider')} - ${escapeHtml(tech.vehicleType || 'Transport not set')}</p>
+                  <div class="technician-summary">
+                    <strong>${escapeHtml(serviceLabel)}</strong>
+                    <span>${escapeHtml(experienceLabel)} • ${escapeHtml(radiusLabel)}</span>
+                    <span>${escapeHtml(providerLabel)} • ${escapeHtml(transportLabel)}</span>
+                    <span>ID / Registration: ${escapeHtml(idLabel)}</span>
+                  </div>
                   ${tech.review?.rejectionReason ? `<p class="warning-text">${escapeHtml(tech.review.rejectionReason)}</p>` : ''}
                 </div>
               </div>

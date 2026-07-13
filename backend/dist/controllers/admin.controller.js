@@ -188,6 +188,54 @@ const normalizePromotionPayload = (body) => {
         perClientLimit: Number.isFinite(Number(body.perClientLimit)) ? Number(body.perClientLimit) : null,
     };
 };
+const normalizePromotionPatchPayload = (body) => {
+    const updates = {};
+    if (body.name !== undefined)
+        updates.name = String(body.name || '').trim();
+    if (body.description !== undefined)
+        updates.description = String(body.description || '').trim();
+    if (body.status !== undefined) {
+        updates.status = Object.values(promotion_model_1.PromotionStatus).includes(body.status)
+            ? body.status
+            : promotion_model_1.PromotionStatus.ACTIVE;
+    }
+    if (body.discountType !== undefined) {
+        updates.discountType = Object.values(promotion_model_1.PromotionDiscountType).includes(body.discountType)
+            ? body.discountType
+            : promotion_model_1.PromotionDiscountType.PERCENTAGE;
+    }
+    if (body.discountValue !== undefined) {
+        const discountValue = Number(body.discountValue);
+        if (!Number.isFinite(discountValue) || discountValue <= 0) {
+            throw new Error('Discount value must be greater than zero.');
+        }
+        if (updates.discountType === promotion_model_1.PromotionDiscountType.PERCENTAGE && discountValue > 100) {
+            throw new Error('Percentage discounts cannot exceed 100%.');
+        }
+        updates.discountValue = discountValue;
+    }
+    if (body.maxDiscountMinor !== undefined)
+        updates.maxDiscountMinor = Number.isFinite(Number(body.maxDiscountMinor)) ? Number(body.maxDiscountMinor) : null;
+    if (body.minBookingAmountMinor !== undefined)
+        updates.minBookingAmountMinor = Number.isFinite(Number(body.minBookingAmountMinor)) ? Number(body.minBookingAmountMinor) : 0;
+    if (body.countryCode !== undefined) {
+        const countryCode = String(body.countryCode || '').trim().toUpperCase();
+        updates.countryCode = Object.values(market_config_1.CountryCode).includes(countryCode) ? countryCode : null;
+    }
+    if (body.currency !== undefined) {
+        const currency = String(body.currency || '').trim().toUpperCase();
+        updates.currency = Object.values(market_config_1.CurrencyCode).includes(currency) ? currency : null;
+    }
+    if (body.startsAt !== undefined)
+        updates.startsAt = optionalDate(body.startsAt);
+    if (body.expiresAt !== undefined)
+        updates.expiresAt = optionalDate(body.expiresAt);
+    if (body.usageLimit !== undefined)
+        updates.usageLimit = Number.isFinite(Number(body.usageLimit)) ? Number(body.usageLimit) : null;
+    if (body.perClientLimit !== undefined)
+        updates.perClientLimit = Number.isFinite(Number(body.perClientLimit)) ? Number(body.perClientLimit) : null;
+    return updates;
+};
 const splitCsv = (value) => {
     if (Array.isArray(value))
         return value.map((item) => String(item).trim()).filter(Boolean);
@@ -391,7 +439,7 @@ const buildBookingFilter = (query) => {
 };
 const getAdminOverview = async (_req, res) => {
     try {
-        const [totalBookings, activeBookings, pendingBookings, completedBookings, pendingTechnicians, approvedTechnicians, pendingQuotes, approvedQuotes, unpaidInvoices, walletLedgerRows, clients,] = await Promise.all([
+        const [totalBookings, activeBookings, pendingBookings, completedBookings, totalTechnicians, pendingTechnicians, approvedTechnicians, pendingQuotes, approvedQuotes, unpaidInvoices, walletLedgerRows, clients,] = await Promise.all([
             booking_model_1.default.countDocuments(),
             booking_model_1.default.countDocuments({
                 status: {
@@ -407,6 +455,7 @@ const getAdminOverview = async (_req, res) => {
             }),
             booking_model_1.default.countDocuments({ status: booking_model_1.BookingStatus.PENDING }),
             booking_model_1.default.countDocuments({ status: booking_model_1.BookingStatus.COMPLETED }),
+            technician_model_1.default.countDocuments(),
             technician_model_1.default.countDocuments({ approvalStatus: technician_model_1.TechnicianApprovalStatus.PENDING_REVIEW }),
             technician_model_1.default.countDocuments({ approvalStatus: technician_model_1.TechnicianApprovalStatus.APPROVED }),
             quote_model_1.default.countDocuments({ status: quote_model_1.QuoteStatus.SENT_TO_CLIENT }),
@@ -438,6 +487,7 @@ const getAdminOverview = async (_req, res) => {
                 activeBookings,
                 pendingBookings,
                 completedBookings,
+                totalTechnicians,
                 pendingTechnicians,
                 approvedTechnicians,
                 pendingQuotes,
@@ -1060,7 +1110,7 @@ const updateAdminPromotion = async (req, res) => {
             return;
         }
         const actor = getActor(req);
-        const updates = normalizePromotionPayload(req.body);
+        const updates = normalizePromotionPatchPayload(req.body);
         const promotion = await promotion_model_1.default.findByIdAndUpdate(id, { $set: { ...updates, updatedBy: actor?.id } }, { new: true, runValidators: true });
         if (!promotion) {
             res.status(404).json({ message: 'Promotion not found.' });

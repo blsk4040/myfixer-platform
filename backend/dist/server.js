@@ -12,7 +12,7 @@ dns_2.promises.setServers(['8.8.8.8', '1.1.1.1']);
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
 dotenv_1.default.config({ path: path_1.default.resolve(process.cwd(), '.env') });
-require('../../config/load-platform-config').loadPlatformConfig({ override: true });
+require('../../config/load-platform-config').loadPlatformConfig({ override: false });
 const express_1 = __importDefault(require("express"));
 const http_1 = __importDefault(require("http"));
 const cors_1 = __importDefault(require("cors"));
@@ -61,13 +61,14 @@ exports.io = new socket_io_1.Server(exports.httpServer, {
 });
 exports.app.use((0, helmet_1.default)());
 exports.app.use((0, cors_1.default)(corsOptions));
+const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '8mb';
 exports.app.use(express_1.default.json({
-    limit: '1mb',
+    limit: jsonBodyLimit,
     verify: (req, _res, buf) => {
         req.rawBody = Buffer.from(buf);
     },
 }));
-exports.app.use(express_1.default.urlencoded({ extended: true }));
+exports.app.use(express_1.default.urlencoded({ extended: true, limit: jsonBodyLimit }));
 exports.app.use((0, morgan_1.default)(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 exports.app.set('io', exports.io);
 // Versioned umbrella endpoints
