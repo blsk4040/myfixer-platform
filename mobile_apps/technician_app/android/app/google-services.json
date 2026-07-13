@@ -43,6 +43,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "617172154841-jj6iutu5n5uq7cela7f69kml7tks04oq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "co.za.myfixer.technician",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
           "client_id": "617172154841-erej0iur7dbsc70sg5tdd7gimc4fo5im.apps.googleusercontent.com",
           "client_type": 3
         }

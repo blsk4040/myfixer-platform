@@ -67,13 +67,14 @@ export const io = new SocketIOServer(httpServer, {
 
 app.use(helmet());
 app.use(cors(corsOptions));
+const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '8mb';
 app.use(express.json({
-  limit: '1mb',
+  limit: jsonBodyLimit,
   verify: (req, _res, buf) => {
     (req as any).rawBody = Buffer.from(buf);
   },
 }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: jsonBodyLimit }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 app.set('io', io);

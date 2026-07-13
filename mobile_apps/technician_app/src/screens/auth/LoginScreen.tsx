@@ -13,7 +13,6 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import auth from '@react-native-firebase/auth';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import apiService from '../../services/api.service';
 import authService, { AuthSession } from '../../services/auth.service';
@@ -88,9 +87,6 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
       if (!idToken) {
         throw new Error('Google did not return an ID token.');
       }
-
-      const googleCredential = auth.GoogleAuthProvider.credential(idToken);
-      await auth().signInWithCredential(googleCredential);
 
       const result = await apiService.signInWithGoogle(idToken);
 
