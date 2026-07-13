@@ -1,7 +1,7 @@
 const appJson = require('./app.json');
 const { loadPlatformConfig } = require('../../config/load-platform-config');
 
-const { config } = loadPlatformConfig({ override: true });
+const { config } = loadPlatformConfig({ override: false });
 const isLocalDevelopment =
   config.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
 
