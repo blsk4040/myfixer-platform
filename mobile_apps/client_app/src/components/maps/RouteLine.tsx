@@ -1,6 +1,17 @@
 import React, { useMemo } from 'react';
-import { GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
 import { RouteGeometry } from '../../types/routing';
+import { isExpoGoRuntime } from '../../config/runtimeEnvironment';
+
+declare const require: any;
+
+const MapLibreNative = (() => {
+  if (isExpoGoRuntime) return null;
+  try {
+    return require('@maplibre/maplibre-react-native');
+  } catch {
+    return null;
+  }
+})();
 
 interface RouteLineProps {
   id: string;
@@ -22,14 +33,16 @@ export function RouteLine({ id, geometry }: RouteLineProps): React.JSX.Element |
     };
   }, [geometry]);
 
-  if (!data) return null;
+  if (!data || !MapLibreNative) return null;
+
+  const { GeoJSONSource, Layer } = MapLibreNative;
 
   return (
     <GeoJSONSource id={`${id}-source`} data={data}>
       <Layer
         id={`${id}-line`}
         type="line"
-        paint={{ 'line-color': '#00FF87', 'line-width': 5, 'line-opacity': 0.95 }}
+        paint={{ 'line-color': '#B8FF3D', 'line-width': 5, 'line-opacity': 0.95 }}
         layout={{ 'line-join': 'round', 'line-cap': 'round' }}
       />
     </GeoJSONSource>

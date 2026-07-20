@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Archive, Bell, CheckCircle2, MailOpen } from 'lucide-react-native';
 import apiService, { NotificationRecord } from '../../services/api.service';
 
@@ -74,7 +75,57 @@ const statusLabelForNotification = (notification: NotificationRecord): string =>
   return labels[notification.type] || prettyServiceName(notification.type);
 };
 
-export function NotificationInboxScreen(): React.JSX.Element {
+type NotificationFeedMode = 'inbox' | 'alerts';
+
+const INBOX_NOTIFICATION_TYPES = new Set([
+  'INVOICE_GENERATED',
+  'INVOICE_READY',
+  'INVOICE_PAID',
+  'INVOICE_OVERDUE',
+  'QUOTE_READY',
+  'QUOTE_UPDATED',
+  'QUOTE_APPROVED',
+  'QUOTE_REJECTED',
+  'PAYMENT_REQUIRED',
+  'PAYMENT_RECEIVED',
+  'PAYMENT_CONFIRMED',
+  'PAYMENT_FAILED',
+  'RECEIPT_READY',
+  'RECEIPT_GENERATED',
+]);
+
+const getFeedForNotification = (notification: NotificationRecord): NotificationFeedMode => {
+  const metadataFeed = typeof notification.metadata?.feed === 'string'
+    ? notification.metadata.feed.trim().toLowerCase()
+    : '';
+  if (metadataFeed === 'inbox' || metadataFeed === 'alerts') return metadataFeed;
+
+  const type = String(notification.type || '').trim().toUpperCase();
+  return INBOX_NOTIFICATION_TYPES.has(type) ? 'inbox' : 'alerts';
+};
+
+const notificationCopy: Record<NotificationFeedMode, {
+  loading: string;
+  title: string;
+  subtitle: string;
+  empty: string;
+}> = {
+  inbox: {
+    loading: 'Loading your Inbox...',
+    title: 'Inbox',
+    subtitle: 'Invoices, quotes, receipts, booking messages and support updates',
+    empty: 'No Inbox messages yet.',
+  },
+  alerts: {
+    loading: 'Loading alerts...',
+    title: 'Alerts',
+    subtitle: 'Provider dispatch, urgent booking updates and account notifications',
+    empty: 'No alerts yet.',
+  },
+};
+
+function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React.JSX.Element {
+  const copy = notificationCopy[mode];
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -82,9 +133,10 @@ export function NotificationInboxScreen(): React.JSX.Element {
 
   const loadNotifications = useCallback(async () => {
     const result = await apiService.getNotifications();
-    setNotifications(dedupeNotifications(result.notifications || []));
-    setUnreadCount(result.unreadCount || 0);
-  }, []);
+    const feedNotifications = (result.notifications || []).filter((notification) => getFeedForNotification(notification) === mode);
+    setNotifications(dedupeNotifications(feedNotifications));
+    setUnreadCount(feedNotifications.filter((notification) => !notification.readAt && notification.status !== 'READ').length);
+  }, [mode]);
 
   useEffect(() => {
     loadNotifications()
@@ -124,17 +176,17 @@ export function NotificationInboxScreen(): React.JSX.Element {
     return (
       <View style={styles.center}>
         <ActivityIndicator color="#00FF87" />
-        <Text style={styles.muted}>Loading notifications...</Text>
+        <Text style={styles.muted}>{copy.loading}</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={[styles.screen, mode === 'inbox' && styles.inboxScreen]} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.eyebrow}>Notification Inbox</Text>
-          <Text style={styles.title}>Updates</Text>
+          <Text style={styles.title}>{copy.title}</Text>
+          <Text style={styles.subtitle}>{copy.subtitle}</Text>
         </View>
         <View style={styles.badge}>
           <Bell color="#00FF87" size={18} />
@@ -147,7 +199,7 @@ export function NotificationInboxScreen(): React.JSX.Element {
         keyExtractor={(item) => item._id}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#00FF87" />}
-        ListEmptyComponent={<Text style={styles.empty}>No notifications yet.</Text>}
+        ListEmptyComponent={<Text style={styles.empty}>{copy.empty}</Text>}
         renderItem={({ item }) => {
           const isRead = Boolean(item.readAt) || item.status === 'READ';
           const serviceName = prettyServiceName(item.metadata?.applianceType || item.metadata?.serviceKey);
@@ -189,17 +241,26 @@ export function NotificationInboxScreen(): React.JSX.Element {
           );
         }}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
+export function NotificationInboxScreen(): React.JSX.Element {
+  return <NotificationFeedScreen mode="inbox" />;
+}
+
+export function NotificationAlertsScreen(): React.JSX.Element {
+  return <NotificationFeedScreen mode="alerts" />;
+}
+
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#090D14', paddingHorizontal: 18, paddingTop: 22 },
+  screen: { flex: 1, backgroundColor: '#090D14', paddingHorizontal: 18 },
+  inboxScreen: { paddingTop: 14 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#090D14', gap: 10 },
   muted: { color: '#94A3B8', fontSize: 13 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  eyebrow: { color: '#00FF87', fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
-  title: { color: '#FFFFFF', fontSize: 28, fontWeight: '800', marginTop: 3 },
+  title: { color: '#FFFFFF', fontSize: 28, fontWeight: '800' },
+  subtitle: { color: '#94A3B8', fontSize: 12, fontWeight: '600', marginTop: 4 },
   badge: { minWidth: 58, height: 36, borderRadius: 18, backgroundColor: '#0F172A', borderWidth: 1, borderColor: '#1E293B', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   badgeText: { color: '#FFFFFF', fontWeight: '800' },
   list: { paddingBottom: 110, gap: 12 },

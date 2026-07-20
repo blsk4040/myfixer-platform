@@ -35,7 +35,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PaymentTransactionStatus = exports.PaymentProvider = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
-const market_config_1 = require("../config/market.config");
 var PaymentProvider;
 (function (PaymentProvider) {
     PaymentProvider["PAYSTACK"] = "PAYSTACK";
@@ -96,7 +95,8 @@ const PaymentTransactionSchema = new mongoose_1.Schema({
     },
     currency: {
         type: String,
-        enum: Object.values(market_config_1.CurrencyCode),
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
         required: true,
         index: true,
     },

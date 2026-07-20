@@ -15,7 +15,7 @@ import {
   ManagedCollectionType,
 } from '../models/managed-collection.model';
 import User, { AdminRole } from '../models/user.model';
-import { CurrencyCode, normalizeCountryCode } from '../config/market.config';
+import { normalizeCountryCode, normalizeIsoCurrencyCode } from '../config/market.config';
 import { logAuditEvent } from '../services/audit.service';
 
 const GRACE_PERIOD_DAYS = 7;
@@ -79,7 +79,7 @@ const buildPlanPayload = (body: Record<string, unknown>) => {
   const name = normalizeText(body.name);
   const description = normalizeText(body.description);
   const countryCode = normalizeCountryCode(body.countryCode);
-  const currency = String(body.currency || '').trim().toUpperCase() as CurrencyCode;
+  const currency = normalizeIsoCurrencyCode(body.currency);
   const priceMinor = Number(body.priceMinor ?? Math.round(Number(body.price || 0) * 100));
   const billingFrequency = body.billingFrequency;
   const collectionFrequency = body.collectionFrequency;
@@ -91,7 +91,6 @@ const buildPlanPayload = (body: Record<string, unknown>) => {
 
   if (!name) throw new Error('Plan name is required.');
   if (!Number.isFinite(priceMinor) || priceMinor < 0) throw new Error('Valid plan price is required.');
-  if (!Object.values(CurrencyCode).includes(currency)) throw new Error('Valid currency is required.');
   if (!isEnumValue(BillingFrequency, billingFrequency)) throw new Error('Valid billing frequency is required.');
   if (!isEnumValue(ManagedCollectionFrequency, collectionFrequency)) throw new Error('Valid collection frequency is required.');
   if (!isEnumValue(ManagedCollectionType, collectionType)) throw new Error('Valid collection type is required.');

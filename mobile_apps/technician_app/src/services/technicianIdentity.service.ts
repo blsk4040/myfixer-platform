@@ -93,7 +93,7 @@ export const getTechnicianIdentity = (session: AuthSession | null = authService.
     payoutCapabilities: profile?.payoutCapabilities || {
       countryCode,
       currency,
-      providerPayoutMethods: ['BANK_ACCOUNT'],
+      providerPayoutMethods: [],
       defaultProviderPayoutMethod: 'BANK_ACCOUNT',
       payoutsEnabled: false,
       adminApprovalRequired: true,

@@ -2,6 +2,7 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { techSocketService } from './tech_socket.service';
+import { BRAND } from '../config/brand';
 
 const BACKGROUND_TRACKING_TASK = 'MYFIXER_TECH_BACKGROUND_TRACKING';
 let currentActiveBookingId: string | null = null;
@@ -61,9 +62,9 @@ export const TrackingService = {
         timeInterval: 5000,
         distanceInterval: 5,
         foregroundService: {
-          notificationTitle: "MyFixer Dispatch Protocol Active",
+          notificationTitle: `${BRAND.displayName} Dispatch Active`,
           notificationBody: "Routing real-time updates safely to the customer map viewport.",
-          notificationColor: "#090D14"
+          notificationColor: "#0B0B0D"
         }
       });
 

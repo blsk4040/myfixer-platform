@@ -1,7 +1,7 @@
 // src/services/paystack.service.ts
 import axios from 'axios';
 import crypto from 'crypto';
-import { CurrencyCode } from '../config/market.config';
+import { IsoCurrencyCode } from '../config/market.config';
 
 const getPaystackSecretKey = (): string => (process.env.PAYSTACK_SECRET_KEY || '').trim();
 const getPaystackWebhookSecret = (): string => (process.env.PAYSTACK_WEBHOOK_SECRET || process.env.PAYSTACK_SECRET_KEY || '').trim();
@@ -24,7 +24,7 @@ const createPaystackClient = () => {
 export interface PaystackInitializeInput {
   email: string;
   amountMinor: number;
-  currency: CurrencyCode;
+  currency: IsoCurrencyCode;
   reference: string;
   callbackUrl?: string;
   metadata?: Record<string, unknown>;
@@ -67,13 +67,13 @@ export interface PaystackTransferRecipientInput {
   bankCode?: string;
   mobileNumber?: string;
   operatorCode?: string;
-  currency: CurrencyCode;
+  currency: IsoCurrencyCode;
   metadata?: Record<string, unknown>;
 }
 
 export interface PaystackTransferInput {
   amountMinor: number;
-  currency: CurrencyCode;
+  currency: IsoCurrencyCode;
   recipientCode: string;
   reference: string;
   reason: string;
@@ -133,7 +133,7 @@ export class PaystackService {
     amountMinor: number,
     authCode: string,
     reference: string,
-    currency: CurrencyCode
+    currency: IsoCurrencyCode
   ) {
     assertPaystackConfigured();
     const response = await createPaystackClient().post('/transaction/charge_authorization', {

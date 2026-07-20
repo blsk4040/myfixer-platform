@@ -60,6 +60,24 @@ const parseEnvFile = (filePath) => {
   return values;
 };
 
+const loadLocalEnvFile = (options = {}) => {
+  const filePath = options.filePath || path.join(process.cwd(), '.env');
+  const override = options.override === true;
+
+  if (!fs.existsSync(filePath)) {
+    return { filePath, loaded: false, config: {} };
+  }
+
+  const parsed = parseEnvFile(filePath);
+  Object.entries(parsed).forEach(([key, value]) => {
+    if (override || !process.env[key]) {
+      process.env[key] = value;
+    }
+  });
+
+  return { filePath, loaded: true, config: parsed };
+};
+
 const loadPlatformConfig = (options = {}) => {
   const platformEnv = resolvePlatformEnv(options.env);
   const configDir = options.configDir || __dirname;
@@ -100,6 +118,7 @@ const loadPlatformConfig = (options = {}) => {
 module.exports = {
   EXPO_PUBLIC_KEY_MAP,
   SHARED_KEYS,
+  loadLocalEnvFile,
   loadPlatformConfig,
   resolvePlatformEnv,
 };

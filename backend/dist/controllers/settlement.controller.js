@@ -2,9 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.retryAdminSettlementPayout = exports.releaseAdminSettlementHold = exports.holdAdminSettlement = exports.approveAdminSettlement = exports.getTechnicianSettlements = exports.getAdminSettlements = exports.reportCompletionIssueController = exports.confirmCompletion = exports.submitCompletion = void 0;
 const settlement_service_1 = require("../services/settlement.service");
+const market_finance_guard_service_1 = require("../services/market-finance-guard.service");
 const idempotencyKey = (req) => String(req.headers['idempotency-key'] || req.body?.idempotencyKey || '').trim();
 const handleError = (res, error, fallback) => {
-    if (error instanceof settlement_service_1.SettlementError) {
+    if (error instanceof settlement_service_1.SettlementError || error instanceof market_finance_guard_service_1.MarketFinanceGuardError) {
         res.status(error.statusCode).json({ success: false, message: error.message, code: error.code });
         return;
     }

@@ -17,6 +17,21 @@ const EyeOffIcon = EyeOff as any;
 const RefreshCwIcon = RefreshCw as any;
 const CrosshairIcon = Crosshair as any;
 
+const Colors = {
+  background: '#0B0B0D',
+  surface: '#17171A',
+  surfaceRaised: '#222226',
+  border: '#303036',
+  borderStrong: '#3A3A42',
+  text: '#F7F7F5',
+  textMuted: '#A7A7AD',
+  textSubtle: '#74747C',
+  primary: '#B8FF3D',
+  amber: '#FFB547',
+  info: '#56B8FF',
+  danger: '#FF5D5D',
+} as const;
+
 const DEFAULT_CENTER: [number, number] = [28.0473, -26.1200];
 
 const OSM_RASTER_STYLE: StyleSpecification = {
@@ -30,7 +45,7 @@ const OSM_RASTER_STYLE: StyleSpecification = {
     },
   },
   layers: [
-    { id: 'background', type: 'background', paint: { 'background-color': '#090D14' } },
+    { id: 'background', type: 'background', paint: { 'background-color': '#0B0B0D' } },
     { id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.92 } },
   ],
 };
@@ -144,7 +159,7 @@ export function MapScreen(): React.JSX.Element {
         setSelectedJob((job: any | null) => job ? { ...job, jobStatus: 'ARRIVED' } : job);
         Alert.alert(
           'Arrival confirmed',
-          'Keep all job communication, approvals and payments inside MyFixer. Use Start Job when work begins.'
+          'Keep all job communication, approvals and payments inside Padi Pro. Use Start Job when work begins.'
         );
         return;
       }
@@ -154,8 +169,8 @@ export function MapScreen(): React.JSX.Element {
       Alert.alert(
         'Arrival not confirmed',
         error instanceof Error
-          ? `${error.message}\n\nRetry, contact support, or record the access issue in MyFixer.`
-          : 'Retry, contact support, or record the access issue in MyFixer.'
+          ? `${error.message}\n\nRetry, contact support, or record the access issue in Padi Pro.`
+          : 'Retry, contact support, or record the access issue in Padi Pro.'
       );
     } finally {
       setIsConfirmingArrival(false);
@@ -167,7 +182,7 @@ export function MapScreen(): React.JSX.Element {
     setHasShownArrivalPrompt(true);
     Alert.alert(
       'You appear to have reached the service location.',
-      'Confirm arrival so MyFixer can verify your location. Keep all job communication, approvals and payments inside MyFixer.',
+      'Confirm arrival so Padi Pro can verify your location. Keep all job communication, approvals and payments inside Padi Pro.',
       [
         { text: 'Not yet', style: 'cancel' },
         { text: 'Confirm Arrival', onPress: () => { void handleConfirmArrival(); } },
@@ -210,13 +225,13 @@ export function MapScreen(): React.JSX.Element {
           </Marker>
         )}
 
-        {isOnDuty && incomingJobs.map((job: any) => renderJobMarker(job, '#00FF87'))}
-        {isOnDuty && activeJobs.map((job: any) => renderJobMarker(job, '#38BDF8'))}
+        {isOnDuty && incomingJobs.map((job: any) => renderJobMarker(job, Colors.primary))}
+        {isOnDuty && activeJobs.map((job: any) => renderJobMarker(job, Colors.info))}
       </MapLibreMap>
 
       {!isOnDuty && (
         <View style={[StyleSheet.absoluteFillObject, styles.blurredBackdrop]}>
-          <EyeOffIcon color="#64748B" size={40} style={{ marginBottom: 14 }} />
+          <EyeOffIcon color={Colors.textSubtle} size={40} style={{ marginBottom: 14 }} />
           <Text style={styles.lockTitle}>Map Offline</Text>
           <Text style={styles.lockSubtitle}>Go live when you are ready to show your location and view nearby job pins.</Text>
           <TouchableOpacity style={styles.btnGoOnline} onPress={toggleDutyStatus}>
@@ -275,7 +290,7 @@ export function MapScreen(): React.JSX.Element {
                   style={styles.btnPrimary}
                   onPress={() => setSelectedJob(selectedJob)}
                 >
-                  <CrosshairIcon color="#090D14" size={16} />
+                  <CrosshairIcon color={Colors.background} size={16} />
                   <Text style={styles.btnPrimaryText}>Recenter</Text>
                 </TouchableOpacity>
               </View>
@@ -292,34 +307,34 @@ export function MapScreen(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
+  container: { flex: 1, backgroundColor: Colors.background },
   map: { ...StyleSheet.absoluteFillObject },
-  markerDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 3, borderColor: '#090D14' },
-  technicianMarker: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF', borderWidth: 4, borderColor: '#00FF87' },
-  blurredBackdrop: { backgroundColor: '#090D14DD', justifyContent: 'center', alignItems: 'center', padding: 30 },
-  lockTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
-  lockSubtitle: { color: '#94A3B8', fontSize: 13, textAlign: 'center', marginTop: 6, marginBottom: 20, lineHeight: 18 },
-  btnGoOnline: { backgroundColor: '#00FF87', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
-  btnOnlineText: { color: '#090D14', fontWeight: '800', fontSize: 14 },
+  markerDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 3, borderColor: Colors.background },
+  technicianMarker: { width: 20, height: 20, borderRadius: 10, backgroundColor: Colors.text, borderWidth: 4, borderColor: Colors.primary },
+  blurredBackdrop: { backgroundColor: 'rgba(11, 11, 13, 0.86)', justifyContent: 'center', alignItems: 'center', padding: 30 },
+  lockTitle: { color: Colors.text, fontSize: 18, fontWeight: '900', letterSpacing: 0 },
+  lockSubtitle: { color: Colors.textMuted, fontSize: 13, textAlign: 'center', marginTop: 6, marginBottom: 20, lineHeight: 18 },
+  btnGoOnline: { backgroundColor: Colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
+  btnOnlineText: { color: Colors.background, fontWeight: '900', fontSize: 14 },
   hudOverlayContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', padding: 20 },
-  hudCard: { backgroundColor: '#090D14', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#1E293B' },
+  hudCard: { backgroundColor: Colors.surface, borderRadius: 18, padding: 20, borderWidth: 1, borderColor: Colors.border },
   hudHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  hudTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  etaBadge: { backgroundColor: '#00FF87', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  etaText: { color: '#090D14', fontSize: 11, fontWeight: '800' },
-  addressText: { color: '#F8FAFC', fontSize: 15, fontWeight: '600', marginBottom: 2 },
-  distanceText: { color: '#64748B', fontSize: 13, marginBottom: 15 },
-  routeErrorText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', marginBottom: 10 },
-  routeHintText: { color: '#94A3B8', fontSize: 12, fontWeight: '700', marginBottom: 10 },
-  btnArrival: { backgroundColor: '#F59E0B', paddingVertical: 12, alignItems: 'center', borderRadius: 10, marginBottom: 10 },
+  hudTitle: { color: Colors.text, fontSize: 15, fontWeight: '800' },
+  etaBadge: { backgroundColor: Colors.primary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  etaText: { color: Colors.background, fontSize: 11, fontWeight: '900' },
+  addressText: { color: Colors.text, fontSize: 15, fontWeight: '700', marginBottom: 2 },
+  distanceText: { color: Colors.textSubtle, fontSize: 13, marginBottom: 15 },
+  routeErrorText: { color: Colors.amber, fontSize: 12, fontWeight: '800', marginBottom: 10 },
+  routeHintText: { color: Colors.textMuted, fontSize: 12, fontWeight: '700', marginBottom: 10 },
+  btnArrival: { backgroundColor: Colors.amber, paddingVertical: 12, alignItems: 'center', borderRadius: 10, marginBottom: 10 },
   btnArrivalDisabled: { opacity: 0.65 },
-  btnArrivalText: { color: '#090D14', fontSize: 13, fontWeight: '800' },
+  btnArrivalText: { color: Colors.background, fontSize: 13, fontWeight: '900' },
   actionRow: { flexDirection: 'row', gap: 10 },
-  btnPrimary: { flex: 1, backgroundColor: '#00FF87', paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderRadius: 10 },
-  btnPrimaryText: { color: '#090D14', fontWeight: '700', fontSize: 14 },
-  btnSecondary: { flex: 1, backgroundColor: '#1E293B', paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderRadius: 10, borderWidth: 1, borderColor: '#334155' },
-  btnSecondaryText: { color: '#F8FAFC', fontWeight: '700', fontSize: 14 },
-  noSelectionCard: { backgroundColor: '#111827', borderRadius: 12, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: '#1E293B' },
-  noSelectionText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },
+  btnPrimary: { flex: 1, backgroundColor: Colors.primary, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderRadius: 10 },
+  btnPrimaryText: { color: Colors.background, fontWeight: '900', fontSize: 14 },
+  btnSecondary: { flex: 1, backgroundColor: Colors.surfaceRaised, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderRadius: 10, borderWidth: 1, borderColor: Colors.borderStrong },
+  btnSecondaryText: { color: Colors.text, fontWeight: '800', fontSize: 14 },
+  noSelectionCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
+  noSelectionText: { color: Colors.textMuted, fontSize: 13, fontWeight: '700' },
 });
 

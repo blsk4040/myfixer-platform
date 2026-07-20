@@ -25,7 +25,6 @@ import ServiceWaitlist, {
   ServiceWaitlistStatus,
 } from '../models/service-waitlist.model';
 import MarketSetting, { MarketStatus } from '../models/market-setting.model';
-import Promotion, { PromotionDiscountType, PromotionStatus } from '../models/promotion.model';
 import { logAuditEvent } from '../services/audit.service';
 import { AuditSeverity } from '../models/audit-log.model';
 import {
@@ -37,6 +36,16 @@ import {
   toMinorUnits,
 } from '../config/market.config';
 import { validateServiceBookable } from '../services/service-availability.service';
+import { calculatePriceBreakdown } from '../services/price-breakdown.service';
+import {
+  AppliedPromotionSnapshot,
+  PromotionCampaignError,
+  redeemPromotions,
+  releasePromotionReservations,
+  reservePromotions,
+  reverseRedeemedPromotions,
+  resolvePromotionsForPricing,
+} from '../services/promotion-campaign.service';
 import { createNotifications } from '../services/notification.service';
 import { NotificationChannel } from '../models/notification.model';
 import {
@@ -63,6 +72,7 @@ import {
   serializeBookingForOwner,
   serializeBookingForUnassignedTechnician,
 } from '../services/booking-privacy.service';
+import { assertActiveMarket, MarketFinanceGuardError } from '../services/market-finance-guard.service';
 
 interface CreateBookingRequestBody {
   customer_id?: unknown;
@@ -86,6 +96,10 @@ interface CreateBookingRequestBody {
   neighbourhood?: unknown;
   neighborhood?: unknown;
   service_key?: unknown;
+  subcategory_key?: unknown;
+  subcategoryKey?: unknown;
+  sub_category_key?: unknown;
+  subCategory?: unknown;
   category?: unknown;
   preferred_technician_id?: unknown;
   preferredTechnicianId?: unknown;
@@ -161,63 +175,6 @@ const decimalFromMinor = (valueMinor: number): number => valueMinor / 100;
 
 const normalizePromoCode = (value: unknown): string =>
   typeof value === 'string' ? value.trim().toUpperCase().replace(/\s+/g, '') : '';
-
-const calculatePromotionDiscount = async (args: {
-  promoCode: string;
-  customerId: string;
-  amountMinor: number;
-  countryCode: CountryCode;
-  currency: string;
-}): Promise<{ discountMinor: number; promotion: any } | null> => {
-  if (!args.promoCode) return null;
-
-  const now = new Date();
-  const promotion = await Promotion.findOne({
-    code: args.promoCode,
-    status: PromotionStatus.ACTIVE,
-    $and: [
-      { $or: [{ startsAt: null }, { startsAt: { $lte: now } }] },
-      { $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }] },
-      { $or: [{ countryCode: null }, { countryCode: args.countryCode }] },
-      { $or: [{ currency: null }, { currency: args.currency }] },
-    ],
-  });
-
-  if (!promotion) {
-    throw new Error('Promo code is invalid or expired.');
-  }
-
-  if (promotion.usageLimit !== null && promotion.usageLimit !== undefined && promotion.usageCount >= promotion.usageLimit) {
-    throw new Error('Promo code usage limit has been reached.');
-  }
-
-  if (promotion.perClientLimit !== null && promotion.perClientLimit !== undefined) {
-    const clientUsageCount = await Booking.countDocuments({
-      customerId: new mongoose.Types.ObjectId(args.customerId),
-      'metadata.promotion.promotionId': promotion._id.toString(),
-      status: { $ne: BookingStatus.CANCELLED },
-    });
-
-    if (clientUsageCount >= promotion.perClientLimit) {
-      throw new Error('Promo code has already been used by this account.');
-    }
-  }
-
-  if (args.amountMinor < promotion.minBookingAmountMinor) {
-    throw new Error('Promo code minimum booking amount has not been met.');
-  }
-
-  let discountMinor = promotion.discountType === PromotionDiscountType.PERCENTAGE
-    ? Math.floor((args.amountMinor * promotion.discountValue) / 100)
-    : Math.round(promotion.discountValue);
-
-  if (promotion.maxDiscountMinor !== null && promotion.maxDiscountMinor !== undefined) {
-    discountMinor = Math.min(discountMinor, promotion.maxDiscountMinor);
-  }
-
-  discountMinor = Math.min(Math.max(discountMinor, 0), args.amountMinor);
-  return { discountMinor, promotion };
-};
 
 const isBookingStatus = (value: unknown): value is BookingStatus =>
   typeof value === 'string' && Object.values(BookingStatus).includes(value as BookingStatus);
@@ -551,7 +508,7 @@ const validatePreferredProviderRebooking = async (input: {
   preferredTechnicianId: string;
   rebookFromBookingId: string;
   requestedServiceKey: string;
-  countryCode: CountryCode;
+  countryCode: string;
 }): Promise<{ allowed: boolean; message?: string; preferredTechnicianObjectId?: mongoose.Types.ObjectId }> => {
   if (!input.preferredTechnicianId && !input.rebookFromBookingId) return { allowed: true };
 
@@ -649,6 +606,9 @@ export const createBooking = async (
           ? body.neighborhood.trim()
           : '';
   const requestedServiceKey = normalizeDispatchServiceKey(body.service_key ?? body.category ?? body.general_area ?? applianceType);
+  const requestedSubcategoryKey = normalizeDispatchServiceKey(
+    body.subcategory_key ?? body.subcategoryKey ?? body.sub_category_key ?? body.subCategory
+  );
   const preferredTechnicianId =
     typeof (body.preferredTechnicianId ?? body.preferred_technician_id) === 'string'
       ? String(body.preferredTechnicianId ?? body.preferred_technician_id).trim()
@@ -667,7 +627,7 @@ export const createBooking = async (
   const latitude = toFiniteNumber(body.latitude);
   const longitude = toFiniteNumber(body.longitude);
 
-  let countryCode = CountryCode.ZA;
+  let countryCode = '';
   let customer: any = null;
   if (mongoose.Types.ObjectId.isValid(customerId)) {
     customer = await User.findById(customerId)
@@ -678,11 +638,19 @@ export const createBooking = async (
     countryCode = normalizeCountryCode(body.country_code);
   }
 
-  const market = getMarketByCountry(countryCode);
-  const callOutFee = toFiniteNumber(body.call_out_fee) ?? market.defaultCalloutFee;
-  const originalPriceMinor = toMinorUnits(callOutFee, market.currency);
+  const activeMarket = await assertActiveMarket(countryCode);
+  const market = {
+    countryCode: activeMarket.identity.countryCode as CountryCode,
+    countryName: activeMarket.identity.countryName,
+    currency: activeMarket.identity.currency as any,
+    defaultCalloutFee: fromMinorUnits(activeMarket.pricing.defaultCalloutFeeMinor, activeMarket.identity.currency as any),
+    platformCommissionBps: activeMarket.pricing.platformCommissionBps,
+  };
+  const callOutFee = market.defaultCalloutFee;
+  let originalPriceMinor = activeMarket.pricing.defaultCalloutFeeMinor;
   let priceMinor = originalPriceMinor;
-  let appliedPromotion: { discountMinor: number; promotion: any } | null = null;
+  let promotionDiscountMinor = 0;
+  let appliedPromotions: AppliedPromotionSnapshot[] = [];
 
   if (!customerId || !applianceType || !fullAddress || latitude === null || longitude === null) {
     response.status(400).json({ message: 'Missing or invalid booking layout items' });
@@ -710,24 +678,6 @@ export const createBooking = async (
   if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 || callOutFee < 0) {
     response.status(400).json({ message: 'Invalid location or pricing metrics input' });
     return;
-  }
-
-  if (promoCode) {
-    try {
-      appliedPromotion = await calculatePromotionDiscount({
-        promoCode,
-        customerId,
-        amountMinor: originalPriceMinor,
-        countryCode: market.countryCode,
-        currency: market.currency,
-      });
-      if (appliedPromotion) {
-        priceMinor = Math.max(originalPriceMinor - appliedPromotion.discountMinor, 0);
-      }
-    } catch (error: any) {
-      response.status(400).json({ message: error.message || 'Promo code could not be applied.' });
-      return;
-    }
   }
 
   let serviceRecipient;
@@ -772,6 +722,7 @@ export const createBooking = async (
     city,
     area,
     serviceKey: requestedServiceKey,
+    subcategoryKey: requestedSubcategoryKey,
   });
 
   if (!availability.allowed) {
@@ -779,9 +730,73 @@ export const createBooking = async (
       message: availability.message || 'This service is not available in your selected location.',
       serviceStatus: availability.service?.status,
       serviceKey: requestedServiceKey,
+      subcategoryKey: requestedSubcategoryKey,
     });
     return;
   }
+
+  if (typeof availability.service?.calloutFeeMinor === 'number') {
+    originalPriceMinor = availability.service.calloutFeeMinor;
+    priceMinor = originalPriceMinor;
+  }
+
+  if (body.call_out_fee !== undefined && Math.round(Number(body.call_out_fee) * 100) !== originalPriceMinor) {
+    response.status(400).json({
+      message: 'Call-out fee must match the active market service configuration.',
+    });
+    return;
+  }
+
+  try {
+    const promotionResolution = await resolvePromotionsForPricing({
+      promoCode,
+      customerId,
+      amountMinor: originalPriceMinor,
+      countryCode: market.countryCode,
+      currency: market.currency,
+      city,
+      area,
+      serviceKey: requestedServiceKey,
+      subcategoryKey: requestedSubcategoryKey,
+    });
+    promotionDiscountMinor = promotionResolution.promotionDiscountMinor;
+    appliedPromotions = promotionResolution.promotions;
+  } catch (error: any) {
+    if (error instanceof PromotionCampaignError || promoCode) {
+      response.status(400).json({ message: error.message || 'Promotion could not be applied.' });
+      return;
+    }
+    throw error;
+  }
+
+  const promotionTechnicianFundedMinor = appliedPromotions.reduce(
+    (sum, promotion) => sum + Math.round((promotion.discountMinor * (promotion.fundingSplitBps.technician || 0)) / 10000),
+    0
+  );
+  const promotionPartnerFundedMinor = appliedPromotions.reduce(
+    (sum, promotion) => sum + Math.round((promotion.discountMinor * (promotion.fundingSplitBps.partner || 0)) / 10000),
+    0
+  );
+  const priceBreakdown = calculatePriceBreakdown({
+    currency: market.currency,
+    calloutFeeMinor: originalPriceMinor,
+    promotionDiscountMinor,
+    otherDiscountMinor: 0,
+    promotionFundingSource: appliedPromotions.some((promotion) => promotion.fundingSource === 'SHARED')
+      ? 'SHARED'
+      : appliedPromotions.some((promotion) => promotion.fundingSource === 'PROVIDER' || promotion.fundingSource === 'TECHNICIAN')
+        ? 'PROVIDER'
+        : appliedPromotions.some((promotion) => promotion.fundingSource === 'PARTNER')
+          ? 'PARTNER'
+          : 'MYFIXER',
+    promotionTechnicianFundedMinor,
+    promotionPartnerFundedMinor,
+    marketPricing: {
+      ...activeMarket.pricing,
+      platformCommissionBps: activeMarket.pricing.platformCommissionBps ?? 1500,
+    },
+  });
+  priceMinor = priceBreakdown.totalMinor;
 
   const explicitlyActive = await isMarketServiceExplicitlyActive(market.countryCode, requestedServiceKey);
   if (!explicitlyActive) {
@@ -804,6 +819,19 @@ export const createBooking = async (
   if (!preferredRebooking.allowed) {
     response.status(403).json({ message: preferredRebooking.message || 'Preferred provider rebooking is not allowed for this request.' });
     return;
+  }
+
+  let promotionReservationCommitted = false;
+  let bookingCreated = false;
+
+  if (appliedPromotions.length) {
+    try {
+      await reservePromotions(appliedPromotions);
+      promotionReservationCommitted = true;
+    } catch (error: any) {
+      response.status(409).json({ message: error.message || 'Promotion could not be reserved.' });
+      return;
+    }
   }
 
   try {
@@ -842,6 +870,9 @@ export const createBooking = async (
         city,
         postalCode,
         serviceKey: requestedServiceKey,
+        subcategoryKey: requestedSubcategoryKey,
+        subcategoryLabel: applianceType,
+        pricingSource: availability.service?.pricingSource || '',
         fallbackPreference,
         scheduledAt: isValidDate(scheduledAt) ? scheduledAt : null,
         preferredTechnicianId: preferredRebooking.preferredTechnicianObjectId?.toString() || '',
@@ -849,14 +880,10 @@ export const createBooking = async (
         rebookPolicy: preferredRebooking.preferredTechnicianObjectId
           ? 'PREFERRED_PROVIDER_FIRST_WITH_MYFIXER_PROTECTION'
           : '',
-        promotion: appliedPromotion ? {
-          code: appliedPromotion.promotion.code,
-          promotionId: appliedPromotion.promotion._id.toString(),
-          discountType: appliedPromotion.promotion.discountType,
-          discountValue: appliedPromotion.promotion.discountValue,
-          originalPriceMinor,
-          discountMinor: appliedPromotion.discountMinor,
-        } : undefined,
+        promotion: appliedPromotions[0],
+        promotions: appliedPromotions,
+        priceBreakdown,
+        pricingRuleVersion: 'market-pricing-v1',
       },
       priceMinor,
       countryCode: market.countryCode,
@@ -871,13 +898,7 @@ export const createBooking = async (
     });
 
     const bookingId = booking.id;
-
-    if (appliedPromotion) {
-      await Promotion.updateOne(
-        { _id: appliedPromotion.promotion._id },
-        { $inc: { usageCount: 1 } }
-      );
-    }
+    bookingCreated = true;
 
     await safelyLogAuditEvent(request, {
       action: serviceRecipient.type === 'OTHER' ? 'booking.create.for_other' : 'booking.create.for_self',
@@ -924,6 +945,8 @@ export const createBooking = async (
         : `We are finding a ${providerRoleForService(requestedServiceKey)} near you. We will notify you when someone accepts.`,
       {
         serviceKey: requestedServiceKey,
+        promotionDiscountMinor,
+        promotionIds: appliedPromotions.map((promotion) => promotion.promotionId),
         scheduledAt: isPreBook && isValidDate(scheduledAt) ? scheduledAt.toISOString() : null,
         bookingStatus: isPreBook ? BookingStatus.SCHEDULED : BookingStatus.PENDING,
       }
@@ -1085,9 +1108,19 @@ export const createBooking = async (
       fallbackPreference,
       dispatchStatus: booking.dispatch?.status,
       preferredTechnicianId: preferredTechnicianUserId || null,
-      notifiedTechnicianIds: orderedEligibleTechnicianIds
+      notifiedTechnicianIds: orderedEligibleTechnicianIds,
+      priceBreakdown,
+      promotion: appliedPromotions[0] || null,
+      promotions: appliedPromotions,
     });
   } catch (error) {
+    if (promotionReservationCommitted && !bookingCreated) {
+      await releasePromotionReservations(appliedPromotions).catch(() => undefined);
+    }
+    if (error instanceof MarketFinanceGuardError) {
+      response.status(error.statusCode).json({ message: error.message, code: error.code });
+      return;
+    }
     console.error('Failed to create booking in MongoDB:', error);
     response.status(500).json({ message: 'Failed to create booking' });
   }
@@ -1357,6 +1390,12 @@ export const getMyBookingHistory = async (
         const approvedTechnicianPhotoUrl = technicianProfile?.documents?.profilePhotoStatus === VerificationStatus.VERIFIED
           ? technicianProfile.documents.profilePhotoUrl
           : '';
+        const invoicePriceBreakdown = invoice?.metadata?.priceBreakdown && typeof invoice.metadata.priceBreakdown === 'object'
+          ? invoice.metadata.priceBreakdown as Record<string, unknown>
+          : null;
+        const invoicePromotion = invoice?.metadata?.promotion && typeof invoice.metadata.promotion === 'object'
+          ? invoice.metadata.promotion as Record<string, unknown>
+          : null;
         return {
           id: String(booking._id),
           serviceKey: String(booking.serviceKey || booking.metadata?.serviceKey || ''),
@@ -1384,6 +1423,13 @@ export const getMyBookingHistory = async (
             additionalLaborMinor: invoice.additionalLaborMinor,
             partsAmountMinor: invoice.partsAmountMinor,
             totalAmountMinor: invoice.totalAmountMinor,
+            promoDiscountMinor: typeof invoicePriceBreakdown?.promotionDiscountMinor === 'number'
+              ? invoicePriceBreakdown.promotionDiscountMinor
+              : typeof invoicePromotion?.discountMinor === 'number'
+                ? invoicePromotion.discountMinor
+                : 0,
+            promotion: invoicePromotion,
+            priceBreakdown: invoicePriceBreakdown,
             status: invoice.status,
           } : null,
         };
@@ -1766,6 +1812,18 @@ export const updateBookingStatus = async (
       );
     }
     if (nextStatus === BookingStatus.CANCELLED) {
+      const snapshots = Array.isArray(booking.metadata?.promotions)
+        ? booking.metadata.promotions as AppliedPromotionSnapshot[]
+        : [];
+      if (snapshots.length) {
+        const redeemed = snapshots.some((promotion) => promotion.reservationStatus === 'REDEEMED' || promotion.redeemedAt);
+        const nextPromotions = redeemed
+          ? await reverseRedeemedPromotions(snapshots, 'BOOKING_CANCELLED')
+          : await releasePromotionReservations(snapshots, 'BOOKING_CANCELLED');
+        booking.set('metadata.promotions', nextPromotions);
+        booking.set('metadata.promotion', nextPromotions[0] || null);
+        await booking.save();
+      }
       (booking.dispatch?.sentToTechnicians || []).forEach((targetId) => {
         io?.to(`technician:${targetId.toString()}`).emit('job_unavailable', {
           bookingId: booking.id,
@@ -2156,7 +2214,13 @@ export const finalizeJobInvoice = async (
       status: QuoteStatus.APPROVED,
     }).sort({ approvedAt: -1 });
 
-    const fallbackBaseAmount = toFiniteNumber(body.baseAmount) ?? decimalFromMinor(booking.priceMinor);
+    const bookingPriceBreakdown = booking.metadata?.priceBreakdown && typeof booking.metadata.priceBreakdown === 'object'
+      ? booking.metadata.priceBreakdown as Record<string, any>
+      : null;
+    const bookingCalloutMinor = typeof bookingPriceBreakdown?.calloutFeeMinor === 'number'
+      ? Math.max(0, Math.round(bookingPriceBreakdown.calloutFeeMinor))
+      : booking.priceMinor;
+    const fallbackBaseAmount = toFiniteNumber(body.baseAmount) ?? decimalFromMinor(bookingCalloutMinor);
     const fallbackAdditionalLabor = toFiniteNumber(body.additionalLabor) ?? 0;
     const fallbackPartsAmount = toFiniteNumber(body.partsAmount) ?? 0;
 
@@ -2183,10 +2247,57 @@ export const finalizeJobInvoice = async (
     const additionalLaborMinor = toMinorUnits(additionalLabor, booking.currency);
     const partsAmountMinor = toMinorUnits(partsAmount, booking.currency);
     const totalAmountMinor = toMinorUnits(totalAmount, booking.currency);
-    const market = getMarketByCountry(booking.countryCode);
-    const platformCommissionBps = market.platformCommissionBps;
-    const platformCommissionAmountMinor = Math.round((totalAmountMinor * platformCommissionBps) / 10000);
-    const technicianNetAmountMinor = Math.max(totalAmountMinor - platformCommissionAmountMinor, 0);
+    const marketSetting = await MarketSetting.findOne({ 'identity.countryCode': booking.countryCode }).lean();
+    const quotePriceBreakdown = approvedQuote?.metadata?.priceBreakdown && typeof approvedQuote.metadata.priceBreakdown === 'object'
+      ? approvedQuote.metadata.priceBreakdown as Record<string, any>
+      : null;
+    const promotionSnapshot = booking.metadata?.promotion && typeof booking.metadata.promotion === 'object'
+      ? booking.metadata.promotion as Record<string, unknown>
+      : null;
+    const promotionSnapshots = Array.isArray(booking.metadata?.promotions)
+      ? booking.metadata.promotions as AppliedPromotionSnapshot[]
+      : promotionSnapshot
+        ? [promotionSnapshot as unknown as AppliedPromotionSnapshot]
+        : [];
+    const promoDiscountMinor = typeof promotionSnapshot?.discountMinor === 'number'
+      ? Math.max(0, Math.round(promotionSnapshot.discountMinor))
+      : typeof bookingPriceBreakdown?.promotionDiscountMinor === 'number'
+        ? Math.max(0, Math.round(bookingPriceBreakdown.promotionDiscountMinor))
+      : 0;
+    const promoOriginalPriceMinor = typeof promotionSnapshot?.originalPriceMinor === 'number'
+      ? Math.max(0, Math.round(promotionSnapshot.originalPriceMinor))
+      : typeof bookingPriceBreakdown?.calloutFeeMinor === 'number'
+        ? Math.max(0, Math.round(bookingPriceBreakdown.calloutFeeMinor))
+      : baseAmountMinor;
+    const applyBookingPromoToInvoice = promoDiscountMinor > 0 && !approvedQuote;
+    const legacyPriceBreakdown = calculatePriceBreakdown({
+      currency: booking.currency as any,
+      calloutFeeMinor: applyBookingPromoToInvoice ? promoOriginalPriceMinor : baseAmountMinor,
+      labourMinor: additionalLaborMinor,
+      partsMinor: partsAmountMinor,
+      promotionDiscountMinor: applyBookingPromoToInvoice ? promoDiscountMinor : 0,
+      otherDiscountMinor: 0,
+      promotionFundingSource: typeof promotionSnapshot?.fundingSource === 'string' ? promotionSnapshot.fundingSource as any : 'PLATFORM',
+      promotionTechnicianFundedMinor: applyBookingPromoToInvoice && promotionSnapshot?.fundingSplitBps && typeof promotionSnapshot.fundingSplitBps === 'object'
+        ? Math.round((promoDiscountMinor * Number((promotionSnapshot.fundingSplitBps as any).technician || 0)) / 10000)
+        : 0,
+      promotionPartnerFundedMinor: applyBookingPromoToInvoice && promotionSnapshot?.fundingSplitBps && typeof promotionSnapshot.fundingSplitBps === 'object'
+        ? Math.round((promoDiscountMinor * Number((promotionSnapshot.fundingSplitBps as any).partner || 0)) / 10000)
+        : 0,
+      marketPricing: {
+        ...(marketSetting?.pricing || {}),
+        platformCommissionBps: marketSetting?.pricing?.platformCommissionBps ?? 1500,
+      },
+    });
+    const priceBreakdown: any = quotePriceBreakdown || (
+      !approvedQuote && bookingPriceBreakdown && additionalLaborMinor === 0 && partsAmountMinor === 0
+        ? bookingPriceBreakdown
+        : legacyPriceBreakdown
+    );
+    const platformCommissionBps = Number.isFinite(Number(priceBreakdown.platformCommissionBps)) ? Number(priceBreakdown.platformCommissionBps) : 1500;
+    const platformCommissionAmountMinor = Number.isFinite(Number(priceBreakdown.platformCommissionMinor)) ? Math.max(0, Math.round(Number(priceBreakdown.platformCommissionMinor))) : 0;
+    const technicianNetAmountMinor = Number.isFinite(Number(priceBreakdown.technicianNetMinor)) ? Math.max(0, Math.round(Number(priceBreakdown.technicianNetMinor))) : 0;
+    const invoiceTotalMinor = Number.isFinite(Number(priceBreakdown.totalMinor)) ? Math.max(0, Math.round(Number(priceBreakdown.totalMinor))) : totalAmountMinor;
     const platformCommissionAmount = fromMinorUnits(platformCommissionAmountMinor, booking.currency);
     const technicianNetAmount = fromMinorUnits(technicianNetAmountMinor, booking.currency);
 
@@ -2205,14 +2316,14 @@ export const finalizeJobInvoice = async (
     });
     
     booking.set('finalBilling', {
-      baseAmount,
-      baseAmountMinor,
+      baseAmount: fromMinorUnits(applyBookingPromoToInvoice ? promoOriginalPriceMinor : baseAmountMinor, booking.currency),
+      baseAmountMinor: applyBookingPromoToInvoice ? promoOriginalPriceMinor : baseAmountMinor,
       additionalLabor,
       additionalLaborMinor,
       partsAmount,
       partsAmountMinor,
-      totalAmount,
-      totalAmountMinor,
+      totalAmount: fromMinorUnits(invoiceTotalMinor, booking.currency),
+      totalAmountMinor: invoiceTotalMinor,
       proofPhoto
     });
 
@@ -2236,6 +2347,9 @@ export const finalizeJobInvoice = async (
       const walletPendingDeltaMinor = existingInvoice
         ? technicianNetAmountMinor - existingInvoice.technicianNetAmountMinor
         : technicianNetAmountMinor;
+      const redeemedPromotions = applyBookingPromoToInvoice
+        ? await redeemPromotions(promotionSnapshots)
+        : promotionSnapshots;
 
       const invoice = await Invoice.findOneAndUpdate(
         { bookingId: booking._id },
@@ -2246,14 +2360,38 @@ export const finalizeJobInvoice = async (
           technicianId: new mongoose.Types.ObjectId(booking.technicianId),
           countryCode: booking.countryCode,
           currency: booking.currency,
-          baseAmountMinor,
+          baseAmountMinor: applyBookingPromoToInvoice ? promoOriginalPriceMinor : baseAmountMinor,
           additionalLaborMinor,
           partsAmountMinor,
-          totalAmountMinor,
+          totalAmountMinor: invoiceTotalMinor,
           platformCommissionBps,
           platformCommissionAmountMinor,
           technicianNetAmountMinor,
           status: InvoiceStatus.UNPAID,
+          metadata: {
+            ...(existingInvoice?.metadata || {}),
+            bookingId: booking.id,
+            market: {
+              countryCode: booking.countryCode,
+              currency: booking.currency,
+            },
+            service: {
+              serviceKey: booking.serviceKey || booking.metadata?.serviceKey || '',
+              subcategoryKey: booking.metadata?.subcategoryKey || '',
+              label: booking.applianceType,
+            },
+            promotion: redeemedPromotions[0] ? {
+              ...redeemedPromotions[0],
+              discountMinor: promoDiscountMinor,
+              appliedToInvoice: applyBookingPromoToInvoice,
+            } : null,
+            promotions: redeemedPromotions.map((promotion) => ({
+              ...promotion,
+              appliedToInvoice: applyBookingPromoToInvoice,
+            })),
+            priceBreakdown,
+            pricingRuleVersion: 'market-pricing-v1',
+          },
         },
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
@@ -2317,7 +2455,7 @@ export const finalizeJobInvoice = async (
             ...ledgerBase,
             type: WalletTransactionType.CLIENT_PAYMENT,
             status: WalletTransactionStatus.PENDING,
-            amountMinor: totalAmountMinor,
+            amountMinor: invoiceTotalMinor,
             description: 'Client payment due for completed job',
           },
           {
@@ -2359,7 +2497,7 @@ export const finalizeJobInvoice = async (
       'INVOICE_GENERATED',
       'Invoice generated',
       `Your invoice for ${booking.applianceType} has been generated.`,
-      { totalAmountMinor, currency: booking.currency }
+      { totalAmountMinor: invoiceTotalMinor, currency: booking.currency }
     );
     invoiceInboxMessages.forEach((message) => {
       io?.to(`customer:${booking.customerId.toString()}`).emit('new_inbox_message', message);
@@ -2367,7 +2505,7 @@ export const finalizeJobInvoice = async (
     if (booking.technicianId) {
       io?.to(`technician:${booking.technicianId.toString()}`).emit('payment_confirmed', {
         bookingId: booking.id,
-        totalAmountMinor,
+        totalAmountMinor: invoiceTotalMinor,
         currency: booking.currency,
       });
     }
@@ -2383,7 +2521,25 @@ export const finalizeJobInvoice = async (
       baseAmount,
       additionalLabor,
       partsAmount,
-      totalAmount,
+      totalAmount: fromMinorUnits(invoiceTotalMinor, booking.currency),
+      discountAmount: fromMinorUnits(applyBookingPromoToInvoice ? promoDiscountMinor : 0, booking.currency),
+      promoCode: typeof promotionSnapshot?.code === 'string' ? promotionSnapshot.code : '',
+      promotionLabel: typeof promotionSnapshot?.campaignName === 'string'
+        ? promotionSnapshot.campaignName
+        : typeof promotionSnapshot?.code === 'string'
+          ? `Promotion - ${promotionSnapshot.code}`
+          : applyBookingPromoToInvoice && promoDiscountMinor > 0
+            ? 'Promotion'
+            : '',
+      subtotalAmount: typeof priceBreakdown.subtotalMinor === 'number'
+        ? fromMinorUnits(priceBreakdown.subtotalMinor, booking.currency)
+        : undefined,
+      clientServiceFee: typeof priceBreakdown.clientServiceFeeMinor === 'number'
+        ? fromMinorUnits(priceBreakdown.clientServiceFeeMinor, booking.currency)
+        : 0,
+      taxAmount: typeof priceBreakdown.taxMinor === 'number'
+        ? fromMinorUnits(priceBreakdown.taxMinor, booking.currency)
+        : 0,
       currency: booking.currency
     });
 
@@ -2405,7 +2561,7 @@ export const finalizeJobInvoice = async (
         },
       },
       metadata: {
-        totalAmountMinor,
+        totalAmountMinor: invoiceTotalMinor,
         platformCommissionAmountMinor,
         technicianNetAmountMinor,
         emailSent,

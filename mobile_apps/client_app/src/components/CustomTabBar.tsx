@@ -6,6 +6,7 @@ import {
   Text,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Colors, Radius } from '../theme';
 
 export function CustomTabBar({ state, descriptors, navigation }: any) {
   const insets = useSafeAreaInsets();
@@ -30,7 +31,7 @@ export function CustomTabBar({ state, descriptors, navigation }: any) {
 
           const isFocused = state.index === index;
 
-          const tintColor = isFocused ? '#00FF87' : '#64748B';
+          const tintColor = isFocused ? Colors.primary : Colors.textSubtle;
 
           const onPress = () => {
             const event = navigation.emit({
@@ -66,11 +67,13 @@ export function CustomTabBar({ state, descriptors, navigation }: any) {
               onLongPress={onLongPress}
               style={styles.tabButton}
             >
-              {options.tabBarIcon?.({
-                focused: isFocused,
-                color: tintColor,
-                size: 24,
-              })}
+              <View style={[styles.iconShell, isFocused && styles.iconShellActive]}>
+                {options.tabBarIcon?.({
+                  focused: isFocused,
+                  color: tintColor,
+                  size: 22,
+                })}
+              </View>
 
               <Text
                 style={[
@@ -83,8 +86,6 @@ export function CustomTabBar({ state, descriptors, navigation }: any) {
               >
                 {label}
               </Text>
-
-              {isFocused && <View style={styles.activeIndicator} />}
             </TouchableOpacity>
           );
         })}
@@ -106,31 +107,31 @@ const styles = StyleSheet.create({
     width: '92%',
     maxWidth: 520,
 
-    height: 70,
+    height: 78,
 
     flexDirection: 'row',
 
     alignItems: 'center',
     justifyContent: 'space-around',
 
-    backgroundColor: '#0F172A',
+    backgroundColor: 'rgba(17, 17, 20, 0.96)',
 
-    borderRadius: 24,
+    borderRadius: 32,
 
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: 'rgba(247, 247, 245, 0.11)',
 
-    paddingHorizontal: 10,
+    paddingHorizontal: 7,
 
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 8,
     },
-    shadowOpacity: 0.22,
-    shadowRadius: 12,
+    shadowOpacity: 0.36,
+    shadowRadius: 26,
 
-    elevation: 12,
+    elevation: 16,
   },
 
   tabButton: {
@@ -142,24 +143,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
 
     position: 'relative',
+    borderRadius: 24,
   },
 
   label: {
-    fontSize: 11,
+    fontSize: 10,
     marginTop: 4,
   },
 
-  activeIndicator: {
-    position: 'absolute',
+  iconShell: {
+    width: 38,
+    height: 30,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
-    bottom: 6,
-
-    width: 24,
-    height: 3,
-
-    borderRadius: 10,
-
-    backgroundColor: '#00FF87',
+  iconShellActive: {
+    backgroundColor: 'rgba(184, 255, 61, 0.13)',
+    borderWidth: 1,
+    borderColor: 'rgba(184, 255, 61, 0.32)',
   },
 });
 

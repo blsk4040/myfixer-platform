@@ -66,7 +66,7 @@ function disabled(countryCode, currency) {
         adminApprovalRequired: true,
     };
 }
-const getCountryPaymentCapabilities = (countryCode) => exports.COUNTRY_PAYMENT_CAPABILITIES[countryCode] ?? exports.COUNTRY_PAYMENT_CAPABILITIES[market_config_1.CountryCode.ZA];
+const getCountryPaymentCapabilities = (countryCode) => exports.COUNTRY_PAYMENT_CAPABILITIES[countryCode] ?? disabled(countryCode, '');
 exports.getCountryPaymentCapabilities = getCountryPaymentCapabilities;
 const getCountryPaymentFeatureFlags = (countryCode) => {
     const capabilities = (0, exports.getCountryPaymentCapabilities)(countryCode);

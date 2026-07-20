@@ -28,6 +28,16 @@ import authService from '../../services/auth.service';
 import LocationSelectionSheet, {
   LocationConfirmationPayload,
 } from '../../components/LocationSelectionSheet';
+import {
+  PriceBreakdown,
+  formatMinorMoney,
+  normalizePriceBreakdown,
+  promotionDiscountMinor,
+  promotionLabel,
+  promotionSnapshots,
+} from '../../utils/financialDisplay';
+import { BRAND } from '../../config/brand';
+import { Colors, Radius, Spacing } from '../../theme';
 
 // ✅ Clean type casting to fully resolve IntrinsicAttributes TypeScript errors
 const Calendar = LucideCalendar as any;
@@ -46,16 +56,22 @@ const formatScheduledDate = (value: Date): string =>
     minute: '2-digit',
   });
 
+const wizardSteps = ['Service', 'Location', 'Details', 'Schedule', 'Review'];
+
 export default function BookingWizardScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
 
-  const { category, serviceKey, subCategory, basePrice, preferredTechnicianId, preferredTechnicianName, rebookFromBookingId } = route.params || {
-    category: 'appliance_repair',
-    serviceKey: 'appliance_repair',
-    subCategory: 'General Appliance Fix',
-    basePrice: 350
-  };
+  const {
+    category = '',
+    serviceKey = '',
+    subCategory = '',
+    subCategoryKey = '',
+    basePrice = 0,
+    preferredTechnicianId,
+    preferredTechnicianName,
+    rebookFromBookingId,
+  } = route.params || {};
   const isPreferredProviderRebook = Boolean(preferredTechnicianId && rebookFromBookingId);
 
   const [notes, setNotes] = useState('');
@@ -82,6 +98,8 @@ export default function BookingWizardScreen() {
   const [isSearchingProvider, setIsSearchingProvider] = useState(false);
   const [requestAccepted, setRequestAccepted] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
+  const [confirmedBreakdown, setConfirmedBreakdown] = useState<PriceBreakdown | null>(null);
+  const [confirmedPromotions, setConfirmedPromotions] = useState<any[]>([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -184,6 +202,18 @@ export default function BookingWizardScreen() {
       setIsSubmitting(true);
       setIsSearchingProvider(true);
 
+      if (!serviceKey && !category) {
+        Alert.alert('Service unavailable', 'Please choose an available service before booking.');
+        setIsSearchingProvider(false);
+        return;
+      }
+
+      if (!subCategory) {
+        Alert.alert('Service unavailable', 'Please choose an available service option before booking.');
+        setIsSearchingProvider(false);
+        return;
+      }
+
       const customerCoordinate = {
         latitude: selectedLocation.latitude,
         longitude: selectedLocation.longitude,
@@ -218,6 +248,7 @@ export default function BookingWizardScreen() {
         city: selectedLocation.city || city.trim() || profile?.location?.city,
         area: selectedLocation.area || suburb.trim() || profile?.location?.area,
         serviceKey: serviceKey || category,
+        subcategoryKey: subCategoryKey,
         category,
         promoCode: promoCode.trim() || undefined,
         scheduledStartTime: scheduleMode === 'LATER' ? selectedDate.toISOString() : undefined,
@@ -234,6 +265,9 @@ export default function BookingWizardScreen() {
       const socket = socketService.initializeConnection();
       socketService.joinBookingRoom(response.bookingId);
       setCreatedBookingId(response.bookingId);
+      const backendBreakdown = normalizePriceBreakdown(response);
+      setConfirmedBreakdown(backendBreakdown);
+      setConfirmedPromotions(promotionSnapshots(response, backendBreakdown));
 
       socket.once('booking_assigned', (payload: { bookingId?: string; technicianId?: string }) => {
         if (payload.bookingId !== response.bookingId) return;
@@ -277,14 +311,26 @@ export default function BookingWizardScreen() {
         <ScrollView contentContainerStyle={styles.scrollWrapper} keyboardShouldPersistTaps="handled">
           
           <View style={styles.header}>
-            <Text style={styles.headerLabel}>SERVICE DISPATCH</Text>
-            <Text style={styles.headerTitle}>{subCategory}</Text>
-            <Text style={styles.headerSubtitle}>Call-out fee: <Text style={styles.greenText}>R{basePrice}</Text></Text>
+            <Text style={styles.headerLabel}>{BRAND.name} booking</Text>
+            <Text style={styles.headerTitle}>{subCategory || 'Selected service'}</Text>
+            <Text style={styles.headerSubtitle}>
+              Call-out fee: <Text style={styles.greenText}>{basePrice > 0 ? `R${basePrice}` : 'Confirmed by Paddy'}</Text>
+            </Text>
+            <View style={styles.stepper}>
+              {wizardSteps.map((step, index) => (
+                <View key={step} style={styles.stepItem}>
+                  <View style={[styles.stepDot, index === 0 && styles.stepDotActive]}>
+                    <Text style={[styles.stepNumber, index === 0 && styles.stepNumberActive]}>{index + 1}</Text>
+                  </View>
+                  <Text style={[styles.stepLabel, index === 0 && styles.stepLabelActive]} numberOfLines={1}>{step}</Text>
+                </View>
+              ))}
+            </View>
             {isPreferredProviderRebook && (
               <View style={styles.preferredBox}>
                 <Text style={styles.preferredTitle}>Preferred provider request</Text>
                 <Text style={styles.preferredText}>
-                  We will prioritize {preferredTechnicianName || 'your previous provider'} if they are available. MyFixer matching, payment, tracking, and support stay in-app.
+                  We will prioritize {preferredTechnicianName || 'your previous provider'} if they are available. Paddy matching, payment, tracking, and support stay in-app.
                 </Text>
               </View>
             )}
@@ -292,11 +338,11 @@ export default function BookingWizardScreen() {
 
           {isSearchingProvider && (
           <View style={styles.matchingBox}>
-            <ActivityIndicator size="large" color="#00FF87" />
+            <ActivityIndicator size="large" color={Colors.primary} />
               <Text style={styles.matchingText}>
                 {scheduleMode === 'LATER'
                   ? `Scheduling your request for ${formatScheduledDate(selectedDate)}...`
-                  : 'Finding available specialists near you...'}
+                  : 'Finding trusted professionals near you...'}
               </Text>
             </View>
           )}
@@ -304,7 +350,7 @@ export default function BookingWizardScreen() {
           {requestAccepted && (
             <View style={styles.providerCard}>
               <View style={styles.acceptedIconWrap}>
-                <CheckCircle color="#00FF87" size={34} />
+                <CheckCircle color={Colors.primary} size={34} />
               </View>
               <View style={styles.providerMeta}>
                 <View style={{ flex: 1 }}>
@@ -327,13 +373,35 @@ export default function BookingWizardScreen() {
                   <Text style={styles.secondaryTrackBtnText}>View Activity</Text>
                 </TouchableOpacity>
               </View>
+              {confirmedPromotions.length && confirmedBreakdown ? (
+                <View style={styles.estimateBox}>
+                  <Text style={styles.estimateTitle}>Promotion Applied</Text>
+                  {confirmedPromotions.map((promotion, index) => (
+                    <View key={`${promotion.promotionId || promotion.code || index}`} style={styles.estimateRow}>
+                      <Text style={styles.estimateLabel}>{promotionLabel(promotion)}</Text>
+                      <Text style={styles.estimateDiscount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+                        -{formatMinorMoney(confirmedBreakdown.currency, promotionDiscountMinor(promotion))}
+                      </Text>
+                    </View>
+                  ))}
+                  <View style={styles.estimateRow}>
+                    <Text style={styles.estimateTotalLabel}>Estimated Total</Text>
+                    <Text style={styles.estimateTotal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+                      {formatMinorMoney(confirmedBreakdown.currency, confirmedBreakdown.totalMinor || 0)}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
             </View>
           )}
 
           {!requestAccepted && !isSearchingProvider && (
             <View style={styles.formContainer}>
               
-              <Text style={styles.sectionTitle}>Service Address</Text>
+              <View style={styles.sectionCard}>
+              <Text style={styles.sectionEyebrow}>Step 2</Text>
+              <Text style={styles.sectionTitle}>Service address</Text>
+              <Text style={styles.sectionHint}>Choose where the professional should arrive. You can book for yourself or for someone else.</Text>
               {profile?.defaultServiceAddress?.fullAddress && !useDifferentAddress ? (
                 <View style={styles.defaultAddressNotice}>
                   <Text style={styles.defaultAddressText}>Using saved address: {profile.defaultServiceAddress.fullAddress}</Text>
@@ -343,7 +411,7 @@ export default function BookingWizardScreen() {
                 </View>
               ) : null}
               <LocationSelectionSheet
-                countryCode={profile?.countryCode || authService.getSession()?.user.countryCode || 'ZA'}
+                countryCode={profile?.countryCode || authService.getSession()?.user.countryCode || ''}
                 initialFullAddress={selectedLocation?.fullAddress || profile?.defaultServiceAddress?.fullAddress || ''}
                 initialLatitude={Number(latitude)}
                 initialLongitude={Number(longitude)}
@@ -361,8 +429,12 @@ export default function BookingWizardScreen() {
                   </Text>
                 </TouchableOpacity>
               ) : null}
+              </View>
 
-              <Text style={styles.sectionTitle}>Tell us what is happening</Text>
+              <View style={styles.sectionCard}>
+              <Text style={styles.sectionEyebrow}>Step 3</Text>
+              <Text style={styles.sectionTitle}>Service details</Text>
+              <Text style={styles.sectionHint}>Add notes that help the professional prepare before arrival.</Text>
               <TextInput
                 style={styles.instructionInput}
                 multiline
@@ -372,26 +444,32 @@ export default function BookingWizardScreen() {
                 value={notes}
                 onChangeText={setNotes}
               />
+              </View>
 
-              <Text style={styles.sectionTitle}>Promo Code</Text>
+              <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Promo code</Text>
               <TextInput
                 style={styles.promoInput}
                 autoCapitalize="characters"
                 autoCorrect={false}
-                placeholder="Optional, e.g. FIXER50"
-                placeholderTextColor="#475569"
+                placeholder="Optional"
+                placeholderTextColor={Colors.textSubtle}
                 value={promoCode}
                 onChangeText={(value) => setPromoCode(value.toUpperCase())}
               />
+              </View>
 
-              <Text style={styles.sectionTitle}>When should we arrive?</Text>
+              <View style={styles.sectionCard}>
+              <Text style={styles.sectionEyebrow}>Step 4</Text>
+              <Text style={styles.sectionTitle}>Schedule</Text>
+              <Text style={styles.sectionHint}>Request help now or choose a later arrival window.</Text>
               <View style={styles.timeToggleRow}>
                 <TouchableOpacity style={[styles.toggleBtn, scheduleMode === 'NOW' && styles.toggleBtnActive]} onPress={() => setScheduleMode('NOW')}>
-                  <Clock color={scheduleMode === 'NOW' ? '#090D14' : '#64748B'} size={18} />
+                  <Clock color={scheduleMode === 'NOW' ? Colors.background : Colors.textSubtle} size={18} />
                   <Text style={[styles.toggleText, scheduleMode === 'NOW' && styles.toggleTextActive]}>Dispatch Now</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.toggleBtn, scheduleMode === 'LATER' && styles.toggleBtnActive]} onPress={() => setScheduleMode('LATER')}>
-                  <Calendar color={scheduleMode === 'LATER' ? '#090D14' : '#64748B'} size={18} />
+                  <Calendar color={scheduleMode === 'LATER' ? Colors.background : Colors.textSubtle} size={18} />
                   <Text style={[styles.toggleText, scheduleMode === 'LATER' && styles.toggleTextActive]}>Schedule Later</Text>
                 </TouchableOpacity>
               </View>
@@ -401,7 +479,7 @@ export default function BookingWizardScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.microLabel}>DATE</Text>
                     <TouchableOpacity style={styles.pickerSelectorBox} onPress={() => setShowDatePicker(true)}>
-                      <Calendar color="#00FF87" size={16} />
+                      <Calendar color={Colors.primary} size={16} />
                       <Text style={styles.pickerSelectorText}>{selectedDate.toLocaleDateString()}</Text>
                     </TouchableOpacity>
                   </View>
@@ -409,7 +487,7 @@ export default function BookingWizardScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.microLabel}>ARRIVAL TIME</Text>
                     <TouchableOpacity style={styles.pickerSelectorBox} onPress={() => setShowTimePicker(true)}>
-                      <Clock color="#00FF87" size={16} />
+                      <Clock color={Colors.primary} size={16} />
                       <Text style={styles.pickerSelectorText}>
                         {selectedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </Text>
@@ -438,14 +516,16 @@ export default function BookingWizardScreen() {
               )}
 
               <View style={styles.locationSummaryBox}>
-                <MapPin color="#64748B" size={16} />
+                <MapPin color={Colors.textSubtle} size={16} />
                 <Text style={styles.locationSummaryText}>
                   {isLocating ? 'Locating your address coordinates...' : `Lat: ${Number(latitude).toFixed(4)}, Lon: ${Number(longitude).toFixed(4)}`}
                 </Text>
               </View>
+              </View>
 
               {selectedLocation ? (
                 <View style={styles.reviewBox}>
+                  <Text style={styles.sectionEyebrow}>Step 5</Text>
                   <Text style={styles.reviewTitle}>Booking review</Text>
                   <Text style={styles.reviewLine}>Owner: {profile?.name || authService.getSession()?.user.name || 'You'}</Text>
                   <Text style={styles.reviewLine}>
@@ -468,7 +548,7 @@ export default function BookingWizardScreen() {
         {!requestAccepted && !isSearchingProvider && (
           <View style={styles.footerSticky}>
             <TouchableOpacity style={styles.primaryActionButton} onPress={handleBookingSubmit} disabled={isSubmitting}>
-              {isSubmitting ? <ActivityIndicator color="#090D14" /> : <Text style={styles.primaryActionText}>Confirm & Book Fixer</Text>}
+              {isSubmitting ? <ActivityIndicator color={Colors.background} /> : <Text style={styles.primaryActionText}>Request a professional</Text>}
             </TouchableOpacity>
           </View>
         )}
@@ -479,57 +559,75 @@ export default function BookingWizardScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#090D14' },
-  scrollWrapper: { padding: 24, paddingBottom: 120 },
-  header: { marginBottom: 28 },
-  headerLabel: { color: '#64748B', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
-  headerTitle: { color: '#FFFFFF', fontSize: 26, fontWeight: '900', marginTop: 4 },
-  headerSubtitle: { color: '#E2E8F0', fontSize: 14, marginTop: 4 },
-  greenText: { color: '#00FF87', fontWeight: '700' },
-  preferredBox: { marginTop: 14, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, padding: 12 },
-  preferredTitle: { color: '#00FF87', fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
-  preferredText: { color: '#CBD5E1', fontSize: 12, lineHeight: 18, marginTop: 5 },
-  formContainer: { gap: 20 },
-  sectionTitle: { color: '#94A3B8', fontSize: 13, fontWeight: '700' },
-  instructionInput: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 16, color: '#FFFFFF', fontSize: 14, minHeight: 90, textAlignVertical: 'top' },
-  promoInput: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 16, color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 0 },
+  safeArea: { flex: 1, backgroundColor: Colors.background },
+  scrollWrapper: { padding: Spacing.xxl, paddingBottom: 128 },
+  header: { marginBottom: Spacing.xl },
+  headerLabel: { color: Colors.primary, fontSize: 11, fontWeight: '900', letterSpacing: 0, textTransform: 'uppercase' },
+  headerTitle: { color: Colors.text, fontSize: 28, fontWeight: '900', marginTop: 4 },
+  headerSubtitle: { color: Colors.textMuted, fontSize: 14, marginTop: 5, fontWeight: '600' },
+  greenText: { color: Colors.primary, fontWeight: '900' },
+  stepper: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.xl },
+  stepItem: { flex: 1, alignItems: 'center', gap: 6 },
+  stepDot: { width: 26, height: 26, borderRadius: 13, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
+  stepDotActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  stepNumber: { color: Colors.textSubtle, fontSize: 11, fontWeight: '900' },
+  stepNumberActive: { color: Colors.background },
+  stepLabel: { color: Colors.textSubtle, fontSize: 9, fontWeight: '800' },
+  stepLabelActive: { color: Colors.text },
+  preferredBox: { marginTop: 14, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, padding: Spacing.md },
+  preferredTitle: { color: Colors.primary, fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
+  preferredText: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 5 },
+  formContainer: { gap: Spacing.lg },
+  sectionCard: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.lg, padding: Spacing.lg, gap: Spacing.md },
+  sectionEyebrow: { color: Colors.primary, fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
+  sectionTitle: { color: Colors.text, fontSize: 17, fontWeight: '900' },
+  sectionHint: { color: Colors.textMuted, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  instructionInput: { backgroundColor: Colors.input, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.lg, color: Colors.text, fontSize: 14, minHeight: 96, textAlignVertical: 'top' },
+  promoInput: { backgroundColor: Colors.input, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.lg, color: Colors.text, fontSize: 14, fontWeight: '700', letterSpacing: 0 },
+  estimateBox: { marginTop: 14, backgroundColor: Colors.background, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, padding: 14, gap: 8 },
+  estimateTitle: { color: Colors.primary, fontSize: 13, fontWeight: '800' },
+  estimateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
+  estimateLabel: { flex: 1, color: Colors.text, fontSize: 12, fontWeight: '700' },
+  estimateDiscount: { flexShrink: 1, color: Colors.primary, fontSize: 12, fontWeight: '800', textAlign: 'right' },
+  estimateTotalLabel: { color: Colors.text, fontSize: 13, fontWeight: '900' },
+  estimateTotal: { flexShrink: 1, color: Colors.text, fontSize: 13, fontWeight: '900', textAlign: 'right' },
   addressRow: { flexDirection: 'row', gap: 12 },
-  addressInput: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 14, color: '#FFFFFF', fontSize: 14 },
-  defaultAddressNotice: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 12, gap: 8 },
-  defaultAddressText: { color: '#CBD5E1', fontSize: 12, lineHeight: 18 },
-  defaultAddressAction: { color: '#00FF87', fontSize: 12, fontWeight: '700' },
-  saveDefaultToggle: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 12 },
-  saveDefaultText: { color: '#00FF87', fontSize: 12, fontWeight: '700' },
+  addressInput: { backgroundColor: Colors.input, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: 14, color: Colors.text, fontSize: 14 },
+  defaultAddressNotice: { backgroundColor: Colors.input, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: 12, gap: 8 },
+  defaultAddressText: { color: Colors.textMuted, fontSize: 12, lineHeight: 18 },
+  defaultAddressAction: { color: Colors.primary, fontSize: 12, fontWeight: '800' },
+  saveDefaultToggle: { backgroundColor: Colors.input, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: 12 },
+  saveDefaultText: { color: Colors.primary, fontSize: 12, fontWeight: '800' },
   timeToggleRow: { flexDirection: 'row', gap: 12 },
-  toggleBtn: { flex: 1, flexDirection: 'row', gap: 8, height: 48, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  toggleBtnActive: { backgroundColor: '#FFFFFF', borderColor: '#FFFFFF' },
-  toggleText: { color: '#64748B', fontSize: 13, fontWeight: '600' },
-  toggleTextActive: { color: '#090D14', fontWeight: '700' },
+  toggleBtn: { flex: 1, flexDirection: 'row', gap: 8, height: 50, backgroundColor: Colors.input, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  toggleBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  toggleText: { color: Colors.textSubtle, fontSize: 13, fontWeight: '700' },
+  toggleTextActive: { color: Colors.background, fontWeight: '900' },
   
-  laterFormInputs: { flexDirection: 'row', gap: 12, backgroundColor: '#111827', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#1E293B' },
-  microLabel: { color: '#64748B', fontSize: 9, fontWeight: '700', marginBottom: 6 },
-  pickerSelectorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1E293B', height: 44, borderRadius: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: '#334155' },
-  pickerSelectorText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
+  laterFormInputs: { flexDirection: 'row', gap: 12, backgroundColor: Colors.input, padding: 16, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border },
+  microLabel: { color: Colors.textSubtle, fontSize: 9, fontWeight: '800', marginBottom: 6 },
+  pickerSelectorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surfaceRaised, height: 44, borderRadius: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: Colors.borderStrong },
+  pickerSelectorText: { color: Colors.text, fontSize: 13, fontWeight: '700' },
 
   locationSummaryBox: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  locationSummaryText: { color: '#64748B', fontSize: 12 },
-  reviewBox: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 14, gap: 6 },
-  reviewTitle: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
-  reviewLine: { color: '#CBD5E1', fontSize: 12, lineHeight: 18 },
-  footerSticky: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#090D14', padding: 20, borderTopWidth: 1, borderColor: '#1E293B' },
-  primaryActionButton: { backgroundColor: '#00FF87', height: 54, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  primaryActionText: { color: '#090D14', fontSize: 15, fontWeight: '800' },
-  matchingBox: { backgroundColor: '#111827', borderRadius: 16, borderColor: '#1E293B', borderWidth: 1, padding: 32, alignItems: 'center', gap: 16, marginTop: 20 },
-  matchingText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', textAlign: 'center', lineHeight: 20 },
-  providerCard: { backgroundColor: '#111827', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 20, marginTop: 10 },
-  acceptedIconWrap: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#00FF8715', borderWidth: 1, borderColor: '#00FF87', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 },
-  providerMeta: { borderBottomWidth: 1, borderColor: '#1E293B', paddingBottom: 16 },
-  providerName: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  providerRating: { color: '#94A3B8', fontSize: 12, marginTop: 6, lineHeight: 18 },
+  locationSummaryText: { color: Colors.textSubtle, fontSize: 12 },
+  reviewBox: { backgroundColor: Colors.surface, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.lg, padding: Spacing.lg, gap: 6 },
+  reviewTitle: { color: Colors.text, fontSize: 16, fontWeight: '900' },
+  reviewLine: { color: Colors.textMuted, fontSize: 12, lineHeight: 18 },
+  footerSticky: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: Colors.background, padding: 20, borderTopWidth: 1, borderColor: Colors.border },
+  primaryActionButton: { backgroundColor: Colors.primary, height: 54, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  primaryActionText: { color: Colors.background, fontSize: 15, fontWeight: '900' },
+  matchingBox: { backgroundColor: Colors.surface, borderRadius: Radius.lg, borderColor: Colors.border, borderWidth: 1, padding: 32, alignItems: 'center', gap: 16, marginTop: 20 },
+  matchingText: { color: Colors.text, fontSize: 14, fontWeight: '700', textAlign: 'center', lineHeight: 20 },
+  providerCard: { backgroundColor: Colors.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: 20, marginTop: 10 },
+  acceptedIconWrap: { width: 62, height: 62, borderRadius: 31, backgroundColor: 'rgba(184, 255, 61, 0.14)', borderWidth: 1, borderColor: Colors.primary, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 },
+  providerMeta: { borderBottomWidth: 1, borderColor: Colors.border, paddingBottom: 16 },
+  providerName: { color: Colors.text, fontSize: 16, fontWeight: '800' },
+  providerRating: { color: Colors.textMuted, fontSize: 12, marginTop: 6, lineHeight: 18 },
   providerActions: { flexDirection: 'row', gap: 12, marginTop: 16, alignItems: 'center' },
-  trackBtn: { flex: 1, backgroundColor: '#FFFFFF', height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  trackBtnText: { color: '#090D14', fontSize: 13, fontWeight: '700' },
-  secondaryTrackBtn: { flex: 1, backgroundColor: '#1E293B', height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
-  secondaryTrackBtnText: { color: '#CBD5E1', fontSize: 13, fontWeight: '700' }
+  trackBtn: { flex: 1, backgroundColor: Colors.primary, height: 44, borderRadius: Radius.md, justifyContent: 'center', alignItems: 'center' },
+  trackBtnText: { color: Colors.background, fontSize: 13, fontWeight: '900' },
+  secondaryTrackBtn: { flex: 1, backgroundColor: Colors.surfaceRaised, height: 44, borderRadius: Radius.md, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: Colors.borderStrong },
+  secondaryTrackBtnText: { color: Colors.text, fontSize: 13, fontWeight: '800' }
 });
 

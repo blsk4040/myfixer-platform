@@ -35,7 +35,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ManagedCollectionSubscriptionInvoice = exports.ManagedCollectionSubscription = exports.ManagedCollectionPlan = exports.SubscriptionInvoiceStatus = exports.BillingFrequency = exports.SubscriptionPlanStatus = exports.SubscriptionStatus = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
-const market_config_1 = require("../config/market.config");
 const managed_collection_model_1 = require("./managed-collection.model");
 var SubscriptionStatus;
 (function (SubscriptionStatus) {
@@ -70,8 +69,10 @@ const PlanSchema = new mongoose_1.Schema({
     name: { type: String, required: true, trim: true, index: true },
     description: { type: String, default: '', trim: true },
     priceMinor: { type: Number, required: true, min: 0 },
-    currency: { type: String, enum: Object.values(market_config_1.CurrencyCode), required: true, index: true },
-    countryCode: { type: String, enum: Object.values(market_config_1.CountryCode), required: true, uppercase: true, index: true },
+    currency: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, required: true, index: true },
+    countryCode: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' }, required: true, index: true },
     billingFrequency: { type: String, enum: Object.values(BillingFrequency), required: true, index: true },
     collectionFrequency: { type: String, enum: Object.values(managed_collection_model_1.ManagedCollectionFrequency), required: true },
     binPackage: { type: [String], enum: Object.values(managed_collection_model_1.ManagedCollectionBinColor), default: [] },
@@ -86,10 +87,12 @@ const SubscriptionSchema = new mongoose_1.Schema({
     planName: { type: String, required: true, trim: true },
     customerName: { type: String, default: 'Client', trim: true },
     customerEmail: { type: String, required: true, trim: true, lowercase: true },
-    countryCode: { type: String, enum: Object.values(market_config_1.CountryCode), required: true, uppercase: true, index: true },
+    countryCode: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' }, required: true, index: true },
     city: { type: String, required: true, trim: true, index: true },
     area: { type: String, default: '', trim: true, index: true },
-    currency: { type: String, enum: Object.values(market_config_1.CurrencyCode), required: true },
+    currency: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, required: true },
     priceMinor: { type: Number, required: true, min: 0 },
     billingFrequency: { type: String, enum: Object.values(BillingFrequency), required: true, index: true },
     collectionFrequency: { type: String, enum: Object.values(managed_collection_model_1.ManagedCollectionFrequency), required: true },
@@ -118,8 +121,10 @@ const SubscriptionInvoiceSchema = new mongoose_1.Schema({
     subscriptionId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'ManagedCollectionSubscription', required: true, index: true },
     planId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'ManagedCollectionPlan', required: true, index: true },
     customerId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    countryCode: { type: String, enum: Object.values(market_config_1.CountryCode), required: true, uppercase: true, index: true },
-    currency: { type: String, enum: Object.values(market_config_1.CurrencyCode), required: true },
+    countryCode: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' }, required: true, index: true },
+    currency: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, required: true },
     amountMinor: { type: Number, required: true, min: 0 },
     billingPeriodStart: { type: Date, required: true },
     billingPeriodEnd: { type: Date, required: true },

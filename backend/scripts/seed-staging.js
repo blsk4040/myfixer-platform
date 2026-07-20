@@ -40,6 +40,8 @@ const {
   MarketStatus,
   PaymentProviderStatus,
 } = require('../src/models/market-setting.model');
+const ServiceCatalog = require('../src/models/service-catalog.model').default;
+const { ServicePublicationStatus } = require('../src/models/service-catalog.model');
 const {
   CountryCode,
   CurrencyCode,
@@ -48,9 +50,12 @@ const {
 
 const seedKey = process.env.STAGING_SEED_KEY || 'myfixer-staging-seed-v1';
 const allowOverwrite = process.env.STAGING_SEED_ALLOW_OVERWRITE === 'true';
-const countryCode = (process.env.STAGING_SEED_COUNTRY_CODE || CountryCode.ZM).toUpperCase();
-const market = MARKET_CONFIG[countryCode] || MARKET_CONFIG[CountryCode.ZM];
-const currency = market.currency || CurrencyCode.ZMW;
+const requestedCountryCode = (process.env.STAGING_SEED_COUNTRY_CODE || '').trim().toUpperCase();
+const countryCode = requestedCountryCode;
+const market = countryCode ? MARKET_CONFIG[countryCode] : null;
+const currency = market?.currency || '';
+const seedCity = (process.env.STAGING_SEED_CITY || 'Staging City').trim();
+const seedArea = (process.env.STAGING_SEED_AREA || `${seedCity} Central`).trim();
 const seedPassword = process.env.STAGING_SEED_PASSWORD || '';
 
 const emails = {
@@ -58,6 +63,23 @@ const emails = {
   customer: (process.env.STAGING_SEED_CUSTOMER_EMAIL || 'seed.customer@myfixer.test').toLowerCase(),
   technician: (process.env.STAGING_SEED_TECHNICIAN_EMAIL || 'seed.technician@myfixer.test').toLowerCase(),
 };
+
+const homeServiceCategories = [
+  { serviceKey: 'appliance_repair', label: 'Appliance Repair', imageKey: 'appliance_repair', displayOrder: 10 },
+  { serviceKey: 'cleaning', label: 'Cleaning Service', imageKey: 'cleaning', displayOrder: 20 },
+  { serviceKey: 'electrical', label: 'Electrical Repair', imageKey: 'electrical', displayOrder: 30 },
+  { serviceKey: 'gardening', label: 'Gardening Service', imageKey: 'gardening', displayOrder: 40 },
+  { serviceKey: 'maintenance', label: 'Maintenance Service', imageKey: 'maintenance', displayOrder: 50 },
+  { serviceKey: 'painting', label: 'Painting Service', imageKey: 'painting', displayOrder: 60 },
+  { serviceKey: 'plumbing', label: 'Plumbing', imageKey: 'plumbing', displayOrder: 70 },
+];
+
+const seededMarketServices = homeServiceCategories.map((category) => ({
+  serviceKey: category.serviceKey,
+  label: category.label,
+  status: MarketStatus.ACTIVE,
+  displayOrder: category.displayOrder,
+}));
 
 const assertSafeToRun = () => {
   if (process.env.STAGING_SEED_ENABLED !== 'true') {
@@ -70,6 +92,14 @@ const assertSafeToRun = () => {
 
   if (!process.env.MONGODB_URI) {
     throw new Error('MONGODB_URI is required.');
+  }
+
+  if (!countryCode) {
+    throw new Error('STAGING_SEED_COUNTRY_CODE is required. The staging seed no longer defaults to an operational market.');
+  }
+
+  if (!market) {
+    throw new Error(`No MARKET_CONFIG template exists for STAGING_SEED_COUNTRY_CODE=${countryCode}. Use explicit admin market creation for custom countries.`);
   }
 
   if (!seedPassword || seedPassword.length < 12) {
@@ -129,8 +159,8 @@ const main = async () => {
       ...baseUserFields,
       name: 'Seed Super Admin',
       email: emails.admin,
-      phone: '+260970000001',
-      location: { country: market.countryName, city: 'Lusaka' },
+      phone: '+10000000001',
+      location: { country: market.countryName, city: seedCity },
       role: UserRole.ADMIN,
       adminRole: AdminRole.SUPER_ADMIN,
       adminPermissions: Object.values(AdminPermission),
@@ -146,8 +176,8 @@ const main = async () => {
       ...baseUserFields,
       name: 'Seed Customer',
       email: emails.customer,
-      phone: '+260970000002',
-      location: { country: market.countryName, city: 'Lusaka', area: 'Lusaka Central' },
+      phone: '+10000000002',
+      location: { country: market.countryName, city: seedCity, area: seedArea },
       role: UserRole.CUSTOMER,
       adminRole: undefined,
       adminPermissions: [],
@@ -163,8 +193,8 @@ const main = async () => {
       ...baseUserFields,
       name: 'Seed Technician',
       email: emails.technician,
-      phone: '+260970000003',
-      location: { country: market.countryName, city: 'Lusaka' },
+      phone: '+10000000003',
+      location: { country: market.countryName, city: seedCity },
       role: UserRole.TECHNICIAN,
       adminRole: undefined,
       adminPermissions: [],
@@ -180,7 +210,7 @@ const main = async () => {
       userId: technicianUser._id,
       approvalStatus: TechnicianApprovalStatus.APPROVED,
       countryCode: market.countryCode,
-      city: 'Lusaka',
+      city: seedCity,
       serviceCategories: ['Appliance Repair'],
       yearsExperience: 5,
       businessName: 'MyFixer Seed Repairs',
@@ -246,9 +276,9 @@ const main = async () => {
         type: 'Point',
         coordinates: [28.3228, -15.3875],
       },
-      fullAddress: 'Seed Test Address, Lusaka',
+      fullAddress: `Seed Test Address, ${seedCity}`,
       complexDetails: 'Staging data only',
-      generalArea: 'Lusaka Central',
+      generalArea: seedArea,
       priceMinor: 45000,
       countryCode: market.countryCode,
       currency,
@@ -381,6 +411,51 @@ const main = async () => {
     'Seed wallet transaction'
   );
 
+  await Promise.all(homeServiceCategories.map((category) =>
+    ServiceCatalog.updateOne(
+      { serviceKey: category.serviceKey },
+      {
+        $set: {
+          categoryKey: category.serviceKey,
+          groupKey: 'home_services',
+          groupLabel: 'Home Services',
+          groupStatus: ServicePublicationStatus.PUBLISHED,
+          groupDisplayOrder: 10,
+          label: category.label,
+          description: `${category.label} configured for seeded staging markets.`,
+          imageKey: category.imageKey,
+          status: ServicePublicationStatus.PUBLISHED,
+          displayOrder: category.displayOrder,
+          defaultCalloutFeeMinor: Math.round(market.defaultCalloutFee * 100),
+          requiresCapabilityApproval: true,
+          capabilityRequirements: {
+            requiredEvidenceTypes: [],
+            equipmentRequired: [],
+            licenceRequired: false,
+            certificateRequired: false,
+            notes: '',
+          },
+        },
+        $setOnInsert: {
+          serviceKey: category.serviceKey,
+          subcategories: [],
+          audit: {
+            updatedBy: admin._id,
+            changeHistory: [
+              {
+                changedBy: admin._id,
+                changedAt: now,
+                action: 'staging.seed.service_catalog',
+                after: { seedKey, serviceKey: category.serviceKey },
+              },
+            ],
+          },
+        },
+      },
+      { upsert: true, runValidators: true }
+    )
+  ));
+
   const marketSetting = await upsertSeeded(
     MarketSetting,
     { 'identity.countryCode': market.countryCode },
@@ -399,27 +474,27 @@ const main = async () => {
         taxLabel: market.taxLabel,
       },
       coverage: {
-        supportedCities: ['Lusaka'],
+        supportedCities: [seedCity],
         serviceCategories: [
-          { serviceKey: 'appliance_repair', label: 'Appliance Repair', status: MarketStatus.ACTIVE },
+          ...seededMarketServices,
           { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.DISABLED },
           { serviceKey: 'rental_property', label: 'Rental Property', status: MarketStatus.DISABLED },
         ],
         cityServiceAvailability: [
           {
-            city: 'Lusaka',
+            city: seedCity,
             status: MarketStatus.ACTIVE,
             services: [
-              { serviceKey: 'appliance_repair', label: 'Appliance Repair', status: MarketStatus.ACTIVE },
+              ...seededMarketServices,
               { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.DISABLED },
               { serviceKey: 'rental_property', label: 'Rental Property', status: MarketStatus.DISABLED },
             ],
             areas: [
               {
-                name: 'Lusaka Central',
+                name: seedArea,
                 status: MarketStatus.ACTIVE,
                 services: [
-                  { serviceKey: 'appliance_repair', label: 'Appliance Repair', status: MarketStatus.ACTIVE },
+                  ...seededMarketServices,
                   { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.DISABLED },
                   { serviceKey: 'rental_property', label: 'Rental Property', status: MarketStatus.DISABLED },
                 ],
@@ -441,8 +516,8 @@ const main = async () => {
       },
       support: {
         email: 'seed-support@myfixer.test',
-        phone: '+260970000000',
-        whatsapp: '+260970000000',
+        phone: '+10000000000',
+        whatsapp: '+10000000000',
         escalationEmail: 'seed-escalation@myfixer.test',
       },
       audit: {

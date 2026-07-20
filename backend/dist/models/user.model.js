@@ -36,7 +36,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.normalizeUserRole = exports.AccountStatus = exports.AdminPermission = exports.AdminRole = exports.UserRole = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
-const market_config_1 = require("../config/market.config");
 var UserRole;
 (function (UserRole) {
     UserRole["CUSTOMER"] = "CUSTOMER";
@@ -62,6 +61,14 @@ var AdminPermission;
     AdminPermission["TECHNICIANS_READ"] = "technicians.read";
     AdminPermission["TECHNICIANS_REVIEW"] = "technicians.review";
     AdminPermission["FINANCE_READ"] = "finance.read";
+    AdminPermission["PROMOTIONS_READ"] = "promotions.read";
+    AdminPermission["PROMOTIONS_CREATE"] = "promotions.create";
+    AdminPermission["PROMOTIONS_UPDATE"] = "promotions.update";
+    AdminPermission["PROMOTIONS_ACTIVATE"] = "promotions.activate";
+    AdminPermission["PROMOTIONS_PAUSE"] = "promotions.pause";
+    AdminPermission["PROMOTIONS_ARCHIVE"] = "promotions.archive";
+    AdminPermission["PROMOTIONS_PERFORMANCE_READ"] = "promotions.performance.read";
+    AdminPermission["PROMOTIONS_REDEMPTIONS_READ"] = "promotions.redemptions.read";
     AdminPermission["CLIENTS_CONTACT_READ"] = "clients.contact.read";
     AdminPermission["MARKETS_READ"] = "markets.read";
     AdminPermission["MARKETS_UPDATE"] = "markets.update";
@@ -114,8 +121,8 @@ const DefaultServiceAddressSchema = new mongoose_1.Schema({
     },
     countryCode: {
         type: String,
-        enum: Object.values(market_config_1.CountryCode),
-        default: market_config_1.CountryCode.ZA,
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
     },
     fullAddress: {
         type: String,
@@ -195,14 +202,16 @@ const UserSchema = new mongoose_1.Schema({
     },
     countryCode: {
         type: String,
-        enum: Object.values(market_config_1.CountryCode),
-        default: market_config_1.CountryCode.ZA,
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
+        required: true,
         index: true,
     },
     currency: {
         type: String,
-        enum: Object.values(market_config_1.CurrencyCode),
-        default: market_config_1.CurrencyCode.ZAR,
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
+        required: true,
     },
     password: {
         type: String,

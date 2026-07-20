@@ -21,6 +21,12 @@ import { createNotifications } from './notification.service';
 import { NotificationChannel } from '../models/notification.model';
 import { logAuditEvent } from './audit.service';
 import { Request } from 'express';
+import { assertMarketAllowsPaymentCollection } from './market-finance-guard.service';
+import {
+  AppliedPromotionSnapshot,
+  releasePromotionReservations,
+  reverseRedeemedPromotions,
+} from './promotion-campaign.service';
 
 export class PaymentWorkflowError extends Error {
   constructor(
@@ -122,7 +128,17 @@ const serializeTransaction = (transaction: IPaymentTransaction) => ({
   amount: transaction.amountMinor / 100,
   currency: transaction.currency,
   status: transaction.status,
+  priceBreakdown: transaction.metadata?.priceBreakdown || null,
+  promotion: transaction.metadata?.promotion || null,
+  promotions: Array.isArray(transaction.metadata?.promotions) ? transaction.metadata.promotions : [],
 });
+
+const promotionSnapshotsFromTransaction = (transaction: IPaymentTransaction): AppliedPromotionSnapshot[] =>
+  Array.isArray(transaction.metadata?.promotions)
+    ? transaction.metadata.promotions as AppliedPromotionSnapshot[]
+    : transaction.metadata?.promotion
+      ? [transaction.metadata.promotion as AppliedPromotionSnapshot]
+      : [];
 
 export const initializeBookingPayment = async (
   input: InitializePaymentInput,
@@ -138,6 +154,8 @@ export const initializeBookingPayment = async (
   if (booking.paymentStatus === BookingPaymentStatus.SECURED) {
     throw new PaymentWorkflowError('Payment is already secured for this booking.', 'PAYMENT_ALREADY_SECURED', 409);
   }
+
+  await assertMarketAllowsPaymentCollection(booking.countryCode, booking.currency, PaymentProvider.PAYSTACK);
 
   const { quote, amountMinor } = await resolvePaymentAmount(booking, input.quoteId);
   const idempotencyKey = (input.idempotencyKey || `booking:${booking.id}:quote:${quote?._id?.toString() || 'fixed'}:amount:${amountMinor}`).trim();
@@ -164,6 +182,9 @@ export const initializeBookingPayment = async (
     bookingId: booking.id,
     quoteId: quote?._id?.toString() || null,
     customerId: booking.customerId.toString(),
+    promotion: booking.metadata?.promotion || null,
+    promotions: Array.isArray(booking.metadata?.promotions) ? booking.metadata.promotions : [],
+    priceBreakdown: quote?.metadata?.priceBreakdown || booking.metadata?.priceBreakdown || null,
   };
 
   const initialized = await PaystackService.initializeTransaction({
@@ -477,9 +498,19 @@ export const processPaystackWebhookPayload = async (payload: any, rawBody: Buffe
         transaction.providerStatus = String(payload?.data?.status || eventType);
         transaction.failedAt = new Date();
         await transaction.save();
+        const releasedPromotions = await releasePromotionReservations(
+          promotionSnapshotsFromTransaction(transaction),
+          eventType === 'charge.abandoned' ? 'PAYMENT_ABANDONED' : 'PAYMENT_FAILED'
+        );
         await Booking.updateOne(
           { _id: transaction.bookingId, paymentStatus: { $ne: BookingPaymentStatus.SECURED } },
-          { $set: { paymentStatus: BookingPaymentStatus.FAILED } }
+          {
+            $set: {
+              paymentStatus: BookingPaymentStatus.FAILED,
+              'metadata.promotions': releasedPromotions,
+              'metadata.promotion': releasedPromotions[0] || null,
+            },
+          }
         );
         req?.app.get('io')?.to(`booking:${transaction.bookingId.toString()}`).emit('payment_failed', {
           bookingId: transaction.bookingId.toString(),
@@ -499,11 +530,17 @@ export const processPaystackWebhookPayload = async (payload: any, rawBody: Buffe
       if (transaction) {
         const status = eventType === 'refund.processed' ? PaymentTransactionStatus.REFUNDED : PaymentTransactionStatus.REVERSED;
         await markTransactionFailure(transaction, status, eventType);
+        const reversedPromotions = await reverseRedeemedPromotions(
+          promotionSnapshotsFromTransaction(transaction),
+          eventType === 'refund.processed' ? 'PAYMENT_REFUNDED' : 'PAYMENT_REVERSED'
+        );
         await Booking.updateOne(
           { _id: transaction.bookingId, status: { $nin: [BookingStatus.IN_PROGRESS, BookingStatus.COMPLETED] } },
           {
             $set: {
               paymentStatus: eventType === 'refund.processed' ? BookingPaymentStatus.REFUNDED : BookingPaymentStatus.UNDER_REVIEW,
+              'metadata.promotions': reversedPromotions,
+              'metadata.promotion': reversedPromotions[0] || null,
               'workAuthorization.status': WorkAuthorizationStatus.BLOCKED,
               'workAuthorization.reasonCode': eventType === 'refund.processed' ? 'PAYMENT_REFUNDED' : 'PAYMENT_REVERSED',
               'workAuthorization.evaluatedAt': new Date(),

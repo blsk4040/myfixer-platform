@@ -1,11 +1,11 @@
-import { CountryCode, CurrencyCode } from './market.config';
+import { CountryCode, CurrencyCode, IsoCountryCode, IsoCurrencyCode } from './market.config';
 import { ProviderPayoutMethodType } from '../models/provider-payout-method.model';
 
 export type CustomerPaymentMethod = 'CARD' | 'INSTANT_EFT' | 'CAPITEC_PAY' | 'SCAN_TO_PAY' | 'BANK' | 'MOBILE_MONEY';
 
 export interface CountryPaymentCapabilities {
-  countryCode: CountryCode;
-  currency: CurrencyCode;
+  countryCode: IsoCountryCode;
+  currency: IsoCurrencyCode;
   collectionProvider: 'PAYSTACK';
   payoutProvider: 'PAYSTACK';
   customerPaymentMethods: CustomerPaymentMethod[];
@@ -17,7 +17,7 @@ export interface CountryPaymentCapabilities {
 }
 
 export interface CountryPaymentFeatureFlags {
-  countryCode: CountryCode;
+  countryCode: IsoCountryCode;
   customerCollectionsEnabled: boolean;
   providerPayoutsEnabled: boolean;
   bankPayoutsEnabled: boolean;
@@ -77,7 +77,7 @@ export const COUNTRY_PAYMENT_CAPABILITIES: Record<CountryCode, CountryPaymentCap
   [CountryCode.ZM]: disabled(CountryCode.ZM, CurrencyCode.ZMW),
 };
 
-function disabled(countryCode: CountryCode, currency: CurrencyCode): CountryPaymentCapabilities {
+function disabled(countryCode: IsoCountryCode, currency: IsoCurrencyCode): CountryPaymentCapabilities {
   return {
     countryCode,
     currency,
@@ -92,10 +92,10 @@ function disabled(countryCode: CountryCode, currency: CurrencyCode): CountryPaym
   };
 }
 
-export const getCountryPaymentCapabilities = (countryCode: CountryCode): CountryPaymentCapabilities =>
-  COUNTRY_PAYMENT_CAPABILITIES[countryCode] ?? COUNTRY_PAYMENT_CAPABILITIES[CountryCode.ZA];
+export const getCountryPaymentCapabilities = (countryCode: IsoCountryCode): CountryPaymentCapabilities =>
+  COUNTRY_PAYMENT_CAPABILITIES[countryCode as CountryCode] ?? disabled(countryCode, '');
 
-export const getCountryPaymentFeatureFlags = (countryCode: CountryCode): CountryPaymentFeatureFlags => {
+export const getCountryPaymentFeatureFlags = (countryCode: IsoCountryCode): CountryPaymentFeatureFlags => {
   const capabilities = getCountryPaymentCapabilities(countryCode);
   const globalPayouts = envFlag('PROVIDER_PAYOUTS_ENABLED', false);
   return {
@@ -119,8 +119,8 @@ export const getCountryPaymentFeatureFlags = (countryCode: CountryCode): Country
 };
 
 export const assertPayoutMethodSupported = (
-  countryCode: CountryCode,
-  currency: CurrencyCode,
+  countryCode: IsoCountryCode,
+  currency: IsoCurrencyCode,
   methodType: ProviderPayoutMethodType
 ): void => {
   const capabilities = getCountryPaymentCapabilities(countryCode);

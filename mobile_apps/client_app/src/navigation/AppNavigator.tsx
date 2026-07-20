@@ -1,14 +1,16 @@
 // mobile_apps/client_app/src/navigation/AppNavigator.tsx
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Home, Activity, Clock, User, Bell, CreditCard } from 'lucide-react-native';
+import { Home, Activity, Clock, User, Inbox, CreditCard } from 'lucide-react-native';
 
 // Custom Components
 import CustomTabBar from '../components/CustomTabBar';
+import { BrandLoadingScreen } from '../components/BrandLoadingScreen';
 
 // Screens
 import BookingWizardScreen from '../screens/booking/BookingWizardScreen';
@@ -25,11 +27,13 @@ import { BookingHistoryScreen } from '../screens/history/BookingHistoryScreen';
 import { ActivityScreen } from '../screens/activity/ActivityScreen';
 import { ChatScreen } from '../chat/ChatScreen';
 import ManagedCollectionScreen from '../screens/managed_collection/ManagedCollectionScreen';
-import NotificationInboxScreen from '../screens/notifications/NotificationInboxScreen';
+import NotificationInboxScreen, { NotificationAlertsScreen } from '../screens/notifications/NotificationInboxScreen';
 import SubscriptionDashboardScreen from '../screens/subscriptions/SubscriptionDashboardScreen';
 import { AddressesScreen } from '../screens/profile/AddressesScreen';
+import { SecurityScreen } from '../screens/profile/SecurityScreen';
 import apiService from '../services/api.service';
 import authService from '../services/auth.service';
+import { Colors } from '../theme';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -45,11 +49,14 @@ export type RootStackParamList = {
   };
   VerifyEmailNotice: { autoCheck?: boolean } | undefined;
   MainTabs: undefined;
+  Alerts: undefined;
   BookingWizard: {
     category: string;
     serviceKey?: string;
     subCategory?: string;
+    subCategoryKey?: string;
     basePrice?: number;
+    calloutFeeMinor?: number;
     preferredTechnicianId?: string;
     preferredTechnicianName?: string;
     rebookFromBookingId?: string;
@@ -68,6 +75,7 @@ export type RootStackParamList = {
     techName: string;
   };
   Addresses: undefined;
+  Security: undefined;
 };
 
 export type TabParamList = {
@@ -154,7 +162,7 @@ function MainTabNavigator() {
         options={{
           tabBarLabel: 'Inbox',
           tabBarIcon: ({ color, size }) => (
-            <Bell color={color} size={size} />
+            <Inbox color={color} size={size} />
           ),
         }}
       />
@@ -198,23 +206,72 @@ function MainTabNavigator() {
 }
 
 export function AppNavigator(): React.JSX.Element {
+  const [isRestoringSession, setIsRestoringSession] = useState(true);
+  const [initialRouteName, setInitialRouteName] = useState<keyof RootStackParamList>('Login');
+  const splashOpacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    let isMounted = true;
+    const startedAt = Date.now();
+    const minimumSplashMs = 5000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const finishRestoring = () => {
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(0, minimumSplashMs - elapsed);
+      timer = setTimeout(() => {
+        Animated.timing(splashOpacity, {
+          toValue: 0,
+          duration: 520,
+          useNativeDriver: true,
+        }).start(() => {
+          if (isMounted) setIsRestoringSession(false);
+        });
+      }, remaining);
+    };
+
+    authService.restoreSession()
+      .then((session) => {
+        if (!isMounted) return;
+        setInitialRouteName(session ? 'MainTabs' : 'Login');
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setInitialRouteName('Login');
+      })
+      .finally(finishRestoring);
+
+    return () => {
+      isMounted = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
+  if (isRestoringSession) {
+    return (
+      <Animated.View style={{ flex: 1, opacity: splashOpacity }}>
+        <BrandLoadingScreen />
+      </Animated.View>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <NavigationContainer linking={linking}>
         <Stack.Navigator
-          initialRouteName="Login"
+          initialRouteName={initialRouteName}
           screenOptions={{
             headerStyle: {
-              backgroundColor: '#090D14',
+              backgroundColor: Colors.background,
             },
-            headerTintColor: '#FFFFFF',
+            headerTintColor: Colors.text,
             headerTitleStyle: {
               fontWeight: '700',
               fontSize: 16,
             },
             headerShadowVisible: false,
             contentStyle: {
-              backgroundColor: '#090D14',
+              backgroundColor: Colors.background,
             },
           }}
         >
@@ -254,6 +311,14 @@ export function AppNavigator(): React.JSX.Element {
             name="MainTabs"
             component={MainTabNavigator}
             options={{ headerShown: false }}
+          />
+
+          <Stack.Screen
+            name="Alerts"
+            component={NotificationAlertsScreen}
+            options={{
+              title: 'Alerts',
+            }}
           />
 
           {/* Booking */}
@@ -302,6 +367,14 @@ export function AppNavigator(): React.JSX.Element {
             component={AddressesScreen}
             options={{
               title: 'Saved Address',
+            }}
+          />
+
+          <Stack.Screen
+            name="Security"
+            component={SecurityScreen}
+            options={{
+              title: 'Security',
             }}
           />
         </Stack.Navigator>

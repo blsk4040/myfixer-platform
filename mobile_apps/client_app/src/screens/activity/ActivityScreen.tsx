@@ -7,10 +7,17 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ShieldAlert } from 'lucide-react-native';
+import { CalendarClock, ChevronRight, ShieldCheck } from 'lucide-react-native';
+
 import { LiveTrackScreen } from '../tracking/LiveTrackScreen';
 import apiService, { BookingDetails } from '../../services/api.service';
 import { getProviderRoleForService } from '../../utils/providerRole';
+import { BRAND } from '../../config/brand';
+import { Colors, Radius, Spacing, Typography } from '../../theme';
+
+const CalendarClockIcon = CalendarClock as any;
+const ChevronRightIcon = ChevronRight as any;
+const ShieldCheckIcon = ShieldCheck as any;
 
 export function ActivityScreen({ navigation }: any): React.JSX.Element {
   const [checkingActiveJobs, setCheckingActiveJobs] = useState<boolean>(true);
@@ -41,7 +48,7 @@ export function ActivityScreen({ navigation }: any): React.JSX.Element {
   if (checkingActiveJobs) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#00FF87" />
+        <ActivityIndicator size="large" color={Colors.primary} />
         <Text style={styles.syncText}>Checking your active booking...</Text>
       </View>
     );
@@ -71,20 +78,35 @@ export function ActivityScreen({ navigation }: any): React.JSX.Element {
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <View style={styles.emptyContent}>
-        <View style={styles.iconContainer}>
-          <ShieldAlert color="#64748B" size={40} />
+        <View style={styles.brandPill}>
+          <ShieldCheckIcon color={Colors.primary} size={16} />
+          <Text style={styles.brandPillText}>{BRAND.name} activity</Text>
         </View>
-        <Text style={styles.emptyTitle}>No Active Callouts Found</Text>
+
+        <View style={styles.iconContainer}>
+          <CalendarClockIcon color={Colors.primary} size={38} />
+        </View>
+
+        <Text style={styles.emptyTitle}>No active booking</Text>
         <Text style={styles.emptySubtitle}>
-          You don't have a specialist dispatched to your location right now. Need something repaired?
+          When a professional is assigned, your live tracking, quote, payment, and completion steps will appear here.
         </Text>
 
         <TouchableOpacity
           style={styles.actionBtn}
-          activeOpacity={0.8}
+          activeOpacity={0.86}
           onPress={() => navigation.navigate('Home')}
         >
-          <Text style={styles.actionBtnText}>Book a Repair Fixer</Text>
+          <Text style={styles.actionBtnText}>Find a service</Text>
+          <ChevronRightIcon color={Colors.background} size={18} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.secondaryBtn}
+          activeOpacity={0.86}
+          onPress={() => navigation.navigate('History')}
+        >
+          <Text style={styles.secondaryBtnText}>View booking history</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -92,13 +114,47 @@ export function ActivityScreen({ navigation }: any): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
-  centered: { flex: 1, backgroundColor: '#090D14', justifyContent: 'center', alignItems: 'center' },
-  syncText: { color: '#64748B', fontSize: 13, marginTop: 12, fontWeight: '500' },
-  emptyContent: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
-  iconContainer: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center', marginBottom: 20, borderWidth: 1, borderColor: '#1E293B' },
-  emptyTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
-  emptySubtitle: { color: '#64748B', fontSize: 13, textAlign: 'center', marginTop: 8, lineHeight: 20, fontWeight: '500' },
-  actionBtn: { backgroundColor: '#00FF87', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12, marginTop: 28, shadowColor: '#00FF87', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8 },
-  actionBtnText: { color: '#090D14', fontSize: 14, fontWeight: '700' },
+  container: { flex: 1, backgroundColor: Colors.background },
+  centered: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
+  syncText: { color: Colors.textMuted, fontSize: Typography.label.fontSize, marginTop: Spacing.md, fontWeight: '600' },
+  emptyContent: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: Spacing.huge },
+  brandPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    marginBottom: Spacing.xl,
+  },
+  brandPillText: { color: Colors.textMuted, fontSize: Typography.caption.fontSize, fontWeight: '800' },
+  iconContainer: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: Colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  emptyTitle: { color: Colors.text, fontSize: 22, fontWeight: '900', letterSpacing: 0 },
+  emptySubtitle: { color: Colors.textMuted, fontSize: 14, textAlign: 'center', marginTop: Spacing.sm, lineHeight: 21, fontWeight: '600' },
+  actionBtn: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: Radius.md,
+    marginTop: Spacing.xxxl,
+  },
+  actionBtnText: { color: Colors.background, fontSize: Typography.body.fontSize, fontWeight: '900' },
+  secondaryBtn: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, marginTop: Spacing.sm },
+  secondaryBtnText: { color: Colors.textMuted, fontSize: Typography.label.fontSize, fontWeight: '800' },
 });

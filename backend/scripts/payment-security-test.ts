@@ -10,6 +10,7 @@ import JobQuote, { QuoteStatus } from '../src/models/quote.model';
 import PaymentTransaction, { PaymentProvider, PaymentTransactionStatus } from '../src/models/payment-transaction.model';
 import PaymentWebhookEvent from '../src/models/payment-webhook-event.model';
 import { CurrencyCode } from '../src/config/market.config';
+import MarketSetting, { MarketStatus, PaymentProviderStatus } from '../src/models/market-setting.model';
 import {
   PaymentWorkflowError,
   initializeBookingPayment,
@@ -33,6 +34,7 @@ const originals = {
   txFindById: PaymentTransaction.findById,
   webhookCreate: PaymentWebhookEvent.create,
   webhookFindOne: PaymentWebhookEvent.findOne,
+  marketFindOne: MarketSetting.findOne,
   paystackInitialize: PaystackService.initializeTransaction,
   paystackVerify: PaystackService.verifyTransaction,
 };
@@ -52,6 +54,7 @@ let activeTransaction: any;
 let bookingUpdate: any = null;
 let providerVerification: any;
 let duplicateWebhook = false;
+let activeMarket: any;
 
 const makeBooking = (overrides: Record<string, unknown> = {}) => ({
   _id: ids.booking,
@@ -64,6 +67,7 @@ const makeBooking = (overrides: Record<string, unknown> = {}) => ({
   status: BookingStatus.ARRIVED,
   pricingMode: PricingMode.INSPECTION_AND_QUOTE,
   paymentStatus: BookingPaymentStatus.PENDING,
+  countryCode: 'ZA',
   currency: CurrencyCode.ZAR,
   priceMinor: 45000,
   inspection: { status: InspectionStatus.COMPLETED, quoteRequired: true },
@@ -110,7 +114,41 @@ const makeTransaction = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const makeMarket = (overrides: Record<string, unknown> = {}) => ({
+  identity: {
+    countryCode: 'ZA',
+    countryName: 'South Africa',
+    currency: CurrencyCode.ZAR,
+    locale: 'en-ZA',
+    status: MarketStatus.ACTIVE,
+  },
+  payments: {
+    providerSettings: [
+      {
+        provider: 'PAYSTACK',
+        status: PaymentProviderStatus.ACTIVE,
+        methods: ['CARD', 'INSTANT_EFT'],
+        priority: 1,
+        payoutEnabled: true,
+        configReference: 'paystack-test',
+      },
+    ],
+  },
+  pricing: {
+    platformCommissionBps: 1500,
+  },
+  deletionLock: { locked: false },
+  ...overrides,
+});
+
 const installMocks = () => {
+  (MarketSetting.findOne as any) = () => ({
+    select: () => ({
+      lean: async () => activeMarket,
+    }),
+    lean: async () => activeMarket,
+    then: (resolve: (value: unknown) => void) => resolve(activeMarket),
+  });
   (Booking.findById as any) = async () => activeBooking;
   (Booking.updateOne as any) = async (_filter: any, update: any) => {
     bookingUpdate = update;
@@ -175,6 +213,7 @@ const restore = () => {
   (PaymentTransaction.findById as any) = originals.txFindById;
   (PaymentWebhookEvent.create as any) = originals.webhookCreate;
   (PaymentWebhookEvent.findOne as any) = originals.webhookFindOne;
+  (MarketSetting.findOne as any) = originals.marketFindOne;
   (PaystackService.initializeTransaction as any) = originals.paystackInitialize;
   (PaystackService.verifyTransaction as any) = originals.paystackVerify;
 };
@@ -185,6 +224,7 @@ const expectPaymentError = async (promise: Promise<unknown>, code: string) => {
 
 async function run(): Promise<void> {
   installMocks();
+  activeMarket = makeMarket();
 
   const raw = Buffer.from(JSON.stringify({ event: 'charge.success', data: { reference: 'mfx_ref_unit' } }));
   const signature = calculatePaystackSignature(raw, 'whsec_unit');
@@ -218,6 +258,47 @@ async function run(): Promise<void> {
     'PAYMENT_UNAUTHORIZED'
   );
 
+  activeQuote = makeQuote();
+  activeMarket = makeMarket({
+    identity: {
+      countryCode: 'ZA',
+      countryName: 'South Africa',
+      currency: CurrencyCode.ZAR,
+      locale: 'en-ZA',
+      status: MarketStatus.PAUSED,
+    },
+  });
+  await assert.rejects(
+    initializeBookingPayment(
+      { bookingId: ids.booking.toString(), quoteId: ids.quote.toString(), idempotencyKey: 'paused_market' },
+      { id: ids.customer.toString(), role: UserRole.CUSTOMER }
+    ),
+    (error: unknown) => error instanceof Error && (error as any).code === 'MARKET_NOT_ACTIVE'
+  );
+
+  activeMarket = makeMarket({
+    payments: {
+      providerSettings: [
+        {
+          provider: 'PAYSTACK',
+          status: PaymentProviderStatus.DISABLED,
+          methods: ['CARD'],
+          priority: 1,
+          payoutEnabled: true,
+          configReference: '',
+        },
+      ],
+    },
+  });
+  await assert.rejects(
+    initializeBookingPayment(
+      { bookingId: ids.booking.toString(), quoteId: ids.quote.toString(), idempotencyKey: 'disabled_provider' },
+      { id: ids.customer.toString(), role: UserRole.CUSTOMER }
+    ),
+    (error: unknown) => error instanceof Error && (error as any).code === 'PAYMENT_PROVIDER_INACTIVE'
+  );
+
+  activeMarket = makeMarket();
   activeQuote = makeQuote({ status: QuoteStatus.REJECTED });
   await expectPaymentError(
     initializeBookingPayment(

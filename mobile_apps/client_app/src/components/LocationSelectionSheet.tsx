@@ -51,8 +51,8 @@ const GOOGLE_PLACES_API_KEY =
   '';
 
 const normalizeCountryFilter = (countryCode?: string): string => {
-  const normalized = (countryCode || 'ZA').trim().toLowerCase();
-  return normalized ? `country:${normalized}` : 'country:za';
+  const normalized = (countryCode || '').trim().toLowerCase();
+  return normalized ? `country:${normalized}` : '';
 };
 
 const getAddressPart = (components: any[] | undefined, types: string[]): string => {
@@ -183,7 +183,7 @@ export default function LocationSelectionSheet({
         query={{
           key: GOOGLE_PLACES_API_KEY,
           language: 'en',
-          components: countryFilter,
+          ...(countryFilter ? { components: countryFilter } : {}),
         }}
         textInputProps={{
           placeholderTextColor: '#64748B',

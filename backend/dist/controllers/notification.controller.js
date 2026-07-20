@@ -36,12 +36,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateMyNotificationPreferences = exports.getMyNotificationPreferences = exports.updateMyNotification = exports.getMyNotifications = exports.processAdminNotifications = exports.cancelAdminNotification = exports.retryAdminNotification = exports.listAdminNotifications = void 0;
+exports.updateMyNotificationPreferences = exports.getMyNotificationPreferences = exports.updateMyNotification = exports.getMyNotifications = exports.processAdminNotifications = exports.cancelAdminNotification = exports.retryAdminNotification = exports.createAdminBroadcastNotification = exports.listAdminNotifications = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
 const notification_model_1 = __importStar(require("../models/notification.model"));
 const notification_preference_model_1 = __importDefault(require("../models/notification-preference.model"));
 const audit_service_1 = require("../services/audit.service");
 const notification_service_1 = require("../services/notification.service");
+const user_model_1 = __importStar(require("../models/user.model"));
 const getAuthUser = (req) => req.user;
 const getUserId = (req) => {
     const authUser = getAuthUser(req);
@@ -110,6 +111,76 @@ const listAdminNotifications = async (req, res) => {
     }
 };
 exports.listAdminNotifications = listAdminNotifications;
+const createAdminBroadcastNotification = async (req, res) => {
+    const audience = String(req.body?.audience || 'CLIENTS').trim().toUpperCase();
+    const title = String(req.body?.title || '').trim();
+    const message = String(req.body?.message || '').trim();
+    const audienceRoleMap = {
+        CLIENTS: [user_model_1.UserRole.CUSTOMER],
+        TECHNICIANS: [user_model_1.UserRole.TECHNICIAN],
+        ALL: [user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.TECHNICIAN],
+    };
+    const roles = audienceRoleMap[audience];
+    if (!roles) {
+        res.status(400).json({ message: 'Select a valid broadcast audience.' });
+        return;
+    }
+    if (!title || title.length > 120) {
+        res.status(400).json({ message: 'Notification title is required and must be 120 characters or fewer.' });
+        return;
+    }
+    if (!message || message.length > 600) {
+        res.status(400).json({ message: 'Notification message is required and must be 600 characters or fewer.' });
+        return;
+    }
+    try {
+        const recipients = await user_model_1.default.find({
+            role: { $in: roles },
+            isActive: true,
+            accountStatus: user_model_1.AccountStatus.ACTIVE,
+        }).select('name email phone role').lean();
+        if (!recipients.length) {
+            res.status(404).json({ message: 'No active accounts were found for this broadcast audience.' });
+            return;
+        }
+        const batches = await Promise.all(recipients.map((recipient) => (0, notification_service_1.createNotifications)({
+            userId: recipient._id,
+            email: recipient.email,
+            phone: recipient.phone,
+            name: recipient.name || 'Client',
+            channels: [notification_model_1.NotificationChannel.IN_APP],
+            type: notification_model_1.NotificationType.SYSTEM,
+            title,
+            message,
+            metadata: {
+                source: 'ADMIN_PORTAL',
+                feed: 'ALERTS',
+                broadcast: true,
+                audience,
+            },
+        })));
+        const notifications = batches.flat();
+        await (0, audit_service_1.logAuditEvent)(req, {
+            action: 'notification.client_alert.broadcast',
+            module: 'NOTIFICATIONS',
+            resourceType: 'Notification',
+            resourceId: notifications[0]?._id?.toString?.() || 'client-alert-broadcast',
+            metadata: {
+                recipientCount: recipients.length,
+                notificationCount: notifications.length,
+                audience,
+                channel: notification_model_1.NotificationChannel.IN_APP,
+                type: notification_model_1.NotificationType.SYSTEM,
+            },
+        });
+        res.status(201).json({ success: true, notifications, recipientCount: recipients.length });
+    }
+    catch (error) {
+        console.error('Failed to create client notification:', error);
+        res.status(500).json({ message: 'Failed to send client notification.' });
+    }
+};
+exports.createAdminBroadcastNotification = createAdminBroadcastNotification;
 const retryAdminNotification = async (req, res) => {
     const { id } = req.params;
     if (!mongoose_1.default.Types.ObjectId.isValid(id)) {

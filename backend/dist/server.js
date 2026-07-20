@@ -8,6 +8,7 @@ exports.io = exports.httpServer = exports.app = void 0;
 const dns_1 = __importDefault(require("dns"));
 const dns_2 = require("dns");
 dns_1.default.setDefaultResultOrder('ipv4first');
+dns_1.default.setServers(['8.8.8.8', '1.1.1.1']);
 dns_2.promises.setServers(['8.8.8.8', '1.1.1.1']);
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));

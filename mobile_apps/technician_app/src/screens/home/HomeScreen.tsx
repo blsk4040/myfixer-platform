@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
+  Bell,
   Briefcase,
   CheckCircle2,
   Clock,
@@ -27,7 +28,9 @@ import { getTechnicianIdentity } from '../../services/technicianIdentity.service
 import { useJobStore } from '../../store/useJobStore';
 import apiService, { ProviderSettlementRecord } from '../../services/api.service';
 import { acceptBookingWorkflow, normalizeJobPayload } from '../../services/jobWorkflow.service';
+import { BRAND } from '../../config/brand';
 
+const BellIcon = Bell as any;
 const BriefcaseIcon = Briefcase as any;
 const CheckCircleIcon = CheckCircle2 as any;
 const ClockIcon = Clock as any;
@@ -114,7 +117,7 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
   }, [settlements]);
   const ratingLabel = technicianIdentity.stats.reviewCount > 0 && technicianIdentity.stats.averageRating !== null
     ? technicianIdentity.stats.averageRating.toFixed(1)
-    : 'New';
+    : '0.0';
 
   useEffect(() => {
     const loadAvailableJobs = async () => {
@@ -176,22 +179,39 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.headerRow}>
           <View style={styles.headerTextBlock}>
-            <Text style={styles.welcomeLabel}>Welcome,</Text>
+            <View style={styles.wordmark} accessibilityLabel="Padi">
+              <Text style={styles.wordmarkText}>Pad</Text>
+              <View style={styles.wordmarkI}>
+                <View style={styles.wordmarkDot} />
+                <View style={styles.wordmarkStem} />
+              </View>
+            </View>
+            <Text style={styles.welcomeLabel}>Welcome back</Text>
             <Text style={styles.technicianName} numberOfLines={1}>
               {technicianIdentity.displayName}
             </Text>
           </View>
 
-          <View style={styles.liveControl}>
-            <Text style={[styles.liveText, isOnDuty && styles.liveTextActive]}>
-              {isOnDuty ? 'Live' : 'Go Live'}
-            </Text>
-            <Switch
-              value={isOnDuty}
-              onValueChange={toggleDutyStatus}
-              trackColor={{ false: '#1E293B', true: '#00FF8730' }}
-              thumbColor={isOnDuty ? '#00FF87' : '#94A3B8'}
-            />
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.alertButton}
+              onPress={() => navigation.navigate('Alerts')}
+              accessibilityRole="button"
+              accessibilityLabel="Open alerts"
+            >
+              <BellIcon color="#F7F7F5" size={19} />
+            </TouchableOpacity>
+            <View style={styles.liveControl}>
+              <Text style={[styles.liveText, isOnDuty && styles.liveTextActive]}>
+                {isOnDuty ? 'Live' : 'Go Live'}
+              </Text>
+              <Switch
+                value={isOnDuty}
+                onValueChange={toggleDutyStatus}
+                trackColor={{ false: '#303036', true: 'rgba(184, 255, 61, 0.28)' }}
+                thumbColor={isOnDuty ? '#B8FF3D' : '#A7A7AD'}
+              />
+            </View>
           </View>
         </View>
 
@@ -216,13 +236,13 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
 
           <View style={styles.connectionRow}>
             {isConnected ? (
-              <WifiIcon color="#00FF87" size={15} />
+              <WifiIcon color="#B8FF3D" size={15} />
             ) : (
-              <WifiOffIcon color="#EF4444" size={15} />
+              <WifiOffIcon color="#FF5D5D" size={15} />
             )}
             <Text style={styles.connectionText}>{connectionLabel}</Text>
             <Text style={styles.connectionDivider}>•</Text>
-            <MapPinIcon color={isOnDuty ? '#00FF87' : '#64748B'} size={15} />
+            <MapPinIcon color={isOnDuty ? '#B8FF3D' : '#74747C'} size={15} />
             <Text style={styles.connectionText}>
               {isOnDuty ? 'Location sharing active while live' : 'Location sharing paused'}
             </Text>
@@ -232,22 +252,30 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <BriefcaseIcon color="#38BDF8" size={18} />
-            <Text style={styles.statValue}>{activeJobs.length + completedJobs.length}</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              {activeJobs.length + completedJobs.length}
+            </Text>
             <Text style={styles.statLabel}>Jobs Today</Text>
           </View>
           <View style={styles.statCard}>
-            <CheckCircleIcon color="#00FF87" size={18} />
-            <Text style={styles.statValue}>{completedJobs.length}</Text>
+            <CheckCircleIcon color="#B8FF3D" size={18} />
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              {completedJobs.length}
+            </Text>
             <Text style={styles.statLabel}>Completed</Text>
           </View>
           <View style={styles.statCard}>
-            <TrendingUpIcon color="#00FF87" size={18} />
-            <Text style={styles.statValue}>{formatMoney(earningsToday)}</Text>
+            <TrendingUpIcon color="#B8FF3D" size={18} />
+            <Text style={[styles.statValue, styles.statMoneyValue]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+              {formatMoney(earningsToday)}
+            </Text>
             <Text style={styles.statLabel}>Earnings</Text>
           </View>
           <View style={styles.statCard}>
             <StarIcon color="#FBBF24" size={18} />
-            <Text style={styles.statValue}>{ratingLabel}</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              {ratingLabel}
+            </Text>
             <Text style={styles.statLabel}>Rating</Text>
           </View>
         </View>
@@ -268,7 +296,7 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
             </View>
 
             <View style={styles.locationLine}>
-              <MapPinIcon color="#00FF87" size={14} />
+              <MapPinIcon color="#B8FF3D" size={14} />
               <Text style={styles.locationText} numberOfLines={1}>
                 {activeJob.fullAddress || activeJob.generalArea || 'Address will appear here'}
               </Text>
@@ -283,7 +311,7 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
           </View>
         ) : (
           <View style={styles.emptyCard}>
-            <ClockIcon color="#64748B" size={26} />
+            <ClockIcon color="#74747C" size={26} />
             <Text style={styles.emptyTitle}>No active job right now</Text>
             <Text style={styles.emptyBody}>
               Accepted jobs will appear here with your next action.
@@ -296,7 +324,7 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
             <Text style={styles.sectionTitle}>Incoming Requests</Text>
             {visibleIncomingJobs.length === 0 ? (
               <View style={styles.emptyCard}>
-                <ActivityIndicator size="small" color="#00FF87" />
+                <ActivityIndicator size="small" color="#B8FF3D" />
                 <Text style={styles.emptyTitle}>No nearby requests yet</Text>
                 <Text style={styles.emptyBody}>
                   Stay live and keep the app open for new bookings.
@@ -313,7 +341,7 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
                       {job.generalArea || 'Local area'} • {job.distance || 'Nearby'}
                     </Text>
                   </View>
-                  <Text style={styles.requestPrice}>
+                  <Text style={styles.requestPrice} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
                     {formatMoney(job.price, job.currency)}
                   </Text>
                 </View>
@@ -352,20 +380,26 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
               </Text>
             </View>
             {settlementsLoading ? (
-              <ActivityIndicator size="small" color="#00FF87" />
+              <ActivityIndicator size="small" color="#B8FF3D" />
             ) : (
-              <Text style={styles.weekAmount}>{formatMoney(weeklySummary.totalAmount, technicianIdentity.currency)}</Text>
+              <Text style={styles.weekAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+                {formatMoney(weeklySummary.totalAmount, technicianIdentity.currency)}
+              </Text>
             )}
           </View>
           <View style={styles.weekBreakdown}>
             <View style={styles.weekBreakdownItem}>
               <Text style={styles.weekBreakdownLabel}>Paid</Text>
-              <Text style={styles.weekBreakdownValue}>{formatMoney(weeklySummary.paidAmount, technicianIdentity.currency)}</Text>
+              <Text style={styles.weekBreakdownValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+                {formatMoney(weeklySummary.paidAmount, technicianIdentity.currency)}
+              </Text>
             </View>
             <View style={styles.weekDivider} />
             <View style={styles.weekBreakdownItem}>
               <Text style={styles.weekBreakdownLabel}>Pending clearance</Text>
-              <Text style={styles.weekBreakdownValue}>{formatMoney(weeklySummary.pendingAmount, technicianIdentity.currency)}</Text>
+              <Text style={styles.weekBreakdownValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+                {formatMoney(weeklySummary.pendingAmount, technicianIdentity.currency)}
+              </Text>
             </View>
           </View>
           <Text style={styles.weekHint}>
@@ -378,7 +412,7 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
+  container: { flex: 1, backgroundColor: '#0B0B0D' },
   scrollContainer: { padding: 20, paddingBottom: 96 },
 
   headerRow: {
@@ -390,8 +424,28 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   headerTextBlock: { flex: 1 },
-  welcomeLabel: { color: '#64748B', fontSize: 13, fontWeight: '700' },
-  technicianName: { color: '#FFFFFF', fontSize: 24, fontWeight: '900', marginTop: 2 },
+  wordmark: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 5 },
+  wordmarkText: { color: '#F7F7F5', fontSize: 17, fontWeight: '900', letterSpacing: 0, lineHeight: 19 },
+  wordmarkI: { width: 6, height: 17, alignItems: 'center', justifyContent: 'flex-end', marginLeft: 1, marginBottom: 3 },
+  wordmarkDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#B8FF3D', marginBottom: 1 },
+  wordmarkStem: { width: 3, height: 11, borderRadius: 2, backgroundColor: '#F7F7F5' },
+  welcomeLabel: { color: '#A7A7AD', fontSize: 13, fontWeight: '700' },
+  technicianName: { color: '#F7F7F5', fontSize: 24, fontWeight: '900', marginTop: 2 },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  alertButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#17171A',
+    borderWidth: 1,
+    borderColor: '#303036',
+  },
   liveControl: {
     minWidth: 116,
     minHeight: 44,
@@ -399,58 +453,61 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
-    backgroundColor: '#111827',
+    backgroundColor: '#17171A',
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: '#303036',
     borderRadius: 14,
     paddingLeft: 12,
     paddingRight: 4,
   },
-  liveText: { color: '#94A3B8', fontSize: 12, fontWeight: '800' },
-  liveTextActive: { color: '#00FF87' },
+  liveText: { color: '#A7A7AD', fontSize: 12, fontWeight: '800' },
+  liveTextActive: { color: '#B8FF3D' },
 
   statusCard: {
-    backgroundColor: '#111827',
+    backgroundColor: '#17171A',
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: '#303036',
     borderRadius: 16,
     padding: 16,
     marginBottom: 14,
   },
-  statusCardActive: { borderColor: '#00FF8735', backgroundColor: '#00FF8705' },
+  statusCardActive: { borderColor: 'rgba(184, 255, 61, 0.35)', backgroundColor: 'rgba(184, 255, 61, 0.05)' },
   statusTopRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
-  statusTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
-  statusSubtitle: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 4 },
+  statusTitle: { color: '#F7F7F5', fontSize: 16, fontWeight: '800' },
+  statusSubtitle: { color: '#A7A7AD', fontSize: 12, lineHeight: 18, marginTop: 4 },
   statusPill: {
     alignSelf: 'flex-start',
-    backgroundColor: '#1E293B',
+    backgroundColor: '#222226',
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  statusPillActive: { backgroundColor: '#00FF8720' },
-  statusPillText: { color: '#94A3B8', fontSize: 10, fontWeight: '900' },
-  statusPillTextActive: { color: '#00FF87' },
+  statusPillActive: { backgroundColor: 'rgba(184, 255, 61, 0.14)' },
+  statusPillText: { color: '#A7A7AD', fontSize: 10, fontWeight: '900' },
+  statusPillTextActive: { color: '#B8FF3D' },
   connectionRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7, marginTop: 14 },
-  connectionText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
-  connectionDivider: { color: '#334155', fontSize: 12, fontWeight: '900' },
+  connectionText: { color: '#A7A7AD', fontSize: 12, fontWeight: '600' },
+  connectionDivider: { color: '#303036', fontSize: 12, fontWeight: '900' },
 
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 22 },
   statCard: {
     flex: 1,
     minHeight: 92,
-    backgroundColor: '#111827',
+    backgroundColor: '#17171A',
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: '#303036',
     borderRadius: 14,
     padding: 10,
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
-  statValue: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
-  statLabel: { color: '#64748B', fontSize: 10, fontWeight: '700' },
+  statValue: { color: '#F7F7F5', fontSize: 16, fontWeight: '900', textAlign: 'center' },
+  statMoneyValue: { fontSize: 13 },
+  statLabel: { color: '#74747C', fontSize: 10, fontWeight: '700', textAlign: 'center' },
 
   sectionTitle: {
-    color: '#E2E8F0',
+    color: '#F7F7F5',
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0.4,
@@ -460,96 +517,96 @@ const styles = StyleSheet.create({
   },
 
   activeJobCard: {
-    backgroundColor: '#111827',
+    backgroundColor: '#17171A',
     borderWidth: 1,
-    borderColor: '#00FF8735',
+    borderColor: '#B8FF3D44',
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
   },
   cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
-  activeJobTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '900' },
-  activeJobMeta: { color: '#94A3B8', fontSize: 12, fontWeight: '600', marginTop: 3 },
+  activeJobTitle: { color: '#F7F7F5', fontSize: 17, fontWeight: '900' },
+  activeJobMeta: { color: '#A7A7AD', fontSize: 12, fontWeight: '600', marginTop: 3 },
   stageBadge: {
-    backgroundColor: '#00FF8720',
+    backgroundColor: '#B8FF3D22',
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  stageBadgeText: { color: '#00FF87', fontSize: 10, fontWeight: '900' },
+  stageBadgeText: { color: '#B8FF3D', fontSize: 10, fontWeight: '900' },
   locationLine: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 14 },
-  locationText: { flex: 1, color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
+  locationText: { flex: 1, color: '#B9B9BF', fontSize: 12, fontWeight: '600' },
   primaryButton: {
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#00FF87',
+    backgroundColor: '#B8FF3D',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 14,
   },
-  primaryButtonText: { color: '#090D14', fontSize: 13, fontWeight: '900' },
+  primaryButtonText: { color: '#0B0B0D', fontSize: 13, fontWeight: '900' },
 
   emptyCard: {
-    backgroundColor: '#111827',
+    backgroundColor: '#17171A',
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: '#303036',
     borderRadius: 16,
     padding: 22,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
   },
-  emptyTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '800', marginTop: 10 },
-  emptyBody: { color: '#64748B', fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 4 },
+  emptyTitle: { color: '#F7F7F5', fontSize: 14, fontWeight: '800', marginTop: 10 },
+  emptyBody: { color: '#74747C', fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 4 },
 
   incomingStack: { gap: 10, marginBottom: 16 },
   requestCard: {
-    backgroundColor: '#111827',
+    backgroundColor: '#17171A',
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: '#303036',
     borderRadius: 16,
     padding: 16,
   },
-  requestTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
-  requestMeta: { color: '#94A3B8', fontSize: 12, fontWeight: '600', marginTop: 3 },
-  requestPrice: { color: '#00FF87', fontSize: 16, fontWeight: '900' },
-  requestDescription: { color: '#CBD5E1', fontSize: 12, lineHeight: 18, marginTop: 12 },
+  requestTitle: { color: '#F7F7F5', fontSize: 15, fontWeight: '900' },
+  requestMeta: { color: '#B9B9BF', fontSize: 12, fontWeight: '600', marginTop: 3 },
+  requestPrice: { color: '#B8FF3D', fontSize: 16, fontWeight: '900' },
+  requestDescription: { color: '#B9B9BF', fontSize: 12, lineHeight: 18, marginTop: 12 },
   requestActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
   declineButton: {
     flex: 1,
     height: 42,
-    backgroundColor: '#1E293B',
+    backgroundColor: '#222226',
     borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  declineButtonText: { color: '#CBD5E1', fontSize: 12, fontWeight: '900' },
+  declineButtonText: { color: '#B9B9BF', fontSize: 12, fontWeight: '900' },
   acceptButton: {
     flex: 2,
     height: 42,
-    backgroundColor: '#00FF87',
+    backgroundColor: '#B8FF3D',
     borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  acceptButtonText: { color: '#090D14', fontSize: 12, fontWeight: '900' },
+  acceptButtonText: { color: '#0B0B0D', fontSize: 12, fontWeight: '900' },
 
   weekCard: {
-    backgroundColor: '#111827',
+    backgroundColor: '#17171A',
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: '#303036',
     borderRadius: 16,
     padding: 16,
     marginTop: 4,
   },
   weekHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  weekTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
-  weekSubtitle: { color: '#94A3B8', fontSize: 12, fontWeight: '700', marginTop: 3 },
-  weekAmount: { color: '#00FF87', fontSize: 20, fontWeight: '900' },
+  weekTitle: { color: '#F7F7F5', fontSize: 15, fontWeight: '900' },
+  weekSubtitle: { color: '#B9B9BF', fontSize: 12, fontWeight: '700', marginTop: 3 },
+  weekAmount: { flexShrink: 1, color: '#B8FF3D', fontSize: 20, fontWeight: '900', textAlign: 'right' },
   weekBreakdown: { flexDirection: 'row', alignItems: 'center', marginTop: 16 },
   weekBreakdownItem: { flex: 1 },
-  weekBreakdownLabel: { color: '#64748B', fontSize: 11, fontWeight: '800', marginBottom: 4 },
-  weekBreakdownValue: { color: '#E2E8F0', fontSize: 14, fontWeight: '900' },
-  weekDivider: { width: 1, height: 34, backgroundColor: '#1E293B', marginHorizontal: 14 },
-  weekHint: { color: '#64748B', fontSize: 12, fontWeight: '600', lineHeight: 18, marginTop: 12 },
+  weekBreakdownLabel: { color: '#74747C', fontSize: 11, fontWeight: '800', marginBottom: 4 },
+  weekBreakdownValue: { color: '#F7F7F5', fontSize: 14, fontWeight: '900', textAlign: 'center' },
+  weekDivider: { width: 1, height: 34, backgroundColor: '#303036', marginHorizontal: 14 },
+  weekHint: { color: '#74747C', fontSize: 12, fontWeight: '600', lineHeight: 18, marginTop: 12 },
 });

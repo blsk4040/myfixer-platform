@@ -25,6 +25,33 @@ import apiService, { BookingChatMessage, JobMediaRecord } from '../../services/a
 import techSocketService from '../../services/tech_socket.service';
 import { NotificationService } from '../../services/notification.service';
 
+const Colors = {
+  background: '#0B0B0D',
+  surface: '#17171A',
+  surfaceRaised: '#222226',
+  border: '#303036',
+  borderStrong: '#3A3A42',
+  text: '#F7F7F5',
+  textMuted: '#A7A7AD',
+  textSubtle: '#74747C',
+  primary: '#B8FF3D',
+  amber: '#FFB547',
+  info: '#56B8FF',
+  danger: '#FF5D5D',
+  overlay: 'rgba(0, 0, 0, 0.72)',
+} as const;
+
+const Radius = {
+  md: 14,
+  lg: 18,
+  xl: 24,
+} as const;
+
+const Spacing = {
+  lg: 16,
+  xxl: 24,
+} as const;
+
 type Message = BookingChatMessage;
 
 const toDataUri = (asset: ImagePicker.ImagePickerAsset): string | null => {
@@ -38,17 +65,17 @@ const messageTime = (value: string): string =>
 const getActionButtonProps = (status: string | undefined) => {
   switch (status) {
     case 'ACCEPTED':
-      return { text: "I'm on my way", color: '#00FF87', textColor: '#090D14', stageLabel: 'Accepted' };
+      return { text: "I'm on my way", color: Colors.primary, textColor: Colors.background, stageLabel: 'Accepted' };
     case 'IN_ROUTE':
-      return { text: 'Confirm arrival from map', color: '#F59E0B', textColor: '#090D14', stageLabel: 'On my way' };
+      return { text: 'Confirm arrival from map', color: Colors.amber, textColor: Colors.background, stageLabel: 'On my way' };
     case 'ARRIVED':
-      return { text: 'Start inspection', color: '#38BDF8', textColor: '#090D14', stageLabel: 'Arrived' };
+      return { text: 'Start inspection', color: Colors.info, textColor: Colors.background, stageLabel: 'Arrived' };
     case 'IN_PROGRESS':
-      return { text: 'Complete job', color: '#00FF87', textColor: '#090D14', stageLabel: 'In progress' };
+      return { text: 'Complete job', color: Colors.primary, textColor: Colors.background, stageLabel: 'In progress' };
     case 'DIAGNOSTIC_DONE':
-      return { text: 'Complete job', color: '#00FF87', textColor: '#090D14', stageLabel: 'In progress' };
+      return { text: 'Complete job', color: Colors.primary, textColor: Colors.background, stageLabel: 'In progress' };
     default:
-      return { text: 'Next step', color: '#1E293B', textColor: '#FFFFFF', stageLabel: 'In progress' };
+      return { text: 'Next step', color: Colors.surfaceRaised, textColor: Colors.text, stageLabel: 'In progress' };
   }
 };
 
@@ -168,7 +195,7 @@ export function ActiveJobsTab(): React.JSX.Element {
         workAuthorizationStatus: 'AUTHORIZED',
         workAuthorizationReason: '',
       });
-      Alert.alert('Payment secured', `MyFixer verified the client payment${payload.reference ? ` (${payload.reference})` : ''}. You may begin work when the button is enabled.`);
+      Alert.alert('Payment secured', `Padi Pro verified the client payment${payload.reference ? ` (${payload.reference})` : ''}. You may begin work when the button is enabled.`);
     };
     const handlePaymentFailed = (payload: { bookingId?: string }) => {
       if (payload.bookingId) patchJob(String(payload.bookingId), { paymentStatus: 'FAILED', workAuthorizationStatus: 'AWAITING_PAYMENT' });
@@ -409,8 +436,8 @@ export function ActiveJobsTab(): React.JSX.Element {
 
   const handleStartInspection = async (job: JobPayload) => {
     Alert.alert(
-      'MyFixer inspection reminder',
-      'Complete all quotations, approvals and payments through MyFixer. Do not request cash, private bank transfers, external payment links or cancellation of the booking.',
+      'Padi Pro inspection reminder',
+      'Complete all quotations, approvals and payments through Padi Pro. Do not request cash, private bank transfers, external payment links or cancellation of the booking.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -432,7 +459,7 @@ export function ActiveJobsTab(): React.JSX.Element {
 
   const handleStatusPress = async (job: JobPayload) => {
     if (job.jobStatus === 'IN_ROUTE') {
-      Alert.alert('Confirm arrival on the map', 'Use the map arrival prompt so MyFixer can verify your GPS reading.');
+      Alert.alert('Confirm arrival on the map', 'Use the map arrival prompt so Padi Pro can verify your GPS reading.');
       return;
     }
 
@@ -627,7 +654,7 @@ export function ActiveJobsTab(): React.JSX.Element {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#090D14' }}>
+    <View style={{ flex: 1, backgroundColor: Colors.background }}>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         {activeJobs.map((job) => {
           const currentProps = getActionButtonProps(job.jobStatus);
@@ -635,7 +662,7 @@ export function ActiveJobsTab(): React.JSX.Element {
           const quoteSent = isQuoteSentForJob(job);
 
           return (
-            <View key={job.id} style={[styles.jobCard, (job.jobStatus === 'IN_PROGRESS' || job.jobStatus === 'DIAGNOSTIC_DONE') && { borderColor: '#00FF8740' }]}>
+            <View key={job.id} style={[styles.jobCard, (job.jobStatus === 'IN_PROGRESS' || job.jobStatus === 'DIAGNOSTIC_DONE') && { borderColor: 'rgba(184, 255, 61, 0.35)' }]}>
               <View style={styles.cardHeader}>
                 <Text style={styles.applianceText}>{job.applianceType}</Text>
                 <View style={styles.statusBadge}>
@@ -666,12 +693,12 @@ export function ActiveJobsTab(): React.JSX.Element {
                   <Text style={styles.commsBtnText}>Chat</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.commsBtn, { borderColor: '#38BDF820', opacity: job.customerPhone ? 1 : 0.55 }]}
+                  style={[styles.commsBtn, { borderColor: 'rgba(86, 184, 255, 0.28)', opacity: job.customerPhone ? 1 : 0.55 }]}
                   onPress={() => handlePhoneCall(job.customerPhone)}
                 >
-                  <Text style={[styles.commsBtnText, { color: '#38BDF8' }]}>Call</Text>
+                  <Text style={[styles.commsBtnText, { color: Colors.info }]}>Call</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.commsBtn, { borderColor: '#00FF8740' }]} onPress={() => handleNavigate(job)}>
+                <TouchableOpacity style={[styles.commsBtn, { borderColor: 'rgba(184, 255, 61, 0.35)' }]} onPress={() => handleNavigate(job)}>
                   <Text style={styles.commsBtnText}>Navigate</Text>
                 </TouchableOpacity>
               </View>
@@ -687,10 +714,10 @@ export function ActiveJobsTab(): React.JSX.Element {
                     <Image source={{ uri: jobPhotos[job.id] }} style={styles.receiptImagePreview} />
                   ) : (
                     <TouchableOpacity
-                      style={[styles.commsBtn, { borderColor: '#EF444440', marginTop: 6, paddingVertical: 12 }]}
+                      style={[styles.commsBtn, { borderColor: 'rgba(255, 93, 93, 0.35)', marginTop: 6, paddingVertical: 12 }]}
                       onPress={() => takeJobProofPhoto(job.id)}
                     >
-                      <Text style={[styles.commsBtnText, { color: '#EF4444' }]}>Add Proof Photo</Text>
+                      <Text style={[styles.commsBtnText, { color: Colors.danger }]}>Add Proof Photo</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -755,13 +782,13 @@ export function ActiveJobsTab(): React.JSX.Element {
               <TextInput
                 style={styles.chatInput}
                 placeholder="Type a message..."
-                placeholderTextColor="#64748B"
+                placeholderTextColor={Colors.textSubtle}
                 value={typedMessage}
                 onChangeText={setTypedMessage}
                 editable={!chatSending}
               />
               <TouchableOpacity style={[styles.sendBtn, chatSending && { opacity: 0.6 }]} onPress={sendMessage} disabled={chatSending || !typedMessage.trim()}>
-                {chatSending ? <ActivityIndicator color="#090D14" size="small" /> : <Text style={styles.sendBtnText}>Send</Text>}
+                {chatSending ? <ActivityIndicator color={Colors.background} size="small" /> : <Text style={styles.sendBtnText}>Send</Text>}
               </TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
@@ -788,7 +815,7 @@ export function ActiveJobsTab(): React.JSX.Element {
                 multiline
                 style={[styles.input, { height: 90, textAlignVertical: 'top' }]}
                 placeholder="What did you find?"
-                placeholderTextColor="#475569"
+                placeholderTextColor={Colors.textSubtle}
               />
             </View>
             <View style={styles.inputGroup}>
@@ -799,15 +826,15 @@ export function ActiveJobsTab(): React.JSX.Element {
                 multiline
                 style={[styles.input, { height: 70, textAlignVertical: 'top' }]}
                 placeholder="Optional observations"
-                placeholderTextColor="#475569"
+                placeholderTextColor={Colors.textSubtle}
               />
             </View>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Part required</Text>
-              <TextInput value={partName} onChangeText={setPartName} style={styles.input} placeholder="Optional part name" placeholderTextColor="#475569" />
+            <TextInput value={partName} onChangeText={setPartName} style={styles.input} placeholder="Optional part name" placeholderTextColor={Colors.textSubtle} />
             </View>
             <TouchableOpacity
-              style={[styles.toggleRow, quoteRequired && { borderColor: '#00FF87' }]}
+              style={[styles.toggleRow, quoteRequired && { borderColor: Colors.primary }]}
               onPress={() => setQuoteRequired((value) => !value)}
             >
               <Text style={styles.toggleText}>{quoteRequired ? 'Quote required' : 'Quote not required'}</Text>
@@ -817,7 +844,7 @@ export function ActiveJobsTab(): React.JSX.Element {
                 <Text style={styles.backBtnText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.submitInvoiceBtn} onPress={handleCompleteInspection} disabled={submittingInspection}>
-                {submittingInspection ? <ActivityIndicator size="small" color="#090D14" /> : <Text style={styles.submitInvoiceText}>Complete Inspection</Text>}
+                {submittingInspection ? <ActivityIndicator size="small" color={Colors.background} /> : <Text style={styles.submitInvoiceText}>Complete Inspection</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -856,7 +883,7 @@ export function ActiveJobsTab(): React.JSX.Element {
                   style={styles.textInput}
                   keyboardType="numeric"
                   placeholder="0.00"
-                  placeholderTextColor="#475569"
+                  placeholderTextColor={Colors.textSubtle}
                   value={additionalLabor}
                   onChangeText={setAdditionalLabor}
                 />
@@ -871,7 +898,7 @@ export function ActiveJobsTab(): React.JSX.Element {
                   style={styles.textInput}
                   keyboardType="numeric"
                   placeholder="0.00"
-                  placeholderTextColor="#475569"
+                  placeholderTextColor={Colors.textSubtle}
                   value={partsAmount}
                   onChangeText={setPartsAmount}
                 />
@@ -898,7 +925,7 @@ export function ActiveJobsTab(): React.JSX.Element {
                 disabled={submittingInvoice}
               >
                 {submittingInvoice ? (
-                  <ActivityIndicator size="small" color="#090D14" />
+                  <ActivityIndicator size="small" color={Colors.background} />
                 ) : (
                   <Text style={styles.submitInvoiceText}>{isApprovedQuote ? 'Complete Job' : 'Send Quote'}</Text>
                 )}
@@ -914,67 +941,67 @@ export function ActiveJobsTab(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { padding: 20 },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40, marginTop: 40 },
-  emptyTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 6 },
-  emptyText: { color: '#64748B', fontSize: 14, textAlign: 'center', lineHeight: 20 },
-  jobCard: { backgroundColor: '#111827', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#1E293B', marginBottom: 15 },
+  emptyTitle: { color: Colors.text, fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 6 },
+  emptyText: { color: Colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  jobCard: { backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.lg, borderWidth: 1, borderColor: Colors.border, marginBottom: 15 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  applianceText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', flex: 1, marginRight: 8 },
-  statusBadge: { backgroundColor: '#1E293B', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#334155' },
-  statusBadgeText: { color: '#00FF87', fontSize: 11, fontWeight: '700' },
-  faultText: { color: '#94A3B8', fontSize: 13, marginBottom: 12, lineHeight: 18 },
+  applianceText: { color: Colors.text, fontSize: 16, fontWeight: '800', flex: 1, marginRight: 8 },
+  statusBadge: { backgroundColor: Colors.surfaceRaised, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: Colors.borderStrong },
+  statusBadgeText: { color: Colors.primary, fontSize: 11, fontWeight: '800' },
+  faultText: { color: Colors.textMuted, fontSize: 13, marginBottom: 12, lineHeight: 18 },
   priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
-  priceValue: { color: '#00FF87', fontSize: 16, fontWeight: '800' },
-  divider: { height: 1, backgroundColor: '#1E293B', marginVertical: 12 },
-  metaLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
-  metaValue: { color: '#E2E8F0', fontSize: 14, fontWeight: '500', marginTop: 2 },
-  complexText: { color: '#94A3B8', fontSize: 12, marginTop: 2 },
+  priceValue: { color: Colors.primary, fontSize: 16, fontWeight: '900' },
+  divider: { height: 1, backgroundColor: Colors.border, marginVertical: 12 },
+  metaLabel: { color: Colors.textSubtle, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  metaValue: { color: Colors.text, fontSize: 14, fontWeight: '600', marginTop: 2 },
+  complexText: { color: Colors.textMuted, fontSize: 12, marginTop: 2 },
   commsRow: { flexDirection: 'row', gap: 10, marginTop: 8, marginBottom: 4 },
-  commsBtn: { flex: 1, paddingVertical: 8, backgroundColor: '#090D14', borderWidth: 1, borderColor: '#1E293B', borderRadius: 8, alignItems: 'center' },
-  commsBtnText: { color: '#00FF87', fontSize: 12, fontWeight: '700' },
-  receiptImagePreview: { width: '100%', height: 160, borderRadius: 8, marginTop: 6, borderWidth: 1, borderColor: '#00FF8730' },
+  commsBtn: { flex: 1, paddingVertical: 8, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderRadius: 8, alignItems: 'center' },
+  commsBtnText: { color: Colors.primary, fontSize: 12, fontWeight: '800' },
+  receiptImagePreview: { width: '100%', height: 160, borderRadius: 8, marginTop: 6, borderWidth: 1, borderColor: 'rgba(184, 255, 61, 0.28)' },
   actionRow: { marginTop: 16 },
   btnAction: { paddingVertical: 14, alignItems: 'center', borderRadius: 10 },
   btnTextDark: { fontWeight: '700', fontSize: 14 },
-  chatModalContainer: { flex: 1, backgroundColor: '#090D14' },
-  chatHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#1E293B', alignItems: 'center' },
-  chatHeaderTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  chatModalContainer: { flex: 1, backgroundColor: Colors.background },
+  chatHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border, alignItems: 'center' },
+  chatHeaderTitle: { color: Colors.text, fontSize: 16, fontWeight: '800' },
   closeChatBtn: { padding: 6 },
-  closeChatText: { color: '#EF4444', fontWeight: '600' },
+  closeChatText: { color: Colors.danger, fontWeight: '700' },
   chatMessageList: { padding: 16, gap: 12 },
-  chatEmptyText: { color: '#64748B', textAlign: 'center', marginTop: 40, fontSize: 13 },
+  chatEmptyText: { color: Colors.textSubtle, textAlign: 'center', marginTop: 40, fontSize: 13 },
   messageBubble: { padding: 12, borderRadius: 12, maxWidth: '80%', marginBottom: 4 },
-  bubbleTech: { backgroundColor: '#1E293B', alignSelf: 'flex-end', borderBottomRightRadius: 2 },
-  bubbleClient: { backgroundColor: '#111827', alignSelf: 'flex-start', borderBottomLeftRadius: 2, borderWidth: 1, borderColor: '#1E293B' },
-  messageText: { color: '#F8FAFC', fontSize: 14 },
-  messageTime: { color: '#64748B', fontSize: 9, alignSelf: 'flex-end', marginTop: 4 },
+  bubbleTech: { backgroundColor: Colors.surfaceRaised, alignSelf: 'flex-end', borderBottomRightRadius: 2 },
+  bubbleClient: { backgroundColor: Colors.surface, alignSelf: 'flex-start', borderBottomLeftRadius: 2, borderWidth: 1, borderColor: Colors.border },
+  messageText: { color: Colors.text, fontSize: 14 },
+  messageTime: { color: Colors.textSubtle, fontSize: 9, alignSelf: 'flex-end', marginTop: 4 },
   chatMediaGrid: { gap: 8, marginBottom: 6 },
-  chatImage: { width: 190, height: 140, borderRadius: 10, backgroundColor: '#090D14' },
-  inputAreaRow: { flexDirection: 'row', padding: 12, backgroundColor: '#111827', borderTopWidth: 1, borderTopColor: '#1E293B', alignItems: 'center', gap: 8 },
-  chatPhotoBtn: { height: 40, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#090D14', borderWidth: 1, borderColor: '#334155', justifyContent: 'center' },
-  chatPhotoText: { color: '#CBD5E1', fontSize: 12, fontWeight: '700' },
-  chatInput: { flex: 1, height: 40, backgroundColor: '#090D14', borderRadius: 8, paddingHorizontal: 12, color: '#FFFFFF', fontSize: 13, borderWidth: 1, borderColor: '#1E293B' },
-  sendBtn: { backgroundColor: '#00FF87', paddingHorizontal: 16, height: 40, borderRadius: 8, justifyContent: 'center' },
-  sendBtnText: { color: '#090D14', fontWeight: '700', fontSize: 13 },
-  modalOverlay: { flex: 1, backgroundColor: '#000000BB', justifyContent: 'flex-end' },
-  invoiceModalContent: { backgroundColor: '#111827', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderWidth: 1, borderColor: '#1E293B' },
-  sheetTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
-  sheetSubtitle: { color: '#64748B', fontSize: 12, marginTop: 4, lineHeight: 18, marginBottom: 20 },
+  chatImage: { width: 190, height: 140, borderRadius: 10, backgroundColor: Colors.background },
+  inputAreaRow: { flexDirection: 'row', padding: 12, backgroundColor: Colors.surface, borderTopWidth: 1, borderTopColor: Colors.border, alignItems: 'center', gap: 8 },
+  chatPhotoBtn: { height: 40, paddingHorizontal: 12, borderRadius: 8, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.borderStrong, justifyContent: 'center' },
+  chatPhotoText: { color: Colors.text, fontSize: 12, fontWeight: '800' },
+  chatInput: { flex: 1, height: 40, backgroundColor: Colors.background, borderRadius: 8, paddingHorizontal: 12, color: Colors.text, fontSize: 13, borderWidth: 1, borderColor: Colors.border },
+  sendBtn: { backgroundColor: Colors.primary, paddingHorizontal: 16, height: 40, borderRadius: 8, justifyContent: 'center' },
+  sendBtnText: { color: Colors.background, fontWeight: '800', fontSize: 13 },
+  modalOverlay: { flex: 1, backgroundColor: Colors.overlay, justifyContent: 'flex-end' },
+  invoiceModalContent: { backgroundColor: Colors.surface, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, padding: Spacing.xxl, borderWidth: 1, borderColor: Colors.border },
+  sheetTitle: { color: Colors.text, fontSize: 18, fontWeight: '900' },
+  sheetSubtitle: { color: Colors.textMuted, fontSize: 12, marginTop: 4, lineHeight: 18, marginBottom: 20 },
   inputGroup: { marginBottom: 14 },
-  inputLabel: { color: '#94A3B8', fontSize: 12, fontWeight: '600', marginBottom: 6 },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#090D14', borderWidth: 1, borderColor: '#1E293B', borderRadius: 10, paddingHorizontal: 12, height: 44 },
-  input: { backgroundColor: '#090D14', borderWidth: 1, borderColor: '#1E293B', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  disabledInputWrapper: { backgroundColor: '#1E293B40', borderColor: '#334155' },
-  disabledInputText: { color: '#64748B', fontSize: 14, fontWeight: '600', marginLeft: 4 },
-  currencyPrefix: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', marginRight: 2 },
-  textInput: { flex: 1, color: '#FFFFFF', fontSize: 14, padding: 0, fontWeight: '600' },
-  summaryBox: { backgroundColor: '#00FF870A', borderStyle: 'dashed', borderWidth: 1, borderColor: '#00FF8730', borderRadius: 12, padding: 14, marginVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  summaryLabel: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  summaryValue: { color: '#00FF87', fontSize: 18, fontWeight: '800' },
-  toggleRow: { borderWidth: 1, borderColor: '#334155', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 14, marginTop: 4, backgroundColor: '#090D14' },
-  toggleText: { color: '#E2E8F0', fontSize: 13, fontWeight: '700' },
+  inputLabel: { color: Colors.textMuted, fontSize: 12, fontWeight: '700', marginBottom: 6 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderRadius: 10, paddingHorizontal: 12, height: 44 },
+  input: { backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: Colors.text, fontSize: 14, fontWeight: '600' },
+  disabledInputWrapper: { backgroundColor: 'rgba(34, 34, 38, 0.45)', borderColor: Colors.borderStrong },
+  disabledInputText: { color: Colors.textSubtle, fontSize: 14, fontWeight: '600', marginLeft: 4 },
+  currencyPrefix: { color: Colors.text, fontSize: 14, fontWeight: '700', marginRight: 2 },
+  textInput: { flex: 1, color: Colors.text, fontSize: 14, padding: 0, fontWeight: '600' },
+  summaryBox: { backgroundColor: 'rgba(184, 255, 61, 0.07)', borderStyle: 'dashed', borderWidth: 1, borderColor: 'rgba(184, 255, 61, 0.28)', borderRadius: Radius.md, padding: 14, marginVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  summaryLabel: { color: Colors.text, fontSize: 13, fontWeight: '800' },
+  summaryValue: { color: Colors.primary, fontSize: 18, fontWeight: '900' },
+  toggleRow: { borderWidth: 1, borderColor: Colors.borderStrong, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 14, marginTop: 4, backgroundColor: Colors.background },
+  toggleText: { color: Colors.text, fontSize: 13, fontWeight: '800' },
   invoiceActionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  backBtn: { flex: 1, backgroundColor: '#1E293B', borderRadius: 10, height: 44, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
-  backBtnText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },
-  submitInvoiceBtn: { flex: 2, backgroundColor: '#00FF87', borderRadius: 10, height: 44, justifyContent: 'center', alignItems: 'center' },
-  submitInvoiceText: { color: '#090D14', fontSize: 13, fontWeight: '700' },
+  backBtn: { flex: 1, backgroundColor: Colors.surfaceRaised, borderRadius: 10, height: 44, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: Colors.borderStrong },
+  backBtnText: { color: Colors.textMuted, fontSize: 13, fontWeight: '700' },
+  submitInvoiceBtn: { flex: 2, backgroundColor: Colors.primary, borderRadius: 10, height: 44, justifyContent: 'center', alignItems: 'center' },
+  submitInvoiceText: { color: Colors.background, fontSize: 13, fontWeight: '900' },
 });

@@ -7,7 +7,8 @@ import Notification, {
 } from '../models/notification.model';
 import NotificationPreference from '../models/notification-preference.model';
 import { logAuditEvent } from '../services/audit.service';
-import { processDueNotifications, retryNotification } from '../services/notification.service';
+import { createNotifications, processDueNotifications, retryNotification } from '../services/notification.service';
+import User, { AccountStatus, UserRole } from '../models/user.model';
 
 const getAuthUser = (req: Request) =>
   (req as any).user as { id?: string; _id?: string; email?: string; role?: string } | undefined;
@@ -71,6 +72,88 @@ export const listAdminNotifications = async (req: Request, res: Response): Promi
   } catch (error) {
     console.error('Failed to list notifications:', error);
     res.status(500).json({ message: 'Failed to list notifications.' });
+  }
+};
+
+export const createAdminBroadcastNotification = async (req: Request, res: Response): Promise<void> => {
+  const audience = String(req.body?.audience || 'CLIENTS').trim().toUpperCase();
+  const title = String(req.body?.title || '').trim();
+  const message = String(req.body?.message || '').trim();
+
+  const audienceRoleMap: Record<string, UserRole[]> = {
+    CLIENTS: [UserRole.CUSTOMER],
+    TECHNICIANS: [UserRole.TECHNICIAN],
+    ALL: [UserRole.CUSTOMER, UserRole.TECHNICIAN],
+  };
+
+  const roles = audienceRoleMap[audience];
+  if (!roles) {
+    res.status(400).json({ message: 'Select a valid broadcast audience.' });
+    return;
+  }
+
+  if (!title || title.length > 120) {
+    res.status(400).json({ message: 'Notification title is required and must be 120 characters or fewer.' });
+    return;
+  }
+
+  if (!message || message.length > 600) {
+    res.status(400).json({ message: 'Notification message is required and must be 600 characters or fewer.' });
+    return;
+  }
+
+  try {
+    const recipients = await User.find({
+      role: { $in: roles },
+      isActive: true,
+      accountStatus: AccountStatus.ACTIVE,
+    }).select('name email phone role').lean();
+
+    if (!recipients.length) {
+      res.status(404).json({ message: 'No active accounts were found for this broadcast audience.' });
+      return;
+    }
+
+    const batches = await Promise.all(
+      recipients.map((recipient) =>
+        createNotifications({
+          userId: recipient._id,
+          email: recipient.email,
+          phone: recipient.phone,
+          name: recipient.name || 'Client',
+          channels: [NotificationChannel.IN_APP],
+          type: NotificationType.SYSTEM,
+          title,
+          message,
+          metadata: {
+            source: 'ADMIN_PORTAL',
+            feed: 'ALERTS',
+            broadcast: true,
+            audience,
+          },
+        })
+      )
+    );
+    const notifications = batches.flat();
+
+    await logAuditEvent(req, {
+      action: 'notification.client_alert.broadcast',
+      module: 'NOTIFICATIONS',
+      resourceType: 'Notification',
+      resourceId: notifications[0]?._id?.toString?.() || 'client-alert-broadcast',
+      metadata: {
+        recipientCount: recipients.length,
+        notificationCount: notifications.length,
+        audience,
+        channel: NotificationChannel.IN_APP,
+        type: NotificationType.SYSTEM,
+      },
+    });
+
+    res.status(201).json({ success: true, notifications, recipientCount: recipients.length });
+  } catch (error) {
+    console.error('Failed to create client notification:', error);
+    res.status(500).json({ message: 'Failed to send client notification.' });
   }
 };
 

@@ -11,12 +11,13 @@ import {
   submitProviderCompletion,
 } from '../services/settlement.service';
 import { AuthenticatedRequest } from '../types/auth.types';
+import { MarketFinanceGuardError } from '../services/market-finance-guard.service';
 
 const idempotencyKey = (req: AuthenticatedRequest): string =>
   String(req.headers['idempotency-key'] || req.body?.idempotencyKey || '').trim();
 
 const handleError = (res: Response, error: unknown, fallback: string): void => {
-  if (error instanceof SettlementError) {
+  if (error instanceof SettlementError || error instanceof MarketFinanceGuardError) {
     res.status(error.statusCode).json({ success: false, message: error.message, code: error.code });
     return;
   }

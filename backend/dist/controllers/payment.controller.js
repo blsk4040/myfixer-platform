@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -7,8 +40,7 @@ exports.PaymentController = void 0;
 const paymentVault_model_1 = __importDefault(require("../models/paymentVault.model"));
 const paystack_service_1 = require("../services/paystack.service");
 const crypto_1 = __importDefault(require("crypto"));
-const booking_model_1 = __importDefault(require("../models/booking.model"));
-const market_config_1 = require("../config/market.config");
+const booking_model_1 = __importStar(require("../models/booking.model"));
 const paymentVault_model_2 = require("../models/paymentVault.model");
 const audit_service_1 = require("../services/audit.service");
 const notification_service_1 = require("../services/notification.service");
@@ -16,7 +48,9 @@ const notification_model_1 = require("../models/notification.model");
 const payment_workflow_service_1 = require("../services/payment-workflow.service");
 const settlement_service_1 = require("../services/settlement.service");
 const paystack_service_2 = require("../services/paystack.service");
-const payment_transaction_model_1 = __importDefault(require("../models/payment-transaction.model"));
+const payment_transaction_model_1 = __importStar(require("../models/payment-transaction.model"));
+const quote_model_1 = __importStar(require("../models/quote.model"));
+const market_finance_guard_service_1 = require("../services/market-finance-guard.service");
 class PaymentController {
     static async initializePayment(req, res) {
         try {
@@ -43,6 +77,10 @@ class PaymentController {
             });
         }
         catch (error) {
+            if (error instanceof market_finance_guard_service_1.MarketFinanceGuardError) {
+                res.status(error.statusCode).json({ message: error.message, code: error.code });
+                return;
+            }
             if (error instanceof payment_workflow_service_1.PaymentWorkflowError) {
                 res.status(error.statusCode).json({ message: error.message, code: error.code });
                 return;
@@ -255,7 +293,7 @@ class PaymentController {
     static async chargeSavedCard(req, res) {
         try {
             const userId = req.user._id;
-            const { amountMinor, amountInCents, bookingId } = req.body;
+            const { bookingId, quoteId } = req.body;
             if (!req.user.email) {
                 res.status(400).json({ error: 'Authenticated user email is required to charge a saved card.' });
                 return;
@@ -265,14 +303,23 @@ class PaymentController {
                 res.status(404).json({ error: 'Booking not found for payment charge.' });
                 return;
             }
-            const market = (0, market_config_1.getMarketByCountry)(booking.countryCode);
-            if (!market.paymentProviders.includes('PAYSTACK')) {
-                res.status(400).json({ error: `Paystack is not enabled for ${market.countryName}.` });
-                return;
+            await (0, market_finance_guard_service_1.assertMarketAllowsPaymentCollection)(booking.countryCode, booking.currency, payment_transaction_model_1.PaymentProvider.PAYSTACK);
+            let normalizedAmount = booking.priceMinor;
+            if (booking.pricingMode !== booking_model_1.PricingMode.FIXED_PRICE || quoteId) {
+                const quote = await quote_model_1.default.findOne({
+                    bookingId: booking._id,
+                    status: quote_model_1.QuoteStatus.APPROVED,
+                    isCurrent: { $ne: false },
+                    ...(quoteId ? { _id: quoteId } : {}),
+                }).sort({ version: -1, createdAt: -1 });
+                if (!quote) {
+                    res.status(409).json({ error: 'An approved quote is required before charging a saved card.' });
+                    return;
+                }
+                normalizedAmount = quote.totalAmountMinor;
             }
-            const normalizedAmount = Number(amountMinor ?? amountInCents);
-            if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0 || !bookingId) {
-                res.status(400).json({ error: 'A valid amountMinor and bookingId are required.' });
+            if (!Number.isInteger(normalizedAmount) || normalizedAmount <= 0 || !bookingId) {
+                res.status(400).json({ error: 'A valid server-side booking amount is required.' });
                 return;
             }
             const vault = await paymentVault_model_1.default.findOne({ userId }).select('+paymentMethods.authorizationCode +paymentMethods.signature');
@@ -330,6 +377,10 @@ class PaymentController {
             });
         }
         catch (error) {
+            if (error instanceof market_finance_guard_service_1.MarketFinanceGuardError) {
+                res.status(error.statusCode).json({ error: error.message, code: error.code });
+                return;
+            }
             console.error('Failed to charge saved card:', error);
             res.status(500).json({ error: 'Unable to process saved-card payment.' });
         }

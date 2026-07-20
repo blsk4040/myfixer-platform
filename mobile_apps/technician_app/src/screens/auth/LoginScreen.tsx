@@ -10,12 +10,30 @@ import {
   Platform,
   Image,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  NativeModules,
+  ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import apiService from '../../services/api.service';
 import authService, { AuthSession } from '../../services/auth.service';
+import { BRAND } from '../../config/brand';
+
+const appLogo = require('../../../assets/logo/app_logo.png');
+
+const Colors = {
+  background: '#0B0B0D',
+  card: '#141417',
+  input: '#1C1C20',
+  border: '#303036',
+  primary: '#B8FF3D',
+  amber: '#FFB547',
+  text: '#F7F7F5',
+  textMuted: '#B9B9BF',
+  textSubtle: '#74747C',
+};
+
+const trustSignals = ['Verified jobs', 'Protected payments', 'Live dispatch'];
 
 interface LoginScreenProps {
   onLoginSuccess: (session: AuthSession) => void;
@@ -29,14 +47,18 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  const isGoogleConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  const hasGoogleNativeModule = Boolean((NativeModules as Record<string, unknown>).RNGoogleSignin);
+  const isGoogleConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID && hasGoogleNativeModule;
 
   useEffect(() => {
+    if (!hasGoogleNativeModule || !process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) return;
+
+    const { GoogleSignin } = require('@react-native-google-signin/google-signin');
     GoogleSignin.configure({
       webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
       offlineAccess: false,
     });
-  }, []);
+  }, [hasGoogleNativeModule]);
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -68,7 +90,12 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
   };
 
   const handleGoogleSignIn = async () => {
-    if (!isGoogleConfigured) {
+    if (!hasGoogleNativeModule) {
+      Alert.alert('Google Sign-In Unavailable', 'Google Sign-In requires the Android native build or a custom development client.');
+      return;
+    }
+
+    if (!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) {
       Alert.alert('Configuration Unavailable', 'Google Web Client ID is missing.');
       return;
     }
@@ -76,6 +103,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
     setIsGoogleLoading(true);
 
     try {
+      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
       await GoogleSignin.hasPlayServices({
         showPlayServicesUpdateDialog: true,
       });
@@ -130,157 +158,274 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-        style={styles.innerContainer}
-      >
-        
-        {/* 1. Brand Logo & Header Segment */}
-        <View style={styles.headerContainer}>
-          <Image 
-            source={{ uri: 'https://res.cloudinary.com/dz7dr3wku/image/upload/v1782316410/favicon-96x96_ymy1mu.png' }} 
-            style={styles.logoImage}
-            resizeMode="contain"
-          />
-          <Text style={styles.logoText}>MyFixer<Text style={styles.accentText}> Pro</Text></Text>
-          <Text style={styles.subtitleText}>Service Provider</Text>
-        </View>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardView}>
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.heroCard}>
+            <Image
+              source={appLogo}
+              style={styles.logoImage}
+              resizeMode="contain"
+              accessible
+              accessibilityLabel={`${BRAND.platformName} logo`}
+            />
+            <View
+              style={styles.logoWordmark}
+              accessible
+              accessibilityRole="text"
+              accessibilityLabel={BRAND.platformName}
+            >
+              <Text style={styles.logoText}>Pad</Text>
+              <View style={styles.logoLetterI} accessible={false}>
+                <View style={styles.logoDot} />
+                <View style={styles.logoStem} />
+              </View>
+              <Text style={styles.logoText}> Pro</Text>
+            </View>
+            <Text style={styles.subtitleText}>Professional workspace for trusted service providers.</Text>
+            <View style={styles.signalRow}>
+              {trustSignals.map((signal) => (
+                <View key={signal} style={styles.signalPill}>
+                  <Text style={styles.signalText}>{signal}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
 
-        {/* 2. Authentication Input Matrix */}
-        <View style={styles.formContainer}>
-          <Text style={styles.inputLabel}>Email Address</Text>
-          <TextInput 
-            style={styles.input}
-            placeholder="Enter your email"
-            placeholderTextColor="#64748B" // Slate gray placeholder
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            editable={!isLoading && !isGoogleLoading}
-          />
+          <View style={styles.formCard}>
+            <View style={styles.formHeader}>
+              <Text style={styles.formTitle}>Ready for work?</Text>
+              <Text style={styles.formSubtitle}>Sign in to receive jobs, manage work, and track protected payouts.</Text>
+            </View>
 
-          <Text style={styles.inputLabel}>Password</Text>
-          <TextInput 
-            style={styles.input}
-            placeholder="Enter your password"
-            placeholderTextColor="#64748B"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
-            editable={!isLoading && !isGoogleLoading}
-          />
-        </View>
+            <Text style={styles.inputLabel}>Email Address</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="name@domain.com"
+              placeholderTextColor={Colors.textSubtle}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              editable={!isLoading && !isGoogleLoading}
+            />
 
-        {/* 3. Operational Sign In Button Trigger */}
-        <TouchableOpacity 
-          style={styles.loginButton} 
-          activeOpacity={0.8} 
-          onPress={handleLogin}
-          disabled={isLoading || isGoogleLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="#090D14" />
-          ) : (
-            <Text style={styles.loginButtonText}>Sign In</Text>
-          )}
-        </TouchableOpacity>
+            <Text style={styles.inputLabel}>Password</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your password"
+              placeholderTextColor={Colors.textSubtle}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              editable={!isLoading && !isGoogleLoading}
+            />
 
-        <View style={styles.socialDivider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or</Text>
-          <View style={styles.dividerLine} />
-        </View>
+            <TouchableOpacity
+              style={styles.loginButton}
+              activeOpacity={0.86}
+              onPress={handleLogin}
+              disabled={isLoading || isGoogleLoading}
+            >
+              {isLoading ? (
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator color={Colors.background} />
+                  <Text style={styles.loginButtonText}>Signing In</Text>
+                </View>
+              ) : (
+                <Text style={styles.loginButtonText}>Sign In</Text>
+              )}
+            </TouchableOpacity>
 
-        {/* 4. Native Google Provider Auth Matrix */}
-        <TouchableOpacity
-          style={[styles.googleButton, (isLoading || isGoogleLoading || !isGoogleConfigured) && styles.googleButtonDisabled]}
-          activeOpacity={0.8}
-          onPress={handleGoogleSignIn}
-          disabled={isLoading || isGoogleLoading || !isGoogleConfigured}
-        >
-          {isGoogleLoading ? (
-            <ActivityIndicator color="#090D14" />
-          ) : (
-            <Text style={styles.googleButtonText}>Continue with Google</Text>
-          )}
-        </TouchableOpacity>
+            <View style={styles.socialDivider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
 
-        <TouchableOpacity style={styles.registerLink} onPress={onRegisterPress} disabled={isLoading || isGoogleLoading}>
-          <Text style={styles.registerText}>New provider? Apply to join MyFixer Pro</Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.googleButton, (isLoading || isGoogleLoading || !isGoogleConfigured) && styles.googleButtonDisabled]}
+              activeOpacity={0.86}
+              onPress={handleGoogleSignIn}
+              disabled={isLoading || isGoogleLoading || !isGoogleConfigured}
+            >
+              {isGoogleLoading ? (
+                <ActivityIndicator color={Colors.background} />
+              ) : (
+                <Text style={styles.googleButtonText}>Continue with Google</Text>
+              )}
+            </TouchableOpacity>
+          </View>
 
+          <TouchableOpacity style={styles.registerLink} onPress={onRegisterPress} disabled={isLoading || isGoogleLoading}>
+            <View style={styles.registerBrandRow}>
+              <Text style={styles.registerPromptText}>New provider? </Text>
+              <Text style={styles.registerText}>Apply to join </Text>
+              <View
+                style={styles.registerWordmark}
+                accessible
+                accessibilityRole="text"
+                accessibilityLabel={BRAND.displayName}
+              >
+                <Text style={styles.registerLogoText}>Pad</Text>
+                <View style={styles.registerLetterI} accessible={false}>
+                  <View style={styles.registerDot} />
+                  <View style={styles.registerStem} />
+                </View>
+                <Text style={styles.registerProText}> Pro</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#090D14' // Synchronized Matte Black Theme
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
   },
-  innerContainer: { 
-    flex: 1, 
-    padding: 24, 
-    justifyContent: 'center' 
+  keyboardView: {
+    flex: 1,
   },
-  headerContainer: { 
-    alignItems: 'center', 
-    marginBottom: 40 
+  scrollContent: {
+    flexGrow: 1,
+    padding: 24,
+    justifyContent: 'center',
+    gap: 18,
+  },
+  heroCard: {
+    alignItems: 'center',
+    paddingVertical: 26,
+    paddingHorizontal: 18,
+    borderRadius: 28,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   logoImage: {
-    width: 100,
-    height: 100,
-    marginBottom: 16,
+    width: 96,
+    height: 96,
+    marginBottom: 14,
+  },
+  logoWordmark: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   logoText: { 
     fontSize: 32, 
     fontWeight: '700', 
-    color: '#FFFFFF' 
+    color: Colors.text
   },
-  accentText: { 
-    color: '#00FF87' // Electric MyFixer Accent Green
-  }, 
-  subtitleText: { 
-    fontSize: 14, 
-    color: '#64748B', 
+  logoLetterI: {
+    width: 13,
+    height: 31,
+    marginLeft: 1,
+    marginBottom: 4,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 4,
+  },
+  logoDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: Colors.primary,
+    marginBottom: 4,
+  },
+  logoStem: {
+    width: 5,
+    height: 15,
+    borderRadius: 999,
+    backgroundColor: Colors.text,
+  },
+  subtitleText: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    marginTop: 10,
+    fontWeight: '700',
+    lineHeight: 20,
+    textAlign: 'center',
+    maxWidth: 300,
+  },
+  signalRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 18,
+  },
+  signalPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#B8FF3D12',
+    borderWidth: 1,
+    borderColor: '#B8FF3D33',
+  },
+  signalText: {
+    color: Colors.primary,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  formCard: {
+    padding: 18,
+    borderRadius: 24,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  formHeader: {
+    marginBottom: 18,
+  },
+  formTitle: {
+    color: Colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  formSubtitle: {
+    color: Colors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
     marginTop: 6,
-    fontWeight: '500'
-  },
-  formContainer: { 
-    marginBottom: 24 
   },
   inputLabel: { 
-    color: '#FFFFFF', 
+    color: Colors.text,
     fontSize: 13, 
     fontWeight: '600', 
     marginBottom: 8 
   },
   input: { 
-    backgroundColor: '#111827', // Deep slate container background fill
-    color: '#FFFFFF', 
+    backgroundColor: '#1C1C20',
+    color: Colors.text,
     padding: 16, 
     borderRadius: 12, 
     fontSize: 16, 
-    marginBottom: 16,
+    marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#1E293B' // Clean structural borders
+    borderColor: Colors.border
   },
   loginButton: { 
-    backgroundColor: '#00FF87', // Electric Accent Green
+    backgroundColor: Colors.primary,
     padding: 16, 
-    borderRadius: 12, 
+    borderRadius: 16, 
     alignItems: 'center',
-    shadowColor: '#00FF87',
+    shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
     elevation: 5
   },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   loginButtonText: { 
-    color: '#090D14', // High-contrast text core execution 
+    color: Colors.background,
     fontSize: 16, 
     fontWeight: '700' 
   },
@@ -293,28 +438,62 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#1E293B',
+    backgroundColor: Colors.border,
   },
   dividerText: {
-    color: '#64748B',
+    color: Colors.textSubtle,
     fontSize: 12,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
   googleButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.text,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     alignItems: 'center',
   },
   googleButtonDisabled: {
     opacity: 0.5,
   },
   googleButtonText: {
-    color: '#090D14',
+    color: Colors.background,
     fontSize: 16,
     fontWeight: '700',
   },
   registerLink: { alignItems: 'center', paddingVertical: 18 },
-  registerText: { color: '#94A3B8', fontSize: 13, fontWeight: '700' }
+  registerBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+  },
+  registerPromptText: { color: Colors.textMuted, fontSize: 13, fontWeight: '700' },
+  registerText: { color: Colors.amber, fontSize: 13, fontWeight: '800' },
+  registerWordmark: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  registerLogoText: { color: Colors.text, fontSize: 13, fontWeight: '900' },
+  registerLetterI: {
+    width: 6,
+    height: 14,
+    marginLeft: 1,
+    marginBottom: 3,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  registerDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 999,
+    backgroundColor: Colors.primary,
+    marginBottom: 2,
+  },
+  registerStem: {
+    width: 2.5,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: Colors.text,
+  },
+  registerProText: { color: Colors.text, fontSize: 13, fontWeight: '900' }
 });

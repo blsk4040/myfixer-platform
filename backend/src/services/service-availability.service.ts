@@ -1,10 +1,54 @@
 import { CountryCode, MARKET_CONFIG, normalizeCountryCode } from '../config/market.config';
 import MarketSetting, { MarketStatus } from '../models/market-setting.model';
+import ServiceCatalog, { ServicePublicationStatus } from '../models/service-catalog.model';
 
 export interface ServiceDefinition {
   serviceKey: string;
+  categoryKey?: string;
+  groupKey?: string;
+  groupLabel?: string;
+  groupDescription?: string;
+  groupImageKey?: string;
+  groupImageUrl?: string;
+  groupIconKey?: string;
+  groupStatus?: string;
+  groupDisplayOrder?: number;
   label: string;
   status: MarketStatus;
+  description?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  iconKey?: string;
+  searchKeywords?: string[];
+  synonyms?: string[];
+  calloutFeeMinor?: number;
+  minimumChargeMinor?: number;
+  fixedPriceSupported?: boolean;
+  requiresCapabilityApproval?: boolean;
+  capabilityRequirements?: Record<string, unknown>;
+  displayOrder?: number;
+  subcategories?: Array<{
+    subcategoryKey: string;
+    serviceKey?: string;
+    label: string;
+    description?: string;
+    status: MarketStatus;
+    publicationStatus?: string;
+    displayOrder?: number;
+    imageKey?: string;
+    imageUrl?: string;
+    searchKeywords?: string[];
+    synonyms?: string[];
+    estimatedDurationMinutes?: number;
+    inspectionRequired?: boolean;
+    fixedPriceSupported?: boolean;
+    requiresCapabilityApproval?: boolean;
+    capabilityRequirements?: Record<string, unknown>;
+    calloutFeeMinor?: number;
+    minimumChargeMinor?: number;
+    pricingSource?: string;
+  }>;
+  pricingSource?: string;
 }
 
 export interface AreaAvailability {
@@ -26,24 +70,154 @@ export interface AvailabilityResult {
   currency: string;
   city: string;
   area: string;
+  market: {
+    countryCode: string;
+    countryName: string;
+    currency: string;
+    city: string;
+    area: string;
+  };
+  groups: ServiceGroupAvailability[];
   services: Array<ServiceDefinition & {
     canBook: boolean;
     message: string;
+    calloutFeeMinor?: number;
+    pricingSource?: string;
   }>;
 }
 
+export interface BookableServiceAvailability {
+  serviceKey: string;
+  legacySubcategoryKey?: string;
+  categoryKey: string;
+  groupKey: string;
+  label: string;
+  description?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  status: MarketStatus;
+  canBook: boolean;
+  message: string;
+  calloutFeeMinor?: number;
+  minimumChargeMinor?: number;
+  estimatedDurationMinutes?: number;
+  inspectionRequired?: boolean;
+  fixedPriceSupported?: boolean;
+  requiresCapabilityApproval?: boolean;
+  capabilityRequirements?: Record<string, unknown>;
+  searchKeywords?: string[];
+  synonyms?: string[];
+  displayOrder?: number;
+  pricingSource?: string;
+}
+
+export interface ServiceCategoryAvailability {
+  categoryKey: string;
+  legacyServiceKey: string;
+  groupKey: string;
+  label: string;
+  description?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  iconKey?: string;
+  status: MarketStatus;
+  displayOrder?: number;
+  searchKeywords?: string[];
+  synonyms?: string[];
+  services: BookableServiceAvailability[];
+}
+
+export interface ServiceGroupAvailability {
+  groupKey: string;
+  label: string;
+  description?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  iconKey?: string;
+  status: string;
+  displayOrder?: number;
+  categories: ServiceCategoryAvailability[];
+}
+
 export const DEFAULT_SERVICE_DEFINITIONS: ServiceDefinition[] = [
-  { serviceKey: 'appliance_repair', label: 'Appliance Repair', status: MarketStatus.ACTIVE },
-  { serviceKey: 'plumbing', label: 'Plumbing', status: MarketStatus.ACTIVE },
-  { serviceKey: 'electrical', label: 'Electrical', status: MarketStatus.ACTIVE },
-  { serviceKey: 'cleaning', label: 'Cleaning', status: MarketStatus.ACTIVE },
-  { serviceKey: 'painting', label: 'Painting', status: MarketStatus.ACTIVE },
-  { serviceKey: 'gardening', label: 'Gardening', status: MarketStatus.ACTIVE },
-  { serviceKey: 'maintenance', label: 'Maintenance', status: MarketStatus.ACTIVE },
+  { serviceKey: 'appliance_repair', categoryKey: 'appliance_repair', groupKey: 'home_services', groupLabel: 'Home Services', label: 'Appliance Repair', status: MarketStatus.ACTIVE, displayOrder: 10 },
+  { serviceKey: 'cleaning', categoryKey: 'cleaning', groupKey: 'home_services', groupLabel: 'Home Services', label: 'Cleaning Service', status: MarketStatus.ACTIVE, displayOrder: 20 },
+  { serviceKey: 'electrical', categoryKey: 'electrical', groupKey: 'home_services', groupLabel: 'Home Services', label: 'Electrical Repair', status: MarketStatus.ACTIVE, displayOrder: 30 },
+  { serviceKey: 'gardening', categoryKey: 'gardening', groupKey: 'home_services', groupLabel: 'Home Services', label: 'Gardening Service', status: MarketStatus.ACTIVE, displayOrder: 40 },
+  { serviceKey: 'maintenance', categoryKey: 'maintenance', groupKey: 'home_services', groupLabel: 'Home Services', label: 'Maintenance Service', status: MarketStatus.ACTIVE, displayOrder: 50 },
+  { serviceKey: 'painting', categoryKey: 'painting', groupKey: 'home_services', groupLabel: 'Home Services', label: 'Painting Service', status: MarketStatus.ACTIVE, displayOrder: 60 },
+  { serviceKey: 'plumbing', categoryKey: 'plumbing', groupKey: 'home_services', groupLabel: 'Home Services', label: 'Plumbing', status: MarketStatus.ACTIVE, displayOrder: 70 },
   { serviceKey: 'automotive', label: 'Automotive', status: MarketStatus.ACTIVE },
   { serviceKey: 'managed_collection', label: 'Managed Collection Services', status: MarketStatus.DISABLED },
   { serviceKey: 'rental_property', label: 'Rental Property Listings', status: MarketStatus.DISABLED },
 ];
+
+const PUBLIC_SERVICE_FIELDS = 'serviceKey categoryKey groupKey groupLabel groupDescription groupImageKey groupImageUrl groupIconKey groupStatus groupDisplayOrder label description imageKey imageUrl iconKey searchKeywords synonyms status displayOrder defaultCalloutFeeMinor minimumChargeMinor fixedPriceSupported requiresCapabilityApproval capabilityRequirements subcategories';
+
+const publishedCatalogue = async (): Promise<Map<string, ServiceDefinition>> => {
+  const services = await ServiceCatalog.find({ status: ServicePublicationStatus.PUBLISHED })
+    .select(PUBLIC_SERVICE_FIELDS)
+    .lean();
+
+  return new Map(
+    services.map((service) => [
+      service.serviceKey,
+      {
+        serviceKey: service.serviceKey,
+        categoryKey: service.categoryKey || service.serviceKey,
+        groupKey: service.groupKey || groupKeyForService(service.serviceKey),
+        groupLabel: service.groupLabel || groupLabelForKey(service.groupKey || groupKeyForService(service.serviceKey)),
+        groupDescription: service.groupDescription,
+        groupImageKey: service.groupImageKey,
+        groupImageUrl: service.groupImageUrl,
+        groupIconKey: service.groupIconKey,
+        groupStatus: service.groupStatus,
+        groupDisplayOrder: service.groupDisplayOrder,
+        label: service.label,
+        description: service.description,
+        imageKey: service.imageKey,
+        imageUrl: service.imageUrl,
+        iconKey: service.iconKey,
+        searchKeywords: service.searchKeywords,
+        synonyms: service.synonyms,
+        status: MarketStatus.ACTIVE,
+        displayOrder: service.displayOrder,
+        calloutFeeMinor: service.defaultCalloutFeeMinor,
+        minimumChargeMinor: service.minimumChargeMinor,
+        fixedPriceSupported: service.fixedPriceSupported,
+        requiresCapabilityApproval: service.requiresCapabilityApproval,
+        capabilityRequirements: service.capabilityRequirements,
+        subcategories: (service.subcategories || [])
+          .filter((subcategory) =>
+            subcategory.status !== MarketStatus.ARCHIVED &&
+            subcategory.status !== MarketStatus.DISABLED &&
+            (!subcategory.publicationStatus || subcategory.publicationStatus === ServicePublicationStatus.PUBLISHED)
+          )
+          .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+          .map((subcategory) => ({
+            subcategoryKey: subcategory.subcategoryKey,
+            serviceKey: subcategory.serviceKey || subcategory.subcategoryKey,
+            label: subcategory.label,
+            description: subcategory.description,
+            status: subcategory.status,
+            publicationStatus: subcategory.publicationStatus,
+            imageKey: subcategory.imageKey,
+            imageUrl: subcategory.imageUrl,
+            searchKeywords: subcategory.searchKeywords,
+            synonyms: subcategory.synonyms,
+            displayOrder: subcategory.displayOrder,
+            estimatedDurationMinutes: subcategory.estimatedDurationMinutes,
+            inspectionRequired: subcategory.inspectionRequired,
+            fixedPriceSupported: subcategory.fixedPriceSupported,
+            requiresCapabilityApproval: subcategory.requiresCapabilityApproval,
+            capabilityRequirements: subcategory.capabilityRequirements,
+            calloutFeeMinor: subcategory.calloutFeeMinor,
+            minimumChargeMinor: subcategory.minimumChargeMinor,
+          })),
+      },
+    ])
+  );
+};
 
 const SERVICE_ALIASES: Record<string, string> = {
   appliances: 'appliance_repair',
@@ -53,13 +227,18 @@ const SERVICE_ALIASES: Record<string, string> = {
   automotive: 'automotive',
   painter: 'painting',
   painting: 'painting',
+  'painting service': 'painting',
   plumber: 'plumbing',
   plumbing: 'plumbing',
   electrician: 'electrical',
   electrical: 'electrical',
+  'electrical repair': 'electrical',
   cleaning: 'cleaning',
+  'cleaning service': 'cleaning',
   gardening: 'gardening',
+  'gardening service': 'gardening',
   maintenance: 'maintenance',
+  'maintenance service': 'maintenance',
   garbage_collection: 'managed_collection',
   'garbage collection': 'managed_collection',
   'managed collection': 'managed_collection',
@@ -79,11 +258,31 @@ const SERVICE_ALIASES: Record<string, string> = {
   'long term rentals': 'rental_property',
 };
 
+const groupKeyForService = (serviceKey: string): string => {
+  if (serviceKey === 'automotive') return 'auto_services';
+  if (serviceKey === 'rental_property') return 'rental_services';
+  if (serviceKey === 'managed_collection') return 'property_services';
+  return 'home_services';
+};
+
+const groupLabelForKey = (groupKey: string): string => {
+  const labels: Record<string, string> = {
+    home_services: 'Home Services',
+    auto_services: 'Auto Services',
+    business_services: 'Business Services',
+    rental_services: 'Rental Services',
+    property_services: 'Property Services',
+  };
+  return labels[groupKey] ?? labelFromServiceKey(groupKey);
+};
+
 const statusPriority: Record<MarketStatus, number> = {
+  [MarketStatus.DRAFT]: 0,
   [MarketStatus.ACTIVE]: 4,
   [MarketStatus.COMING_SOON]: 3,
   [MarketStatus.PAUSED]: 2,
   [MarketStatus.DISABLED]: 1,
+  [MarketStatus.ARCHIVED]: 0,
 };
 
 export const normalizeText = (value: unknown): string =>
@@ -102,6 +301,50 @@ export const labelFromServiceKey = (serviceKey: string): string =>
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+
+const enrichServiceEntries = (
+  entries: ServiceDefinition[],
+  catalogue: Map<string, ServiceDefinition>
+): ServiceDefinition[] => {
+  const enriched: ServiceDefinition[] = [];
+  entries.forEach((entry) => {
+      const catalogued = catalogue.get(entry.serviceKey);
+      if (!catalogued) return;
+      enriched.push({
+        ...catalogued,
+        ...entry,
+        categoryKey: entry.categoryKey || catalogued.categoryKey || entry.serviceKey,
+        groupKey: entry.groupKey || catalogued.groupKey || groupKeyForService(entry.serviceKey),
+        groupLabel: entry.groupLabel || catalogued.groupLabel || groupLabelForKey(entry.groupKey || catalogued.groupKey || groupKeyForService(entry.serviceKey)),
+        groupDescription: entry.groupDescription || catalogued.groupDescription,
+        groupImageKey: entry.groupImageKey || catalogued.groupImageKey,
+        groupImageUrl: entry.groupImageUrl || catalogued.groupImageUrl,
+        groupIconKey: entry.groupIconKey || catalogued.groupIconKey,
+        groupStatus: entry.groupStatus || catalogued.groupStatus,
+        groupDisplayOrder: entry.groupDisplayOrder ?? catalogued.groupDisplayOrder,
+        label: entry.label || catalogued.label,
+        description: entry.description || catalogued.description,
+        imageKey: entry.imageKey || catalogued.imageKey,
+        imageUrl: entry.imageUrl || catalogued.imageUrl,
+        iconKey: entry.iconKey || catalogued.iconKey,
+        searchKeywords: entry.searchKeywords?.length ? entry.searchKeywords : catalogued.searchKeywords,
+        synonyms: entry.synonyms?.length ? entry.synonyms : catalogued.synonyms,
+        calloutFeeMinor: entry.calloutFeeMinor ?? catalogued.calloutFeeMinor,
+        minimumChargeMinor: entry.minimumChargeMinor ?? catalogued.minimumChargeMinor,
+        fixedPriceSupported: entry.fixedPriceSupported ?? catalogued.fixedPriceSupported,
+        requiresCapabilityApproval: entry.requiresCapabilityApproval ?? catalogued.requiresCapabilityApproval,
+        capabilityRequirements: entry.capabilityRequirements ?? catalogued.capabilityRequirements,
+        displayOrder: entry.displayOrder ?? catalogued.displayOrder,
+        subcategories: mergeSubcategories(catalogued.subcategories || [], entry.subcategories || []),
+      });
+    });
+  return enriched;
+};
+
+const publicCatalogueDefaults = (catalogue: Map<string, ServiceDefinition>): ServiceDefinition[] =>
+  Array.from(catalogue.values()).filter((service) =>
+    (service.subcategories || []).length > 0 || typeof service.calloutFeeMinor === 'number'
+  );
 
 export const isMarketStatus = (value: unknown): value is MarketStatus =>
   typeof value === 'string' && Object.values(MarketStatus).includes(value as MarketStatus);
@@ -122,6 +365,52 @@ export const normalizeServiceEntry = (entry: unknown): ServiceDefinition | null 
     serviceKey,
     label: normalizeText(record.label) || labelFromServiceKey(serviceKey),
     status: isMarketStatus(record.status) ? record.status : MarketStatus.ACTIVE,
+    calloutFeeMinor: typeof record.calloutFeeMinor === 'number'
+      ? record.calloutFeeMinor
+      : typeof record.calloutFee === 'number'
+        ? Math.round(record.calloutFee * 100)
+        : undefined,
+    imageKey: normalizeText(record.imageKey),
+    imageUrl: normalizeText(record.imageUrl),
+    description: normalizeText(record.description),
+    minimumChargeMinor: typeof record.minimumChargeMinor === 'number' ? record.minimumChargeMinor : undefined,
+    fixedPriceSupported: record.fixedPriceSupported === true,
+    displayOrder: Number.isFinite(Number(record.displayOrder)) ? Number(record.displayOrder) : undefined,
+    subcategories: Array.isArray(record.subcategories)
+      ? record.subcategories
+          .map((subcategory): NonNullable<ServiceDefinition['subcategories']>[number] | null => {
+            if (!subcategory || typeof subcategory !== 'object') return null;
+            const subRecord = subcategory as Record<string, unknown>;
+            const subcategoryKey = normalizeServiceKey(subRecord.subcategoryKey ?? subRecord.key ?? subRecord.label);
+            const serviceKey = normalizeServiceKey(subRecord.serviceKey ?? subRecord.subcategoryKey ?? subRecord.key ?? subRecord.label);
+            const label = normalizeText(subRecord.label);
+            if (!subcategoryKey) return null;
+            return {
+              subcategoryKey,
+              serviceKey,
+              label: label || labelFromServiceKey(subcategoryKey),
+              description: normalizeText(subRecord.description),
+              status: isMarketStatus(subRecord.status) ? subRecord.status : MarketStatus.ACTIVE,
+              publicationStatus: normalizeText(subRecord.publicationStatus),
+              imageKey: normalizeText(subRecord.imageKey),
+              imageUrl: normalizeText(subRecord.imageUrl),
+              estimatedDurationMinutes: Number.isFinite(Number(subRecord.estimatedDurationMinutes)) ? Number(subRecord.estimatedDurationMinutes) : undefined,
+              inspectionRequired: subRecord.inspectionRequired === true,
+              fixedPriceSupported: subRecord.fixedPriceSupported === true,
+              calloutFeeMinor: typeof subRecord.calloutFeeMinor === 'number'
+                ? subRecord.calloutFeeMinor
+                : typeof subRecord.calloutFee === 'number'
+                  ? Math.round(subRecord.calloutFee * 100)
+                  : undefined,
+              minimumChargeMinor: typeof subRecord.minimumChargeMinor === 'number'
+                ? subRecord.minimumChargeMinor
+                : typeof subRecord.minimumCharge === 'number'
+                  ? Math.round(subRecord.minimumCharge * 100)
+                  : undefined,
+            };
+          })
+          .filter((subcategory): subcategory is NonNullable<ServiceDefinition['subcategories']>[number] => Boolean(subcategory))
+      : undefined,
   };
 };
 
@@ -140,6 +429,100 @@ export const normalizeServiceEntries = (entries: unknown, fallbackServices: unkn
   });
 
   return Array.from(map.values());
+};
+
+const buildServiceGroups = (
+  services: AvailabilityResult['services']
+): ServiceGroupAvailability[] => {
+  const groups = new Map<string, ServiceGroupAvailability>();
+
+  services.forEach((service) => {
+    const groupKey = service.groupKey || groupKeyForService(service.serviceKey);
+    const categoryKey = service.categoryKey || service.serviceKey;
+    const groupStatus = service.groupStatus || ServicePublicationStatus.PUBLISHED;
+    const group = groups.get(groupKey) ?? {
+      groupKey,
+      label: service.groupLabel || groupLabelForKey(groupKey),
+      description: service.groupDescription || '',
+      imageKey: service.groupImageKey || '',
+      imageUrl: service.groupImageUrl || '',
+      iconKey: service.groupIconKey || '',
+      status: groupStatus,
+      displayOrder: service.groupDisplayOrder ?? 0,
+      categories: [],
+    };
+
+    const bookableServices: BookableServiceAvailability[] = (service.subcategories?.length
+      ? service.subcategories.map((subcategory) => ({
+          serviceKey: subcategory.serviceKey || subcategory.subcategoryKey,
+          legacySubcategoryKey: subcategory.subcategoryKey,
+          categoryKey,
+          groupKey,
+          label: subcategory.label,
+          description: subcategory.description || '',
+          imageKey: subcategory.imageKey || service.imageKey,
+          imageUrl: subcategory.imageUrl || service.imageUrl,
+          status: subcategory.status,
+          canBook: service.canBook && subcategory.status === MarketStatus.ACTIVE && typeof subcategory.calloutFeeMinor === 'number',
+          message: subcategory.status === MarketStatus.ACTIVE ? service.message : statusMessage(subcategory.label, subcategory.status),
+          calloutFeeMinor: subcategory.calloutFeeMinor,
+          minimumChargeMinor: subcategory.minimumChargeMinor ?? service.minimumChargeMinor,
+          estimatedDurationMinutes: subcategory.estimatedDurationMinutes,
+          inspectionRequired: subcategory.inspectionRequired,
+          fixedPriceSupported: subcategory.fixedPriceSupported ?? service.fixedPriceSupported,
+          requiresCapabilityApproval: subcategory.requiresCapabilityApproval ?? service.requiresCapabilityApproval,
+          capabilityRequirements: subcategory.capabilityRequirements ?? service.capabilityRequirements,
+          searchKeywords: subcategory.searchKeywords || [],
+          synonyms: subcategory.synonyms || [],
+          displayOrder: subcategory.displayOrder,
+          pricingSource: subcategory.pricingSource,
+        }))
+      : [{
+          serviceKey: service.serviceKey,
+          categoryKey,
+          groupKey,
+          label: service.label,
+          description: service.description || '',
+          imageKey: service.imageKey,
+          imageUrl: service.imageUrl,
+          status: service.status,
+          canBook: service.canBook,
+          message: service.message,
+          calloutFeeMinor: service.calloutFeeMinor,
+          minimumChargeMinor: service.minimumChargeMinor,
+          fixedPriceSupported: service.fixedPriceSupported,
+          requiresCapabilityApproval: service.requiresCapabilityApproval,
+          capabilityRequirements: service.capabilityRequirements,
+          searchKeywords: service.searchKeywords || [],
+          synonyms: service.synonyms || [],
+          displayOrder: service.displayOrder,
+          pricingSource: service.pricingSource,
+        }]).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    group.categories.push({
+      categoryKey,
+      legacyServiceKey: service.serviceKey,
+      groupKey,
+      label: service.label,
+      description: service.description || '',
+      imageKey: service.imageKey,
+      imageUrl: service.imageUrl,
+      iconKey: service.iconKey,
+      status: service.status,
+      displayOrder: service.displayOrder,
+      searchKeywords: service.searchKeywords || [],
+      synonyms: service.synonyms || [],
+      services: bookableServices,
+    });
+
+    groups.set(groupKey, group);
+  });
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      categories: group.categories.sort((a, b) => a.label.localeCompare(b.label)),
+    }))
+    .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 };
 
 export const normalizeAreaEntries = (entries: unknown): AreaAvailability[] => {
@@ -188,9 +571,40 @@ const mergeServiceStatus = (
   overrideServices: ServiceDefinition[]
 ): ServiceDefinition[] => {
   const map = new Map(baseServices.map((service) => [service.serviceKey, service]));
-  overrideServices.forEach((service) => map.set(service.serviceKey, { ...map.get(service.serviceKey), ...service }));
+  overrideServices.forEach((service) => {
+    const existing = map.get(service.serviceKey);
+    map.set(service.serviceKey, {
+      ...existing,
+      ...service,
+      subcategories: mergeSubcategories(existing?.subcategories || [], service.subcategories || []),
+    });
+  });
   return Array.from(map.values());
 };
+
+const mergeSubcategories = (
+  base: NonNullable<ServiceDefinition['subcategories']>,
+  overrides: NonNullable<ServiceDefinition['subcategories']>
+) => {
+  const map = new Map(base.map((subcategory) => [subcategory.subcategoryKey, subcategory]));
+  overrides.forEach((subcategory) => {
+    map.set(subcategory.subcategoryKey, { ...map.get(subcategory.subcategoryKey), ...subcategory });
+  });
+  return Array.from(map.values());
+};
+
+const serviceOverride = (services: ServiceDefinition[], serviceKey: string): ServiceDefinition | undefined =>
+  services.find((service) => service.serviceKey === serviceKey);
+
+const subcategoryOverride = (service: ServiceDefinition | undefined, subcategoryKey: string) =>
+  service?.subcategories?.find((subcategory) => subcategory.subcategoryKey === subcategoryKey);
+
+const firstNumber = (...values: unknown[]): number | undefined =>
+  values.find((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+
+const pricingSourceFor = (
+  values: Array<{ value: unknown; source: string }>
+): string => values.find((entry) => typeof entry.value === 'number' && Number.isFinite(entry.value) && entry.value >= 0)?.source ?? 'UNRESOLVED';
 
 export const getMarketAvailability = async (
   countryInput: unknown,
@@ -200,6 +614,7 @@ export const getMarketAvailability = async (
   const countryCode = normalizeCountryCode(countryInput);
   const baseMarket = MARKET_CONFIG[countryCode as CountryCode];
   const setting = await MarketSetting.findOne({ 'identity.countryCode': countryCode }).lean();
+  const catalogue = await publishedCatalogue();
   const coverage = (setting?.coverage || {}) as {
     serviceCategories?: unknown[];
     cityServiceAvailability?: unknown[];
@@ -209,11 +624,14 @@ export const getMarketAvailability = async (
     currency?: string;
     status?: MarketStatus;
   };
+  const defaultCalloutFeeMinor = typeof setting?.pricing?.defaultCalloutFeeMinor === 'number'
+    ? setting.pricing.defaultCalloutFeeMinor
+    : undefined;
   const city = normalizeText(cityInput);
   const area = normalizeText(areaInput);
   const fallbackServices = normalizeServiceEntries(
     coverage.serviceCategories,
-    DEFAULT_SERVICE_DEFINITIONS
+    []
   );
   const cityRows = Array.isArray(coverage.cityServiceAvailability)
     ? coverage.cityServiceAvailability
@@ -224,34 +642,69 @@ export const getMarketAvailability = async (
     ? cityRows.find((row: CityAvailability) => row.city.toLowerCase() === city.toLowerCase())
     : null;
 
-  const countryStatus = marketIdentity.status || (baseMarket?.enabled ? MarketStatus.ACTIVE : MarketStatus.DISABLED);
+  const countryStatus = setting?.deletionLock?.locked
+    ? MarketStatus.DISABLED
+    : marketIdentity.status || MarketStatus.DISABLED;
   const cityStatus = cityMatch?.status || (cityRows.length ? MarketStatus.DISABLED : countryStatus);
-  const areaMatch = area && cityMatch?.areas?.length
-    ? cityMatch.areas.find((row: AreaAvailability) => row.name.toLowerCase() === area.toLowerCase())
-    : null;
-  const areaStatus = areaMatch?.status || cityStatus;
+  const catalogueServices = publicCatalogueDefaults(catalogue);
+  const marketServices = fallbackServices;
+  let services = mergeServiceStatus(catalogueServices, marketServices);
+  services = enrichServiceEntries(services, catalogue);
+  services.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 
-  let services = cityMatch?.services?.length ? cityMatch.services : fallbackServices;
-  if (areaMatch?.services?.length) services = mergeServiceStatus(services, areaMatch.services);
-  if (!services.length) services = DEFAULT_SERVICE_DEFINITIONS;
-
-  const effectiveLocationStatus = countryStatus === MarketStatus.ACTIVE ? areaStatus : countryStatus;
+  const effectiveLocationStatus = countryStatus === MarketStatus.ACTIVE ? cityStatus : countryStatus;
   const formattedServices = services.map((service: ServiceDefinition) => {
     const effectiveStatus = effectiveLocationStatus === MarketStatus.ACTIVE ? service.status : effectiveLocationStatus;
+    const catalogued = catalogue.get(service.serviceKey);
+    const marketOverride = serviceOverride(marketServices, service.serviceKey);
+    const serviceCalloutFeeMinor = firstNumber(
+      marketOverride?.calloutFeeMinor,
+      catalogued?.calloutFeeMinor,
+      defaultCalloutFeeMinor
+    );
+    const pricingSource =
+      marketOverride?.calloutFeeMinor !== undefined ? 'MARKET_SERVICE_OVERRIDE' :
+      catalogued?.calloutFeeMinor !== undefined ? 'CATALOGUE_SERVICE_DEFAULT' :
+      defaultCalloutFeeMinor !== undefined ? 'MARKET_DEFAULT_CALLOUT' :
+      'UNRESOLVED';
     return {
       ...service,
+      subcategories: (service.subcategories || []).map((subcategory) => {
+        const marketSubcategory = subcategoryOverride(marketOverride, subcategory.subcategoryKey);
+        const pricingCandidates = [
+          { value: marketSubcategory?.calloutFeeMinor, source: 'MARKET_SUBCATEGORY_OVERRIDE' },
+          { value: subcategory.calloutFeeMinor, source: 'CATALOGUE_SUBCATEGORY_DEFAULT' },
+          { value: marketOverride?.calloutFeeMinor, source: 'MARKET_SERVICE_OVERRIDE' },
+          { value: catalogued?.calloutFeeMinor, source: 'CATALOGUE_SERVICE_DEFAULT' },
+          { value: defaultCalloutFeeMinor, source: 'MARKET_DEFAULT_CALLOUT' },
+        ];
+        return {
+          ...subcategory,
+          status: effectiveStatus === MarketStatus.ACTIVE ? subcategory.status : effectiveStatus,
+          calloutFeeMinor: firstNumber(...pricingCandidates.map((entry) => entry.value)),
+          pricingSource: pricingSourceFor(pricingCandidates),
+        };
+      }),
       status: effectiveStatus,
-      canBook: effectiveStatus === MarketStatus.ACTIVE,
+      canBook: effectiveStatus === MarketStatus.ACTIVE && serviceCalloutFeeMinor !== undefined,
       message: statusMessage(service.label, effectiveStatus, city, area),
+      calloutFeeMinor: serviceCalloutFeeMinor,
+      pricingSource,
     };
   });
 
-  return {
+  const market = {
     countryCode,
     countryName: marketIdentity.countryName || baseMarket?.countryName || countryCode,
-    currency: marketIdentity.currency || baseMarket?.currency || 'ZAR',
+    currency: marketIdentity.currency || baseMarket?.currency || '',
     city,
     area,
+  };
+
+  return {
+    ...market,
+    market,
+    groups: buildServiceGroups(formattedServices),
     services: formattedServices,
   };
 };
@@ -261,15 +714,42 @@ export const validateServiceBookable = async (input: {
   city?: unknown;
   area?: unknown;
   serviceKey?: unknown;
+  subcategoryKey?: unknown;
 }): Promise<{ allowed: boolean; message?: string; service?: AvailabilityResult['services'][number] }> => {
   const availability = await getMarketAvailability(input.countryCode, input.city, input.area);
   const serviceKey = normalizeServiceKey(input.serviceKey);
+  const subcategoryKey = normalizeServiceKey(input.subcategoryKey);
   if (!serviceKey) {
     return { allowed: false, message: 'Please choose a valid service before booking.' };
   }
 
   const service = availability.services.find((item) => item.serviceKey === serviceKey);
   if (!service) {
+    const parentWithBookable = availability.services.find((item) =>
+      item.subcategories?.some((subcategory) =>
+        (subcategory.serviceKey || subcategory.subcategoryKey) === serviceKey
+      )
+    );
+    const bookable = parentWithBookable?.subcategories?.find((subcategory) =>
+      (subcategory.serviceKey || subcategory.subcategoryKey) === serviceKey
+    );
+    if (parentWithBookable && bookable) {
+      if (!parentWithBookable.canBook || bookable.status !== MarketStatus.ACTIVE || typeof bookable.calloutFeeMinor !== 'number') {
+        return {
+          allowed: false,
+          message: `${bookable.label} is not currently bookable in this location.`,
+          service: parentWithBookable,
+        };
+      }
+      return {
+        allowed: true,
+        service: {
+          ...parentWithBookable,
+          calloutFeeMinor: bookable.calloutFeeMinor,
+          pricingSource: bookable.pricingSource || 'SUBCATEGORY_RESOLVED_CALLOUT',
+        },
+      };
+    }
     return {
       allowed: false,
       message: `${labelFromServiceKey(serviceKey)} is not available in this location.`,
@@ -278,6 +758,24 @@ export const validateServiceBookable = async (input: {
 
   if (!service.canBook) {
     return { allowed: false, message: service.message || `${service.label} is not available in this location.`, service };
+  }
+
+  if (subcategoryKey) {
+    const subcategory = service.subcategories?.find((item) => item.subcategoryKey === subcategoryKey);
+    if (!subcategory) {
+      return { allowed: false, message: 'This subcategory is not available for the selected service.', service };
+    }
+    if (subcategory.status !== MarketStatus.ACTIVE || typeof subcategory.calloutFeeMinor !== 'number') {
+      return { allowed: false, message: `${subcategory.label} is not currently bookable.`, service };
+    }
+    return {
+      allowed: true,
+      service: {
+        ...service,
+        calloutFeeMinor: subcategory.calloutFeeMinor,
+        pricingSource: subcategory.pricingSource || 'SUBCATEGORY_RESOLVED_CALLOUT',
+      },
+    };
   }
 
   return { allowed: true, service };

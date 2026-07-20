@@ -1,6 +1,5 @@
 import mongoose from 'mongoose';
-import { CountryCode, CurrencyCode, getMarketByCountry } from '../config/market.config';
-import { assertPayoutMethodSupported } from '../config/payment-capabilities.config';
+import { IsoCountryCode, IsoCurrencyCode } from '../config/market.config';
 import ProviderPayoutMethod, {
   IProviderPayoutMethod,
   ProviderPayoutMethodStatus,
@@ -10,6 +9,7 @@ import ProviderPayoutMethod, {
 import TechnicianModel, { TechnicianApprovalStatus } from '../models/technician.model';
 import { PaystackService } from './paystack.service';
 import { encryptPayoutValue, maskAccountNumber, maskPhoneNumber } from './payout-data-crypto.service';
+import { assertMarketAllowsNewPayout } from './market-finance-guard.service';
 
 export class PayoutMethodError extends Error {
   constructor(message: string, public readonly code: string, public readonly statusCode = 400) {
@@ -32,16 +32,12 @@ const ensureTechnicianApproved = async (technicianId: string) => {
 
 const ensurePayoutCountryMatchesTechnician = (
   profile: Awaited<ReturnType<typeof ensureTechnicianApproved>>,
-  countryCode: CountryCode,
-  currency: CurrencyCode
+  countryCode: IsoCountryCode,
+  currency: IsoCurrencyCode
 ) => {
   const technicianCountryCode = profile.countryCode;
-  const technicianMarket = getMarketByCountry(technicianCountryCode);
   if (countryCode !== technicianCountryCode) {
     throw new PayoutMethodError('Payout country must match your registered technician country.', 'PAYOUT_COUNTRY_MISMATCH', 403);
-  }
-  if (currency !== technicianMarket.currency) {
-    throw new PayoutMethodError('Payout currency must match your registered technician country.', 'PAYOUT_CURRENCY_MISMATCH', 403);
   }
 };
 
@@ -90,8 +86,8 @@ const setDefaultIfNeeded = async (method: IProviderPayoutMethod, makeDefault: bo
 export const createBankPayoutMethod = async (
   technicianId: string,
   input: {
-    countryCode: CountryCode;
-    currency: CurrencyCode;
+    countryCode: IsoCountryCode;
+    currency: IsoCurrencyCode;
     accountHolderName: string;
     bankName: string;
     bankCode: string;
@@ -102,7 +98,7 @@ export const createBankPayoutMethod = async (
   if (!mongoose.Types.ObjectId.isValid(technicianId)) throw new PayoutMethodError('Invalid technician id.', 'INVALID_TECHNICIAN_ID');
   const profile = await ensureTechnicianApproved(technicianId);
   ensurePayoutCountryMatchesTechnician(profile, input.countryCode, input.currency);
-  assertPayoutMethodSupported(input.countryCode, input.currency, ProviderPayoutMethodType.BANK_ACCOUNT);
+  await assertMarketAllowsNewPayout(input.countryCode, input.currency, ProviderPayoutProvider.PAYSTACK, ProviderPayoutMethodType.BANK_ACCOUNT);
 
   const accountHolderName = input.accountHolderName.trim();
   const accountNumber = input.accountNumber.replace(/\s+/g, '');
@@ -154,8 +150,8 @@ export const createBankPayoutMethod = async (
 export const createMobileMoneyPayoutMethod = async (
   technicianId: string,
   input: {
-    countryCode: CountryCode;
-    currency: CurrencyCode;
+    countryCode: IsoCountryCode;
+    currency: IsoCurrencyCode;
     operatorCode: string;
     phoneNumber: string;
     accountName?: string;
@@ -164,7 +160,7 @@ export const createMobileMoneyPayoutMethod = async (
 ) => {
   const profile = await ensureTechnicianApproved(technicianId);
   ensurePayoutCountryMatchesTechnician(profile, input.countryCode, input.currency);
-  assertPayoutMethodSupported(input.countryCode, input.currency, ProviderPayoutMethodType.MOBILE_MONEY);
+  await assertMarketAllowsNewPayout(input.countryCode, input.currency, ProviderPayoutProvider.PAYSTACK, ProviderPayoutMethodType.MOBILE_MONEY);
   const operatorCode = input.operatorCode.trim();
   const phoneNumber = input.phoneNumber.trim();
   const accountName = (input.accountName || 'Mobile money recipient').trim();

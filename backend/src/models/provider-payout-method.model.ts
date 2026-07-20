@@ -21,8 +21,8 @@ export interface IProviderPayoutMethod extends Document {
   technicianId: mongoose.Types.ObjectId;
   type: ProviderPayoutMethodType;
   provider: ProviderPayoutProvider;
-  countryCode: CountryCode;
-  currency: CurrencyCode;
+  countryCode: string;
+  currency: string;
   accountHolderName: string;
   bankName?: string;
   bankCode?: string;
@@ -47,8 +47,10 @@ const ProviderPayoutMethodSchema = new Schema<IProviderPayoutMethod>(
     technicianId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     type: { type: String, enum: Object.values(ProviderPayoutMethodType), required: true, index: true },
     provider: { type: String, enum: Object.values(ProviderPayoutProvider), default: ProviderPayoutProvider.PAYSTACK, index: true },
-    countryCode: { type: String, enum: Object.values(CountryCode), required: true, index: true },
-    currency: { type: String, enum: Object.values(CurrencyCode), required: true, index: true },
+    countryCode: { type: String, uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' }, required: true, index: true },
+    currency: { type: String, uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, required: true, index: true },
     accountHolderName: { type: String, required: true, trim: true, maxlength: 120 },
     bankName: { type: String, default: '', trim: true, maxlength: 120 },
     bankCode: { type: String, default: '', trim: true, maxlength: 40 },

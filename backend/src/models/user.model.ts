@@ -27,6 +27,14 @@ export enum AdminPermission {
   TECHNICIANS_READ = 'technicians.read',
   TECHNICIANS_REVIEW = 'technicians.review',
   FINANCE_READ = 'finance.read',
+  PROMOTIONS_READ = 'promotions.read',
+  PROMOTIONS_CREATE = 'promotions.create',
+  PROMOTIONS_UPDATE = 'promotions.update',
+  PROMOTIONS_ACTIVATE = 'promotions.activate',
+  PROMOTIONS_PAUSE = 'promotions.pause',
+  PROMOTIONS_ARCHIVE = 'promotions.archive',
+  PROMOTIONS_PERFORMANCE_READ = 'promotions.performance.read',
+  PROMOTIONS_REDEMPTIONS_READ = 'promotions.redemptions.read',
   CLIENTS_CONTACT_READ = 'clients.contact.read',
   MARKETS_READ = 'markets.read',
   MARKETS_UPDATE = 'markets.update',
@@ -89,7 +97,7 @@ export interface IUserDocument extends Document {
     suburb: string;
     city: string;
     postalCode: string;
-    countryCode: CountryCode;
+    countryCode: string;
     fullAddress: string;
     coordinates?: {
       type: 'Point';
@@ -100,8 +108,8 @@ export interface IUserDocument extends Document {
 
   profileCompleted: boolean;
 
-  countryCode: CountryCode;
-  currency: CurrencyCode;
+  countryCode: string;
+  currency: string;
 
   password: string;
 
@@ -171,8 +179,8 @@ const DefaultServiceAddressSchema = new Schema(
     },
     countryCode: {
       type: String,
-      enum: Object.values(CountryCode),
-      default: CountryCode.ZA,
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
     },
     fullAddress: {
       type: String,
@@ -263,15 +271,17 @@ const UserSchema = new Schema<IUserDocument>(
 
     countryCode: {
       type: String,
-      enum: Object.values(CountryCode),
-      default: CountryCode.ZA,
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
+      required: true,
       index: true,
     },
 
     currency: {
       type: String,
-      enum: Object.values(CurrencyCode),
-      default: CurrencyCode.ZAR,
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
+      required: true,
     },
 
     password: {

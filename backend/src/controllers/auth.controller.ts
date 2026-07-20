@@ -6,15 +6,17 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import User, { AdminRole, normalizeUserRole, UserRole } from '../models/user.model';
 import { getMarketByCountry, normalizeCountryCode } from '../config/market.config';
-import { getCountryPaymentCapabilities } from '../config/payment-capabilities.config';
 import Technician, { TechnicianApprovalStatus, VerificationStatus } from '../models/technician.model';
 import TechnicianCapability, { CapabilityStatus } from '../models/technician-capability.model';
 import TechnicianTelemetry from '../models/technician-telemetry.model';
+import MarketSetting, { MarketStatus } from '../models/market-setting.model';
+import { getMarketPayoutCapabilities } from '../services/market-finance-guard.service';
 import AuditLog from '../models/audit-log.model';
 import { EmailService } from '../services/email/email.service';
 import Booking, { BookingStatus } from '../models/booking.model';
 import { getMarketAvailability, normalizeServiceKey } from '../services/service-availability.service';
 import { uploadImageToCloudinary } from '../services/media-storage.service';
+import { assertActiveMarket } from '../services/market-finance-guard.service';
 
 // --- JWT Helper Generator ---
 const generateToken = (userId: string, role: UserRole, email: string): string => {
@@ -34,6 +36,17 @@ const generateEmailVerificationToken = (): string => crypto.randomBytes(32).toSt
 const getClientBaseUrl = (req: Request): string =>
   (process.env.CLIENT_APP_URL || `${req.protocol}://${req.get('host') || ''}`).replace(/\/$/, '');
 
+const isMarketActiveForOnboarding = async (countryCode: string): Promise<boolean> => {
+  const market = await MarketSetting.findOne({
+    'identity.countryCode': countryCode,
+    'identity.status': MarketStatus.ACTIVE,
+    $or: [{ 'deletionLock.locked': { $ne: true } }, { deletionLock: { $exists: false } }],
+  })
+    .select('_id')
+    .lean();
+  return Boolean(market);
+};
+
 const wantsJsonResponse = (req: Request): boolean =>
   req.method !== 'GET' ||
   req.query.format === 'json' ||
@@ -47,24 +60,34 @@ const escapeHtml = (value: string): string =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 
+const padiWordmarkHtml = `
+  <span class="padi-wordmark" aria-label="Padi">
+    <span>Pad</span><span class="padi-i"><span class="padi-dot"></span><span class="padi-stem"></span></span>
+  </span>
+`;
+
 const renderEmailVerificationPage = (args: {
   status: 'success' | 'error';
   title: string;
   message: string;
   openAppUrl?: string;
+  openAppLabel?: string;
+  returnAppLabel?: string;
   statusCode?: number;
 }): string => {
   const openAppUrl = args.openAppUrl || process.env.CLIENT_APP_DEEP_LINK || 'myfixerclient://email-verified';
   const accent = args.status === 'success' ? '#00FF87' : '#F87171';
   const safeTitle = escapeHtml(args.title);
   const safeMessage = escapeHtml(args.message);
+  const safeOpenAppLabel = escapeHtml(args.openAppLabel || 'Open Padi');
+  const safeReturnAppLabel = escapeHtml(args.returnAppLabel || 'Padi');
 
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${safeTitle} | MyFixer</title>
+  <title>${safeTitle} | Padi</title>
   <style>
     body {
       margin: 0;
@@ -95,6 +118,42 @@ const renderEmailVerificationPage = (args: {
       background: ${accent};
       font-size: 34px;
       font-weight: 900;
+    }
+    .brand {
+      margin: 0 0 18px;
+    }
+    .padi-wordmark {
+      display: inline-flex;
+      align-items: flex-end;
+      justify-content: center;
+      color: #FFFFFF;
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+    .padi-i {
+      display: inline-flex;
+      width: 13px;
+      height: 29px;
+      margin-left: 1px;
+      padding-bottom: 2px;
+      align-items: center;
+      justify-content: flex-end;
+      flex-direction: column;
+    }
+    .padi-dot {
+      width: 6px;
+      height: 6px;
+      margin-bottom: 4px;
+      border-radius: 999px;
+      background: #B8FF3D;
+    }
+    .padi-stem {
+      width: 5px;
+      height: 15px;
+      border-radius: 999px;
+      background: #FFFFFF;
     }
     h1 {
       margin: 0;
@@ -131,10 +190,11 @@ const renderEmailVerificationPage = (args: {
 <body>
   <main>
     <div class="mark">${args.status === 'success' ? '&#10003;' : '!'}</div>
+    <div class="brand">${padiWordmarkHtml}</div>
     <h1>${safeTitle}</h1>
     <p>${safeMessage}</p>
-    <a href="${escapeHtml(openAppUrl)}">Open MyFixer</a>
-    <small>If the app does not open automatically, return to MyFixer and tap "I've verified my email".</small>
+    <a href="${escapeHtml(openAppUrl)}">${safeOpenAppLabel}</a>
+    <small>If the app does not open automatically, return to ${safeReturnAppLabel} and tap "I've verified my email".</small>
   </main>
 </body>
 </html>`;
@@ -287,20 +347,20 @@ const buildSessionUser = (user: any, req?: Request) => ({
   greeting: req ? getLocalizedGreeting(req) : undefined,
 });
 
-const buildSessionTechnician = (technicianProfile: any, user?: any) => {
+const buildSessionTechnician = async (technicianProfile: any, user?: any) => {
   if (!technicianProfile) return undefined;
 
   const countryCode = normalizeCountryCode(technicianProfile.countryCode || user?.countryCode);
-  const market = getMarketByCountry(countryCode);
-  const payoutCapabilities = getCountryPaymentCapabilities(market.countryCode);
+  const market = await assertActiveMarket(countryCode);
+  const payoutCapabilities = await getMarketPayoutCapabilities(market.identity.countryCode);
   const reviewCount = Number(technicianProfile.stats?.reviewCount || 0);
   const averageRating = reviewCount > 0 ? Number(technicianProfile.stats?.averageRating || 0) : null;
 
   return {
     id: technicianProfile._id,
     approvalStatus: technicianProfile.approvalStatus,
-    countryCode: market.countryCode,
-    currency: market.currency,
+    countryCode: market.identity.countryCode,
+    currency: market.identity.currency,
     serviceCategories: technicianProfile.serviceCategories,
     city: technicianProfile.city,
     businessName: technicianProfile.businessName,
@@ -419,6 +479,10 @@ export const updateMyDefaultAddress = async (req: Request, res: Response): Promi
   }
 
   try {
+    if (!(await isMarketActiveForOnboarding(countryCode))) {
+      res.status(409).json({ message: 'MyFixer is not accepting service addresses in this market right now.' });
+      return;
+    }
     const fullAddress = [streetAddress, suburb, city, postalCode].join(', ');
     const defaultServiceAddress: Record<string, unknown> = {
       streetAddress,
@@ -480,7 +544,11 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
     // 2. Prevent Account Duplication
     const normalizedEmail = email.toLowerCase().trim();
     const resolvedCountryCode = normalizeCountryCode(countryCode ?? location.country);
-    const market = getMarketByCountry(resolvedCountryCode);
+    const market = await assertActiveMarket(resolvedCountryCode);
+    if (!(await isMarketActiveForOnboarding(market.identity.countryCode))) {
+      res.status(409).json({ message: 'Paddy is not accepting new registrations in this market right now.' });
+      return;
+    }
     const userExists = await User.findOne({ email: normalizedEmail });
     if (userExists) {
       res.status(409).json({ message: 'An account with this email address already exists.' });
@@ -497,7 +565,7 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
       email: normalizedEmail,
       phone: phone.trim(),
       location: {
-        country: market.countryName,
+        country: market.identity.countryName,
         city: location.city.trim(),
         area: typeof location.area === 'string'
           ? location.area.trim()
@@ -507,8 +575,8 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
               ? location.neighborhood.trim()
               : '',
       },
-      countryCode: market.countryCode,
-      currency: market.currency,
+      countryCode: market.identity.countryCode,
+      currency: market.identity.currency,
       password: hashedPassword,
       role: UserRole.CUSTOMER,
       profileCompleted: true,
@@ -611,7 +679,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
       token,
       user: buildSessionUser(user, req),
       technician: technicianProfile
-        ? buildSessionTechnician(technicianProfile, user)
+        ? await buildSessionTechnician(technicianProfile, user)
         : undefined,
     });
   } catch (error: any) {
@@ -714,7 +782,7 @@ export const verifyEmail = async (req: Request, res: Response): Promise<void> =>
       res.status(400).send(renderEmailVerificationPage({
         status: 'error',
         title: 'Link expired or already used',
-        message: 'This email verification link is invalid or has already been used. Open MyFixer and request a fresh verification email if needed.',
+        message: 'This email verification link is invalid or has already been used. Open Padi and request a fresh verification email if needed.',
       }));
       return;
     }
@@ -728,8 +796,10 @@ export const verifyEmail = async (req: Request, res: Response): Promise<void> =>
       ? process.env.TECHNICIAN_APP_DEEP_LINK || 'myfixertechnician://email-verified'
       : process.env.CLIENT_APP_DEEP_LINK || 'myfixerclient://email-verified';
     const successMessage = verifiedRole === UserRole.TECHNICIAN
-      ? 'Your MyFixer email is verified. You can return to the technician app while your application is reviewed.'
-      : 'Your MyFixer email is verified. You can return to the app and continue booking services.';
+      ? 'Your Padi Pro email is verified. You can return to the technician app while your application is reviewed.'
+      : 'Your Padi email is verified. You can return to the app and continue booking services.';
+    const openAppLabel = verifiedRole === UserRole.TECHNICIAN ? 'Open Padi Pro' : 'Open Padi';
+    const returnAppLabel = verifiedRole === UserRole.TECHNICIAN ? 'Padi Pro' : 'Padi';
 
     if (shouldReturnJson) {
       res.status(200).json({ status: 'success', message: 'Email verified successfully.' });
@@ -741,6 +811,8 @@ export const verifyEmail = async (req: Request, res: Response): Promise<void> =>
       title: 'Email verified',
       message: successMessage,
       openAppUrl,
+      openAppLabel,
+      returnAppLabel,
     }));
   } catch (error) {
     console.error('Email verification failed:', error);
@@ -827,7 +899,7 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
           status: 'email_verification_required',
           token,
           user: sessionUser,
-          technician: buildSessionTechnician(technicianProfile, user),
+          technician: await buildSessionTechnician(technicianProfile, user),
           message: 'Please verify your email before accessing the technician dashboard.',
         });
         return;
@@ -870,7 +942,7 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
       token,
       user: sessionUser,
       technician: technicianProfile
-        ? buildSessionTechnician(technicianProfile, user)
+        ? await buildSessionTechnician(technicianProfile, user)
         : undefined,
     });
   } catch (error) {
@@ -923,7 +995,11 @@ export const completeGoogleClientProfile = async (req: Request, res: Response): 
       return;
     }
 
-    const market = getMarketByCountry(countryCode);
+    const market = await assertActiveMarket(countryCode);
+    if (!(await isMarketActiveForOnboarding(market.identity.countryCode))) {
+      res.status(409).json({ message: 'MyFixer is not accepting new registrations in this market right now.' });
+      return;
+    }
     const existingUser = await User.findOne({ email });
     if (existingUser && normalizeUserRole(existingUser.role) !== UserRole.CUSTOMER) {
       res.status(409).json({ message: 'This Google account is already linked to another MyFixer role.' });
@@ -935,7 +1011,7 @@ export const completeGoogleClientProfile = async (req: Request, res: Response): 
       suburb,
       city,
       postalCode,
-      countryCode: market.countryCode,
+      countryCode: market.identity.countryCode,
       fullAddress,
       updatedAt: new Date(),
     };
@@ -955,13 +1031,13 @@ export const completeGoogleClientProfile = async (req: Request, res: Response): 
           name,
           phone,
           location: {
-            country: market.countryName,
+            country: market.identity.countryName,
             city,
             area,
           },
           defaultServiceAddress,
-          countryCode: market.countryCode,
-          currency: market.currency,
+          countryCode: market.identity.countryCode,
+          currency: market.identity.currency,
           profileCompleted: true,
           emailVerified: existingUser?.emailVerified || false,
           isEmailVerified: existingUser?.isEmailVerified || false,
@@ -1033,7 +1109,7 @@ export const bootstrapAdmin = async (req: Request, res: Response): Promise<void>
     }
 
     const resolvedCountryCode = normalizeCountryCode(countryCode ?? location?.country);
-    const market = getMarketByCountry(resolvedCountryCode);
+    const market = await assertActiveMarket(resolvedCountryCode);
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const admin = await User.create({
@@ -1041,12 +1117,12 @@ export const bootstrapAdmin = async (req: Request, res: Response): Promise<void>
       email: email.toLowerCase().trim(),
       phone: phone.trim(),
       location: {
-        country: market.countryName,
+        country: market.identity.countryName,
         city: location?.city?.trim() || 'Head Office',
         area: typeof location?.area === 'string' ? location.area.trim() : '',
       },
-      countryCode: market.countryCode,
-      currency: market.currency,
+      countryCode: market.identity.countryCode,
+      currency: market.identity.currency,
       password: hashedPassword,
       role: UserRole.ADMIN,
       adminRole: AdminRole.SUPER_ADMIN,
@@ -1251,7 +1327,11 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
     }
 
     const resolvedCountryCode = normalizeCountryCode(countryCode ?? location.country);
-    const market = getMarketByCountry(resolvedCountryCode);
+    const market = await assertActiveMarket(resolvedCountryCode);
+    if (!(await isMarketActiveForOnboarding(market.identity.countryCode))) {
+      res.status(409).json({ message: 'MyFixer is not accepting new technician registrations in this market right now.' });
+      return;
+    }
     const marketAvailability = await getMarketAvailability(resolvedCountryCode, location.city, location.area ?? location.neighbourhood ?? location.neighborhood);
     const bookableServiceKeys = new Set(
       marketAvailability.services
@@ -1274,7 +1354,7 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
       email: normalizedEmail,
       phone: phone.trim(),
       location: {
-        country: market.countryName,
+        country: market.identity.countryName,
         city: location.city.trim(),
         area: typeof location.area === 'string'
           ? location.area.trim()
@@ -1284,8 +1364,8 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
               ? location.neighborhood.trim()
               : '',
       },
-      countryCode: market.countryCode,
-      currency: market.currency,
+      countryCode: market.identity.countryCode,
+      currency: market.identity.currency,
       password: hashedPassword,
       role: UserRole.TECHNICIAN,
       emailVerified: false,
@@ -1304,7 +1384,7 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
     const technician = await Technician.create({
       userId: user._id,
       approvalStatus,
-      countryCode: market.countryCode,
+      countryCode: market.identity.countryCode,
       city: location.city.trim(),
       serviceCategories: availableServiceCategories,
       yearsExperience: Number.isFinite(Number(yearsExperience)) ? Number(yearsExperience) : 0,
@@ -1376,7 +1456,7 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
             greeting: getLocalizedGreeting(req),
           }
         : null,
-      technician: buildSessionTechnician(technician, user),
+      technician: await buildSessionTechnician(technician, user),
       verificationEmailSent,
     });
   } catch (error) {

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "MyFixer Client",
+    "name": "Padi",
     "slug": "myfixer-client",
     "scheme": "myfixerclient",
     "version": "1.0.0",
@@ -15,6 +15,10 @@
         "ACCESS_FINE_LOCATION"
       ]
     },
+    "notification": {
+      "icon": "./src/assets/logo/56 PM.png",
+      "color": "#B8FF3D"
+    },
     "plugins": [
       "expo-web-browser",
       "expo-notifications",
@@ -24,7 +28,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow MyFixer to show your position relative to the dispatch technician on the live map radar."
+          "locationWhenInUsePermission": "Allow Padi to show your position relative to the assigned professional on the live map."
         }
       ]
     ]

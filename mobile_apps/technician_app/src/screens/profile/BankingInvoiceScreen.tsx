@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import apiService, { ProviderPayoutMethodRecord } from '../../services/api.service';
 import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
+import { BRAND } from '../../config/brand';
 
 interface InvoiceItem {
   id: string;
@@ -40,6 +41,25 @@ const countryNames: Record<string, string> = {
 const payoutMethodLabels: Record<PayoutMethodType, string> = {
   BANK_ACCOUNT: 'Bank account',
   MOBILE_MONEY: 'Mobile money',
+};
+
+const Colors = {
+  background: '#0B0B0D',
+  surface: '#17171A',
+  surfaceRaised: '#222226',
+  input: '#1C1C20',
+  border: '#303036',
+  primary: '#B8FF3D',
+  text: '#F7F7F5',
+  textMuted: '#B9B9BF',
+  textSubtle: '#74747C',
+  info: '#56B8FF',
+};
+
+const Radius = {
+  sm: 8,
+  md: 12,
+  lg: 16,
 };
 
 export function BankingInvoiceScreen(): React.JSX.Element {
@@ -161,7 +181,9 @@ export function BankingInvoiceScreen(): React.JSX.Element {
           <Text style={styles.invoiceNumberText}>{item.invoiceNumber}</Text>
           <Text style={styles.invoiceDateText}>{item.date}</Text>
         </View>
-        <Text style={styles.invoiceAmountText}>{formatMoney(item.amount, item.currency)}</Text>
+        <Text style={styles.invoiceAmountText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+          {formatMoney(item.amount, item.currency)}
+        </Text>
       </View>
 
       <Text style={styles.invoiceDescText}>{item.description}</Text>
@@ -198,7 +220,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
         <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
           <Text style={styles.sectionTitle}>Where should we pay you?</Text>
           <Text style={styles.sectionSubtitle}>
-            Add the bank account or mobile wallet MyFixer should use for your payouts.
+            Add the bank account or mobile wallet {BRAND.displayName} should use for your payouts.
           </Text>
 
           <View style={styles.statusCard}>
@@ -232,7 +254,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
             <TextInput
               style={styles.input}
               placeholder="Name on the account"
-              placeholderTextColor="#64748B"
+              placeholderTextColor={Colors.textSubtle}
               value={accountHolder}
               onChangeText={setAccountHolder}
             />
@@ -243,7 +265,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
                 <TextInput
                   style={styles.input}
                   placeholder="M-Pesa, MTN MoMo, Airtel Money"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor={Colors.textSubtle}
                   value={bankName}
                   onChangeText={setBankName}
                 />
@@ -251,7 +273,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
                 <TextInput
                   style={styles.input}
                   placeholder="+254 712 345 678"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor={Colors.textSubtle}
                   keyboardType="phone-pad"
                   value={mobileMoneyNumber}
                   onChangeText={setMobileMoneyNumber}
@@ -263,7 +285,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
                 <TextInput
                   style={styles.input}
                   placeholder={technicianIdentity.countryCode === 'ZA' ? 'Standard Bank, FNB, Capitec' : 'Bank name'}
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor={Colors.textSubtle}
                   value={bankName}
                   onChangeText={setBankName}
                 />
@@ -271,7 +293,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
                 <TextInput
                   style={styles.input}
                   placeholder={technicianIdentity.countryCode === 'ZA' ? '10123456789' : 'Account number'}
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor={Colors.textSubtle}
                   keyboardType="number-pad"
                   value={accountNumber}
                   onChangeText={setAccountNumber}
@@ -280,7 +302,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
                 <TextInput
                   style={styles.input}
                   placeholder={technicianIdentity.countryCode === 'ZA' ? '250655' : 'Bank code'}
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor={Colors.textSubtle}
                   keyboardType="number-pad"
                   value={technicianIdentity.countryCode === 'ZA' ? branchCode : sortCode}
                   onChangeText={technicianIdentity.countryCode === 'ZA' ? setBranchCode : setSortCode}
@@ -302,7 +324,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
             <TextInput
               style={styles.input}
               placeholder="Optional"
-              placeholderTextColor="#64748B"
+              placeholderTextColor={Colors.textSubtle}
               value={businessName}
               onChangeText={setBusinessName}
             />
@@ -310,7 +332,7 @@ export function BankingInvoiceScreen(): React.JSX.Element {
             <TextInput
               style={styles.input}
               placeholder="Optional"
-              placeholderTextColor="#64748B"
+              placeholderTextColor={Colors.textSubtle}
               value={taxNumber}
               onChangeText={setTaxNumber}
             />
@@ -347,45 +369,45 @@ export function BankingInvoiceScreen(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
-  tabHeaderContainer: { flexDirection: 'row', backgroundColor: '#111827', margin: 16, borderRadius: 10, padding: 4, borderWidth: 1, borderColor: '#1E293B' },
-  tabButton: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 8 },
-  activeTabButton: { backgroundColor: '#1E293B' },
-  tabButtonText: { color: '#64748B', fontSize: 14, fontWeight: '700' },
-  activeTabButtonText: { color: '#00FF87' },
+  container: { flex: 1, backgroundColor: Colors.background },
+  tabHeaderContainer: { flexDirection: 'row', backgroundColor: Colors.surface, margin: 16, borderRadius: 10, padding: 4, borderWidth: 1, borderColor: Colors.border },
+  tabButton: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: Radius.sm },
+  activeTabButton: { backgroundColor: Colors.surfaceRaised },
+  tabButtonText: { color: Colors.textSubtle, fontSize: 14, fontWeight: '700' },
+  activeTabButtonText: { color: Colors.primary },
   scrollContainer: { paddingHorizontal: 20, paddingBottom: 40 },
-  sectionTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '900', marginBottom: 6 },
-  sectionSubtitle: { color: '#94A3B8', fontSize: 13, marginBottom: 16, lineHeight: 19 },
-  statusCard: { backgroundColor: '#111827', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 18 },
-  statusTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
-  statusText: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 4 },
+  sectionTitle: { color: Colors.text, fontSize: 18, fontWeight: '900', marginBottom: 6 },
+  sectionSubtitle: { color: Colors.textMuted, fontSize: 13, marginBottom: 16, lineHeight: 19 },
+  statusCard: { backgroundColor: Colors.surface, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: 14, marginBottom: 18 },
+  statusTitle: { color: Colors.text, fontSize: 14, fontWeight: '800' },
+  statusText: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 4 },
   regionSelectorRow: { flexDirection: 'row', gap: 8, marginBottom: 18, flexWrap: 'wrap' },
-  regionChip: { backgroundColor: '#111827', paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: '#1E293B' },
-  activeRegionChip: { borderColor: '#00FF87', backgroundColor: '#00FF8710' },
-  regionChipText: { color: '#64748B', fontSize: 12, fontWeight: '700' },
-  activeRegionChipText: { color: '#00FF87' },
+  regionChip: { backgroundColor: Colors.surface, paddingHorizontal: 12, paddingVertical: 9, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border },
+  activeRegionChip: { borderColor: Colors.primary, backgroundColor: '#B8FF3D14' },
+  regionChipText: { color: Colors.textSubtle, fontSize: 12, fontWeight: '700' },
+  activeRegionChipText: { color: Colors.primary },
   formContainer: { marginBottom: 18 },
-  inputLabel: { color: '#E2E8F0', fontSize: 12, fontWeight: '800', marginBottom: 8, marginTop: 12 },
-  input: { backgroundColor: '#111827', color: '#FFFFFF', padding: 14, borderRadius: 10, fontSize: 15, borderWidth: 1, borderColor: '#1E293B' },
-  saveButton: { backgroundColor: '#00FF87', padding: 16, borderRadius: 12, alignItems: 'center', marginBottom: 26 },
-  saveButtonText: { color: '#090D14', fontSize: 15, fontWeight: '900' },
-  secondaryButton: { backgroundColor: '#1E293B', padding: 15, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#334155', marginTop: 16 },
-  secondaryButtonText: { color: '#E2E8F0', fontSize: 14, fontWeight: '800' },
-  taxSection: { borderTopWidth: 1, borderTopColor: '#1E293B', paddingTop: 22 },
+  inputLabel: { color: Colors.textMuted, fontSize: 12, fontWeight: '800', marginBottom: 8, marginTop: 12 },
+  input: { backgroundColor: Colors.input, color: Colors.text, padding: 14, borderRadius: 10, fontSize: 15, borderWidth: 1, borderColor: Colors.border },
+  saveButton: { backgroundColor: Colors.primary, padding: 16, borderRadius: Radius.md, alignItems: 'center', marginBottom: 26 },
+  saveButtonText: { color: Colors.background, fontSize: 15, fontWeight: '900' },
+  secondaryButton: { backgroundColor: Colors.surfaceRaised, padding: 15, borderRadius: Radius.md, alignItems: 'center', borderWidth: 1, borderColor: Colors.border, marginTop: 16 },
+  secondaryButtonText: { color: Colors.text, fontSize: 14, fontWeight: '800' },
+  taxSection: { borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: 22 },
   invoiceListContainer: { padding: 20, paddingBottom: 40 },
   invoiceIntro: { marginBottom: 12 },
-  invoiceCard: { backgroundColor: '#111827', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#1E293B', marginBottom: 14 },
+  invoiceCard: { backgroundColor: Colors.surface, borderRadius: Radius.md, padding: 16, borderWidth: 1, borderColor: Colors.border, marginBottom: 14 },
   invoiceHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
-  invoiceNumberText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
-  invoiceDateText: { color: '#64748B', fontSize: 12, marginTop: 2 },
-  invoiceAmountText: { color: '#00FF87', fontSize: 16, fontWeight: '800' },
-  invoiceDescText: { color: '#E2E8F0', fontSize: 13, marginBottom: 14, lineHeight: 18 },
-  invoiceActionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#1E293B', paddingTop: 12 },
-  statusBadge: { backgroundColor: '#00FF8715', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
-  statusBadgeText: { color: '#00FF87', fontSize: 11, fontWeight: '800' },
+  invoiceNumberText: { color: Colors.text, fontSize: 15, fontWeight: '800' },
+  invoiceDateText: { color: Colors.textSubtle, fontSize: 12, marginTop: 2 },
+  invoiceAmountText: { flexShrink: 1, maxWidth: 140, color: Colors.primary, fontSize: 16, fontWeight: '800', textAlign: 'right' },
+  invoiceDescText: { color: Colors.textMuted, fontSize: 13, marginBottom: 14, lineHeight: 18 },
+  invoiceActionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: 12 },
+  statusBadge: { backgroundColor: '#B8FF3D18', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
+  statusBadgeText: { color: Colors.primary, fontSize: 11, fontWeight: '800' },
   downloadLinkButton: { paddingVertical: 4 },
-  downloadLinkText: { color: '#38BDF8', fontSize: 13, fontWeight: '800' },
-  emptyState: { backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 14, padding: 22, marginTop: 8, alignItems: 'center' },
-  emptyTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
-  emptyText: { color: '#94A3B8', fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: 8 },
+  downloadLinkText: { color: Colors.info, fontSize: 13, fontWeight: '800' },
+  emptyState: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.lg, padding: 22, marginTop: 8, alignItems: 'center' },
+  emptyTitle: { color: Colors.text, fontSize: 16, fontWeight: '900' },
+  emptyText: { color: Colors.textMuted, fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: 8 },
 });

@@ -35,7 +35,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProviderPayoutProvider = exports.ProviderPayoutMethodStatus = exports.ProviderPayoutMethodType = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
-const market_config_1 = require("../config/market.config");
 var ProviderPayoutMethodType;
 (function (ProviderPayoutMethodType) {
     ProviderPayoutMethodType["BANK_ACCOUNT"] = "BANK_ACCOUNT";
@@ -56,8 +55,10 @@ const ProviderPayoutMethodSchema = new mongoose_1.Schema({
     technicianId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     type: { type: String, enum: Object.values(ProviderPayoutMethodType), required: true, index: true },
     provider: { type: String, enum: Object.values(ProviderPayoutProvider), default: ProviderPayoutProvider.PAYSTACK, index: true },
-    countryCode: { type: String, enum: Object.values(market_config_1.CountryCode), required: true, index: true },
-    currency: { type: String, enum: Object.values(market_config_1.CurrencyCode), required: true, index: true },
+    countryCode: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' }, required: true, index: true },
+    currency: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, required: true, index: true },
     accountHolderName: { type: String, required: true, trim: true, maxlength: 120 },
     bankName: { type: String, default: '', trim: true, maxlength: 120 },
     bankCode: { type: String, default: '', trim: true, maxlength: 40 },

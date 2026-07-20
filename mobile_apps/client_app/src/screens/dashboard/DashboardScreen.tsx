@@ -1,44 +1,63 @@
 // mobile_apps/client_app/src/screens/dashboard/DashboardScreen.tsx
-import React, { useEffect, useMemo, useState } from 'react';
-import { 
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
   ActivityIndicator,
   Alert,
-  StyleSheet, 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  ScrollView, 
   Dimensions,
   Image,
   Modal,
-  Pressable
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { 
-  User as LucideUser, 
-  Zap as LucideZap,
-  Droplet as LucideDroplet,
-  X as LucideX,
-  Wrench as LucideWrench,
-  Paintbrush as LucidePaintbrush,
-  Sprout as LucideSprout,
-  Hammer as LucideHammer,
-  Home as LucideHome
+import {
+  Bell,
+  Briefcase,
+  Car,
+  ChevronRight,
+  HeartPulse,
+  Home,
+  KeyRound,
+  MapPin,
+  Monitor,
+  Search,
+  ShieldCheck,
+  User,
+  Wrench,
+  X,
 } from 'lucide-react-native';
-import apiService, { ServiceAvailabilityItem } from '../../services/api.service';
+
+import apiService, {
+  BookingDetails,
+  MarketAvailabilityBookableService,
+  MarketAvailabilityCategory,
+  MarketAvailabilityGroup,
+  ServiceAvailabilityItem,
+} from '../../services/api.service';
 import authService from '../../services/auth.service';
+import { Colors, Radius, Spacing, Typography } from '../../theme';
 
-const User = LucideUser as any;
-const Zap = LucideZap as any;
-const Droplet = LucideDroplet as any;
-const X = LucideX as any;
-const Wrench = LucideWrench as any;
-const Paintbrush = LucidePaintbrush as any;
-const Sprout = LucideSprout as any;
-const Hammer = LucideHammer as any;
-const Home = LucideHome as any;
+const BellIcon = Bell as any;
+const BriefcaseIcon = Briefcase as any;
+const CarIcon = Car as any;
+const ChevronRightIcon = ChevronRight as any;
+const HeartPulseIcon = HeartPulse as any;
+const HomeIcon = Home as any;
+const KeyRoundIcon = KeyRound as any;
+const MapPinIcon = MapPin as any;
+const MonitorIcon = Monitor as any;
+const SearchIcon = Search as any;
+const ShieldCheckIcon = ShieldCheck as any;
+const UserIcon = User as any;
+const WrenchIcon = Wrench as any;
+const XIcon = X as any;
 
-// 📁 Asset registrations
 const FridgeIcon = require('../../assets/services/appliance-repair.png');
 const MechanicIcon = require('../../assets/services/mechanic-callout.png');
 const CleaningIcon = require('../../assets/services/cleaning-service.png');
@@ -48,222 +67,340 @@ const PainterIcon = require('../../assets/services/painting-service.png');
 const GardeningIcon = require('../../assets/services/gardening-service.png');
 const MaintenanceIcon = require('../../assets/services/maintenance-service.png');
 const ManagedCollectionIcon = require('../../assets/services/managed-collection.png');
+const AppLogo = require('../../assets/logo/app_logo.png');
 
 const { width, height } = Dimensions.get('window');
-const GRID_SIZE = (width - 52) / 2; 
+const GROUP_CARD_WIDTH = Math.max(132, (width - 64) / 3);
+
+type HomeService = {
+  id: string;
+  serviceKey: string;
+  groupKey: string;
+  categoryKey: string;
+  title: string;
+  subtitle: string;
+  availabilityStatus: MarketAvailabilityCategory['status'];
+  canBook: boolean;
+  availabilityMessage: string;
+  imageSource: any;
+  remoteImageFailureKey: string;
+  calloutFeeMinor?: number;
+  subCategories: Array<{
+    key?: string;
+    serviceKey: string;
+    name: string;
+    description?: string;
+    basePrice: number;
+    calloutFeeMinor?: number;
+    feeLabel: string;
+    inspectionRequired?: boolean;
+  }>;
+};
+
+type ServiceGroupCard = {
+  groupKey: string;
+  titleLines: string[];
+  Icon: any;
+  categoryCount: number;
+};
+
+const isVisibleCatalogueStatus = (status?: string) => {
+  const normalized = String(status || '').toUpperCase();
+  return normalized === 'ACTIVE' || normalized === 'PUBLISHED';
+};
+
+const isHiddenCatalogueStatus = (status?: string) => {
+  const normalized = String(status || '').toUpperCase();
+  return normalized === 'DRAFT' || normalized === 'ARCHIVED' || normalized === 'PAUSED' || normalized === 'DISABLED';
+};
+
+const stackGroupTitle = (value: string) =>
+  String(value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+const resolveTopLevelGroupIcon = (groupKey?: string, label?: string) => {
+  const text = `${groupKey || ''} ${label || ''}`.toLowerCase();
+  if (/(auto|car|vehicle|mechanic)/.test(text)) return CarIcon;
+  if (/(business|office|company|commercial)/.test(text)) return BriefcaseIcon;
+  if (/(it|tech|computer|laptop|software|support)/.test(text)) return MonitorIcon;
+  if (/(health|care|medical|nurse|doctor)/.test(text)) return HeartPulseIcon;
+  if (/(rent|rental|lease|property|key)/.test(text)) return KeyRoundIcon;
+  if (/(home|house|clean|plumb|paint|garden|maintenance|appliance)/.test(text)) return HomeIcon;
+  return WrenchIcon;
+};
 
 export function DashboardScreen({ navigation }: any): React.JSX.Element {
-  const [selectedCategory, setSelectedCategory] = useState<any>(null);
+  const [selectedCategory, setSelectedCategory] = useState<HomeService | null>(null);
+  const [selectedGroupKey, setSelectedGroupKey] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
-  const [availability, setAvailability] = useState<ServiceAvailabilityItem[]>([]);
+  const [availabilityGroups, setAvailabilityGroups] = useState<MarketAvailabilityGroup[]>([]);
+  const [legacyAvailability, setLegacyAvailability] = useState<ServiceAvailabilityItem[]>([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState('');
+  const [availabilityCurrency, setAvailabilityCurrency] = useState('');
+  const [activeBooking, setActiveBooking] = useState<BookingDetails | null>(null);
+  const [activeBookingLoading, setActiveBookingLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [failedRemoteImages, setFailedRemoteImages] = useState<Record<string, true>>({});
+
   const session = authService.getSession();
+  const firstName = session?.user.name?.split(' ')[0] || 'there';
+  const locationLabel = [
+    session?.user.location?.area,
+    session?.user.location?.city,
+  ].filter(Boolean).join(', ');
   const mustVerifyEmail = session?.user.role === 'CUSTOMER' && session.user.isEmailVerified === false;
 
-  const serviceCatalog: Record<string, any> = {
-    appliance_repair: {
-      id: 'appliance_repair',
-      title: 'Appliance Repair',
-      subtitle: 'Fridges, washers & ovens',
-      imageSource: FridgeIcon, 
-      isCustomImage: true,
-      color: '#EF4444',
-      subCategories: [
-        { name: 'Fridge & Freezer', basePrice: 450 },
-        { name: 'Air Condition Repair and Services', basePrice: 500 },
-        { name: 'Coffee Machine Repair', basePrice: 350 },
-        { name: 'Stove & Oven Repair', basePrice: 400 },
-        { name: 'Washing & Tumbler Repair', basePrice: 450 },
-        { name: 'Tv repair', basePrice: 400 },
-        { name: 'Dishwasher Repair', basePrice: 450 }
-      ]
-    },
-    automotive: {
-      id: 'automotive',
-      title: 'Mechanic Callout',
-      subtitle: 'Engines, brakes & diagnostics',
-      imageSource: MechanicIcon,
-      isCustomImage: true,
-      color: '#F97316',
-      subCategories: [
-        { name: 'Engine Diagnostics', basePrice: 600 },
-        { name: 'Brake Replacement', basePrice: 550 },
-        { name: 'Minor Vehicle Service', basePrice: 850 },
-        { name: 'Battery / Jumpstart', basePrice: 300 },
-        { name: 'Emergency Breakdown Assist', basePrice: 500 }
-      ]
-    },
-    cleaning: {
-      id: 'cleaning',
-      title: 'Cleaning Services',
-      subtitle: 'Deep home & office sanitizing',
-      icon: Droplet,
-      imageSource: CleaningIcon,
-      isCustomImage: true,
-      color: '#10B981',
-      subCategories: [
-        { name: 'Regular House Cleaning', basePrice: 250 },
-        { name: 'Deep Spring Cleaning', basePrice: 500 },
-        { name: 'Carpet & Couch Wash', basePrice: 400 },
-        { name: 'Solar Panel Cleaning', basePrice: 450 },
-        { name: 'Post-Renovation / Move-in', basePrice: 750 }
-      ]
-    },
-    electrical: {
-      id: 'electrical',
-      title: 'Electrical Works',
-      subtitle: 'Tripping boards & wiring',
-      icon: Zap,
-      imageSource: ElectricalIcon,
-      isCustomImage: true,
-      color: '#FBBF24',
-      subCategories: [
-        { name: 'Fault Finding / Tripping', basePrice: 450 },
-        { name: 'Inverter & Solar Diagnostics', basePrice: 850 },
-        { name: 'DB Board Upgrades', basePrice: 1200 },
-        { name: 'Light & Plug Installations', basePrice: 350 }
-      ]
-    },
-    plumbing: {
-      id: 'plumbing',
-      title: 'Plumber Service',
-      subtitle: 'Leaks, drains & burst geysers',
-      icon: Wrench,
-      imageSource: PlumberIcon,
-      isCustomImage: true,
-      color: '#3B82F6',
-      subCategories: [
-        { name: 'Burst Geyser Emergency', basePrice: 750 },
-        { name: 'Blocked Drain Cleaning', basePrice: 450 },
-        { name: 'Leak Detection & Repair', basePrice: 500 },
-        { name: 'Tap, Valve & Toilet Fixes', basePrice: 300 }
-      ]
-    },
-    painting: {
-      id: 'painting',
-      title: 'Painter',
-      subtitle: 'Interior & exterior walls',
-      icon: Paintbrush,
-      imageSource: PainterIcon,
-      isCustomImage: true,
-      color: '#EC4899',
-      subCategories: [
-        { name: 'Interior Wall Painting', basePrice: 650 },
-        { name: 'Exterior / Boundary Walls', basePrice: 950 },
-        { name: 'Ceiling Repair & Paint', basePrice: 400 },
-        { name: 'Gate & Fence Coating', basePrice: 350 }
-      ]
-    },
-    gardening: {
-      id: 'gardening',
-      title: 'Gardening & Landscaping',
-      subtitle: 'Lawn trimming & yard cleanups',
-      icon: Sprout,
-      imageSource: GardeningIcon,
-      isCustomImage: true,
-      color: '#84CC16',
-      subCategories: [
-        { name: 'Once-off Yard Cleanup', basePrice: 350 },
-        { name: 'Tree Felling & Stump Removal', basePrice: 950 },
-        { name: 'Lawn Dressing & Edging', basePrice: 200 },
-        { name: 'Irrigation Repairs', basePrice: 400 }
-      ]
-    },
-    maintenance: {
-      id: 'maintenance',
-      title: 'Maintenance',
-      subtitle: 'Handyman tasks & structural fixes',
-      icon: Hammer,
-      imageSource: MaintenanceIcon,
-      isCustomImage: true,
-      color: '#64748B',
-      subCategories: [
-        { name: 'TV Bracket Mounting', basePrice: 250 },
-        { name: 'Door Lock & Handle Swaps', basePrice: 300 },
-        { name: 'Blind & Curtain Hanging', basePrice: 200 },
-        { name: 'Minor Plaster & Drywall Fix', basePrice: 400 }
-      ]
-    },
-    managed_collection: {
-      id: 'managed_collection',
-      title: 'Managed Collection Services',
-      subtitle: 'General waste collection setup',
-      icon: Hammer,
-      imageSource: ManagedCollectionIcon,
-      isCustomImage: true,
-      color: '#38BDF8',
-      subCategories: [
-        { name: 'GENERAL_WASTE', basePrice: 0 },
-      ],
-    },
-    rental_property: {
-      id: 'rental_property',
-      title: 'Rental Property Listings',
-      subtitle: 'Long-term rentals from verified landlords',
-      icon: Home,
-      isCustomImage: false,
-      color: '#8B5CF6',
-      subCategories: [
-        { name: 'Rental Property Listing', basePrice: 0 },
-      ],
-    },
+  const serviceImageRegistry: Record<string, any> = {
+    appliance_repair: FridgeIcon,
+    automotive: MechanicIcon,
+    cleaning: CleaningIcon,
+    electrical: ElectricalIcon,
+    plumbing: PlumberIcon,
+    painting: PainterIcon,
+    gardening: GardeningIcon,
+    maintenance: MaintenanceIcon,
+    managed_collection: ManagedCollectionIcon,
+    placeholder: MaintenanceIcon,
   };
 
-  useEffect(() => {
-    const session = authService.getSession();
-    const countryCode = session?.user.countryCode || 'ZA';
-    const city = session?.user.location?.city || '';
-    const area = session?.user.location?.area || '';
+  const resolveCatalogueImage = (item: { imageUrl?: string; imageKey?: string; serviceKey?: string; categoryKey?: string; groupKey?: string }) => {
+    const stableKey = item.serviceKey || item.categoryKey || item.groupKey || item.imageKey || 'placeholder';
+    const failedKey = `${stableKey}:${item.imageUrl || ''}`;
+    if (item.imageUrl && !failedRemoteImages[failedKey]) {
+      return { source: { uri: item.imageUrl }, failedKey };
+    }
+
+    const imageKey = item.imageKey || item.serviceKey || item.categoryKey || item.groupKey || 'placeholder';
+    return {
+      source: serviceImageRegistry[imageKey] || serviceImageRegistry.placeholder,
+      failedKey: '',
+    };
+  };
+
+  const formatFee = (amountMinor?: number) => {
+    if (typeof amountMinor !== 'number') return 'Quote based';
+    const amount = amountMinor / 100;
+    if (!availabilityCurrency) return 'Fee configured';
+    return availabilityCurrency === 'ZAR'
+      ? `R${amount.toFixed(0)}`
+      : `${availabilityCurrency} ${amount.toFixed(2)}`;
+  };
+
+  const loadAvailability = useCallback(async () => {
+    const currentSession = authService.getSession();
+    const countryCode = currentSession?.user.countryCode || '';
+    const city = currentSession?.user.location?.city || '';
+    const area = currentSession?.user.location?.area || '';
+
+    if (!countryCode) {
+      setAvailabilityGroups([]);
+      setLegacyAvailability([]);
+      setAvailabilityError('No active market is linked to your account yet.');
+      return;
+    }
 
     setAvailabilityLoading(true);
     setAvailabilityError('');
-    apiService.getMarketAvailability({ countryCode, city, area })
-      .then((result) => setAvailability(result.availability.services || []))
-      .catch((error: Error) => setAvailabilityError(error.message || 'Unable to load service availability.'))
-      .finally(() => setAvailabilityLoading(false));
+    try {
+      const result = await apiService.getMarketAvailability({ countryCode, city, area });
+      setAvailabilityCurrency(result.availability.currency || currentSession?.user.currency || '');
+      setAvailabilityGroups(Array.isArray(result.availability.groups) ? result.availability.groups : []);
+      setLegacyAvailability(result.availability.services || []);
+    } catch (error: any) {
+      setAvailabilityError(error.message || 'Unable to load service availability.');
+    } finally {
+      setAvailabilityLoading(false);
+    }
   }, []);
 
-  const mainServices = useMemo(() => {
-    return availability
-      .filter((service) => service.status !== 'DISABLED')
-      .map((service) => {
-        const card = serviceCatalog[service.serviceKey] || {
-          id: service.serviceKey,
-          title: service.label,
-          subtitle: 'Service configured for your market',
-          icon: Hammer,
-          imageSource: MaintenanceIcon,
-          isCustomImage: true,
-          color: '#64748B',
-          subCategories: [{ name: service.label, basePrice: 450 }],
+  useEffect(() => {
+    void loadAvailability();
+  }, [loadAvailability]);
+
+  useEffect(() => {
+    setActiveBookingLoading(true);
+    apiService.getMyActiveBooking()
+      .then((result) => setActiveBooking(result.active ? result.booking : null))
+      .catch(() => setActiveBooking(null))
+      .finally(() => setActiveBookingLoading(false));
+  }, []);
+
+  const visibleBackendGroups = useMemo(() => {
+    return availabilityGroups
+      .map((group) => ({
+        ...group,
+        categories: (group.categories || [])
+          .map((category) => ({
+            ...category,
+            services: (category.services || []).filter((service) => service.canBook && service.status === 'ACTIVE'),
+          }))
+          .filter((category) => isVisibleCatalogueStatus(category.status) && category.services.length > 0),
+      }))
+      .filter((group) => !isHiddenCatalogueStatus(group.status) && group.categories.length > 0)
+      .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0) || a.label.localeCompare(b.label));
+  }, [availabilityGroups]);
+
+  const legacyFallbackGroups = useMemo<MarketAvailabilityGroup[]>(() => {
+    if (availabilityGroups.length > 0) return [];
+    const categories = legacyAvailability
+      .filter((service) => service.canBook && service.status === 'ACTIVE')
+      .map((service, index): MarketAvailabilityCategory | null => {
+        const services: MarketAvailabilityBookableService[] = (service.subcategories || [])
+          .filter((subcategory) => subcategory.status === 'ACTIVE' && typeof (subcategory.calloutFeeMinor ?? service.calloutFeeMinor) === 'number')
+          .map((subcategory, subIndex) => ({
+            serviceKey: subcategory.subcategoryKey || service.serviceKey,
+            legacySubcategoryKey: subcategory.subcategoryKey,
+            categoryKey: service.serviceKey,
+            groupKey: 'available_services',
+            label: subcategory.label,
+            description: subcategory.description || '',
+            imageKey: subcategory.imageKey || service.imageKey,
+            imageUrl: subcategory.imageUrl || service.imageUrl,
+            status: subcategory.status,
+            canBook: service.canBook,
+            message: service.message,
+            calloutFeeMinor: subcategory.calloutFeeMinor ?? service.calloutFeeMinor,
+            displayOrder: subIndex * 10,
+          }));
+
+        if (!services.length && typeof service.calloutFeeMinor === 'number') {
+          services.push({
+            serviceKey: service.serviceKey,
+            legacySubcategoryKey: service.serviceKey,
+            categoryKey: service.serviceKey,
+            groupKey: 'available_services',
+            label: service.label,
+            description: service.description || '',
+            imageKey: service.imageKey,
+            imageUrl: service.imageUrl,
+            status: service.status,
+            canBook: service.canBook,
+            message: service.message,
+            calloutFeeMinor: service.calloutFeeMinor,
+            displayOrder: 0,
+          });
+        }
+
+        if (!services.length) return null;
+        return {
+          categoryKey: service.serviceKey,
+          legacyServiceKey: service.serviceKey,
+          groupKey: 'available_services',
+          label: service.label,
+          description: service.description || '',
+          imageKey: service.imageKey,
+          imageUrl: service.imageUrl,
+          status: service.status,
+          displayOrder: index * 10,
+          services,
         };
+      })
+      .filter((category): category is MarketAvailabilityCategory => Boolean(category));
+
+    return categories.length
+      ? [{
+          groupKey: 'available_services',
+          label: 'Available Services',
+          description: 'Services currently available in your area',
+          status: 'PUBLISHED',
+          displayOrder: 0,
+          categories,
+        }]
+      : [];
+  }, [availabilityGroups.length, legacyAvailability]);
+
+  const visibleGroups = visibleBackendGroups.length ? visibleBackendGroups : legacyFallbackGroups;
+
+  useEffect(() => {
+    if (!visibleGroups.length) {
+      if (selectedGroupKey) setSelectedGroupKey('');
+      return;
+    }
+    if (!visibleGroups.some((group) => group.groupKey === selectedGroupKey)) {
+      setSelectedGroupKey(visibleGroups[0].groupKey);
+    }
+  }, [selectedGroupKey, visibleGroups]);
+
+  const selectedGroup = visibleGroups.find((group) => group.groupKey === selectedGroupKey) || visibleGroups[0] || null;
+
+  const groupCards = useMemo<ServiceGroupCard[]>(() => {
+    return visibleGroups.map((group) => {
+      return {
+        groupKey: group.groupKey,
+        titleLines: stackGroupTitle(group.label),
+        Icon: resolveTopLevelGroupIcon(group.iconKey || group.groupKey, group.label),
+        categoryCount: group.categories?.length || 0,
+      };
+    });
+  }, [visibleGroups]);
+
+  const mainServices = useMemo<HomeService[]>(() => {
+    if (!selectedGroup) return [];
+    return selectedGroup.categories
+      .slice()
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map((category) => {
+        const services = category.services
+          .slice()
+          .sort((a, b) => a.label.localeCompare(b.label));
+        const image = resolveCatalogueImage({
+          serviceKey: category.legacyServiceKey,
+          categoryKey: category.categoryKey,
+          imageKey: category.imageKey || category.iconKey,
+          imageUrl: category.imageUrl,
+        });
+        const firstFee = services.find((service) => typeof service.calloutFeeMinor === 'number')?.calloutFeeMinor;
 
         return {
-          ...card,
-          id: service.serviceKey,
-          serviceKey: service.serviceKey,
-          title: service.label || card.title,
-          availabilityStatus: service.status,
-          canBook: service.canBook,
-          availabilityMessage: service.message,
+          id: category.categoryKey,
+          serviceKey: category.legacyServiceKey || category.categoryKey,
+          groupKey: selectedGroup.groupKey,
+          categoryKey: category.categoryKey,
+          title: category.label,
+          subtitle: category.description || 'Choose a service to continue',
+          availabilityStatus: category.status,
+          canBook: services.length > 0,
+          availabilityMessage: '',
+          imageSource: image.source,
+          remoteImageFailureKey: image.failedKey,
+          calloutFeeMinor: firstFee,
+          subCategories: services.map((service) => ({
+            key: service.legacySubcategoryKey || service.serviceKey,
+            serviceKey: service.serviceKey,
+            name: service.label,
+            description: service.description,
+            basePrice: (service.calloutFeeMinor ?? 0) / 100,
+            calloutFeeMinor: service.calloutFeeMinor,
+            feeLabel: formatFee(service.calloutFeeMinor),
+            inspectionRequired: service.inspectionRequired,
+          })),
         };
       });
-  }, [availability]);
+  }, [selectedGroup, failedRemoteImages, availabilityCurrency]);
 
-  const handleCategoryPress = (category: any) => {
+  const filteredServices = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return mainServices;
+    return mainServices.filter((service) =>
+      `${service.title} ${service.subtitle} ${service.serviceKey} ${service.subCategories.map((sub) => sub.name).join(' ')}`.toLowerCase().includes(query)
+    );
+  }, [mainServices, searchQuery]);
+
+  const popularServices = filteredServices.slice(0, 8);
+
+  const handleCategoryPress = (category: HomeService) => {
     if (mustVerifyEmail) {
-      Alert.alert(
-        'Verify Your Email',
-        'Please verify your email before booking a service.'
-      );
+      Alert.alert('Verify Your Email', 'Please verify your email before booking a service.');
       navigation.navigate('VerifyEmailNotice');
       return;
     }
 
     if (!category.canBook) {
       if (category.availabilityStatus === 'COMING_SOON') {
-        handleJoinWaitlist(category);
+        void handleJoinWaitlist(category);
         return;
       }
 
@@ -288,21 +425,22 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
     setModalVisible(true);
   };
 
-  const handleJoinWaitlist = async (category: any) => {
-    const session = authService.getSession();
-    const city = session?.user.location?.city || '';
-    if (!session?.user.email || !session?.user.countryCode || !city) {
+  const handleJoinWaitlist = async (category: HomeService) => {
+    const currentSession = authService.getSession();
+    const city = currentSession?.user.location?.city || '';
+
+    if (!currentSession?.user.email || !currentSession?.user.countryCode || !city) {
       Alert.alert('Location Required', 'Please complete your account location before joining a service waitlist.');
       return;
     }
 
     try {
       const result = await apiService.joinServiceWaitlist({
-        email: session.user.email,
-        phone: session.user.phone,
-        countryCode: session.user.countryCode,
+        email: currentSession.user.email,
+        phone: currentSession.user.phone,
+        countryCode: currentSession.user.countryCode,
         city,
-        area: session.user.location?.area,
+        area: currentSession.user.location?.area,
         serviceKey: category.serviceKey,
       });
       Alert.alert('Waitlist Joined', result.message);
@@ -311,39 +449,83 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
     }
   };
 
-  const handleSubCategorySelect = (subName: string, price: number) => {
+  const handleSubCategorySelect = (sub: { key?: string; serviceKey: string; name: string; basePrice: number; calloutFeeMinor?: number; inspectionRequired?: boolean }) => {
+    if (!selectedCategory) return;
     setModalVisible(false);
     navigation.navigate('BookingWizard', {
-      category: selectedCategory.id,
-      serviceKey: selectedCategory.serviceKey,
-      subCategory: subName,
-      basePrice: price,
+      category: selectedCategory.categoryKey,
+      serviceKey: sub.serviceKey,
+      subCategory: sub.name,
+      subCategoryKey: sub.key,
+      basePrice: sub.basePrice,
+      calloutFeeMinor: sub.calloutFeeMinor,
+      inspectionRequired: sub.inspectionRequired,
     });
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-        
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={availabilityLoading} onRefresh={loadAvailability} tintColor={Colors.primary} />}
+      >
         <View style={styles.header}>
-          <View>
-            <Text style={styles.welcomeText}>Good Day 👋</Text>
-            <Text style={styles.brandText}>Find a <Text style={styles.proAccent}>Fixer</Text></Text>
+          <View style={styles.brandBlock}>
+            <Image source={AppLogo} style={styles.logo} resizeMode="contain" />
+            <View style={styles.locationRow}>
+              <MapPinIcon color={Colors.textSubtle} size={14} />
+              <Text style={styles.locationText} numberOfLines={1}>
+                {locationLabel || 'Set your service location'}
+              </Text>
+            </View>
           </View>
-          <TouchableOpacity style={styles.profileAvatar} onPress={() => navigation.navigate('Account')}>
-            <User color="#090D14" size={20} strokeWidth={2.5} />
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => navigation.navigate('Alerts')}
+            accessibilityRole="button"
+            accessibilityLabel="Open alerts"
+          >
+            <BellIcon color={Colors.text} size={20} />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.heroCard}>
-          <View style={styles.heroContent}>
-            <Text style={styles.heroTitle}>What do you need fixed today?</Text>
-            <Text style={styles.heroSubtitle}>Verified specialists, clear call-out fees, and repair quotes before extra work starts.</Text>
-          </View>
-          <View style={styles.heroBadge}>
-            <Text style={styles.heroBadgeText}>Verified help</Text>
-          </View>
+        <View style={styles.greetingBlock}>
+          <Text style={styles.greeting}>Hello, {firstName}</Text>
+          <Text style={styles.headline}>What service do you need today?</Text>
         </View>
+
+        {activeBookingLoading ? (
+          <View style={styles.activeBookingCard}>
+            <ActivityIndicator color={Colors.primary} />
+            <Text style={styles.activeBookingMeta}>Checking active bookings...</Text>
+          </View>
+        ) : activeBooking ? (
+          <TouchableOpacity
+            style={styles.activeBookingCard}
+            activeOpacity={0.86}
+            onPress={() => navigation.navigate('TrackingMain', { bookingId: activeBooking.id })}
+          >
+            <View style={styles.activeBookingTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.activeBookingLabel}>Active booking</Text>
+                <Text style={styles.activeBookingTitle} numberOfLines={1}>
+                  {String(activeBooking.applianceType || activeBooking.serviceKey || 'Service booking')}
+                </Text>
+              </View>
+              <View style={styles.statusBadge}>
+                <Text style={styles.statusBadgeText}>{String(activeBooking.status || 'ACTIVE').replace(/_/g, ' ')}</Text>
+              </View>
+            </View>
+            <Text style={styles.activeBookingMeta} numberOfLines={1}>
+              {activeBooking.technician?.name ? `Professional: ${activeBooking.technician.name}` : 'We will show professional details when assigned.'}
+            </Text>
+            <View style={styles.activeBookingActions}>
+              <Text style={styles.trackText}>Track booking</Text>
+              <ChevronRightIcon color={Colors.background} size={18} />
+            </View>
+          </TouchableOpacity>
+        ) : null}
 
         {mustVerifyEmail && (
           <TouchableOpacity
@@ -356,81 +538,156 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
           </TouchableOpacity>
         )}
 
-        <Text style={styles.sectionTitle}>Choose a service</Text>
-        {availabilityLoading && (
-          <View style={styles.availabilityNotice}>
-            <ActivityIndicator size="small" color="#00FF87" />
-            <Text style={styles.availabilityNoticeText}>Loading services for your area...</Text>
-          </View>
-        )}
+        <View style={styles.searchShell}>
+          <SearchIcon color={Colors.textSubtle} size={18} />
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search for a service"
+            placeholderTextColor={Colors.textSubtle}
+            returnKeyType="search"
+          />
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.groupRow}
+        >
+          {groupCards.map((group) => {
+            const GroupIcon = group.Icon;
+            return (
+              <TouchableOpacity
+                key={group.groupKey}
+                style={[styles.groupCard, selectedGroup?.groupKey === group.groupKey && styles.groupCardSelected]}
+                activeOpacity={0.86}
+                onPress={() => {
+                  setSelectedGroupKey(group.groupKey);
+                  setSearchQuery('');
+                }}
+              >
+                <View style={[styles.groupIconWrap, selectedGroup?.groupKey === group.groupKey && styles.groupIconWrapSelected]}>
+                  <GroupIcon color="#FFB547" size={28} strokeWidth={2.25} />
+                </View>
+                <View style={styles.groupTitleStack}>
+                  {group.titleLines.map((line, index) => (
+                    <Text key={`${group.groupKey}-${line}-${index}`} style={styles.groupTitle} numberOfLines={1}>
+                      {line}
+                    </Text>
+                  ))}
+                </View>
+                <Text style={styles.groupMeta}>
+                  {group.categoryCount} {group.categoryCount === 1 ? 'category' : 'categories'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        <View style={styles.trustBanner}>
+          <ShieldCheckIcon color={Colors.primary} size={18} />
+          <Text style={styles.trustText}>Verified professionals</Text>
+          <Text style={styles.trustDot}>.</Text>
+          <Text style={styles.trustText}>Secure payments</Text>
+          <Text style={styles.trustDot}>.</Text>
+          <Text style={styles.trustText}>Live tracking</Text>
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Popular Services</Text>
+          {availabilityLoading ? <ActivityIndicator size="small" color={Colors.primary} /> : null}
+        </View>
+
         {!!availabilityError && (
-          <View style={styles.availabilityNotice}>
-            <Text style={styles.availabilityNoticeText}>{availabilityError}</Text>
+          <View style={styles.noticeCard}>
+            <Text style={styles.noticeText}>{availabilityError}</Text>
           </View>
         )}
 
-        <View style={styles.gridContainer}>
-          {mainServices.map((item) => (
+        {!availabilityLoading && !availabilityError && popularServices.length === 0 && (
+          <View style={styles.noticeCard}>
+            <Text style={styles.noticeTitle}>No services are currently available in your area.</Text>
+            <Text style={styles.noticeText}>Services will appear here when they are published and enabled for your market, city, and area.</Text>
+          </View>
+        )}
+
+        <View style={styles.serviceList}>
+          {popularServices.map((item) => (
             <TouchableOpacity
               key={item.id}
-              style={styles.gridTile}
-              activeOpacity={0.9}
+              style={styles.serviceRow}
+              activeOpacity={0.86}
               onPress={() => handleCategoryPress(item)}
             >
-              {/* IMAGE LAYER CONTAINER */}
-              <View style={[
-                styles.tileImageContainer, 
-                item.isCustomImage ? styles.whiteBackplate : { backgroundColor: `${item.color}10` }
-              ]}>
-                {item.isCustomImage ? (
-                  <Image source={item.imageSource} style={styles.coverImage} resizeMode="contain" />
-                ) : (
-                  item.icon && <item.icon color={item.color} size={32} strokeWidth={2} />
-                )}
+              <View style={styles.serviceIconWrap}>
+                <Image
+                  source={item.imageSource}
+                  style={styles.serviceIcon}
+                  resizeMode="contain"
+                  onError={() => {
+                    if (item.remoteImageFailureKey) {
+                      setFailedRemoteImages((current) => ({ ...current, [item.remoteImageFailureKey]: true }));
+                    }
+                  }}
+                />
               </View>
-              
-              {/* TEXT PANEL */}
-              <View style={styles.tileMetaContainer}>
-                {item.availabilityStatus && item.availabilityStatus !== 'ACTIVE' && (
-                  <Text style={[styles.serviceStatusBadge, item.availabilityStatus === 'COMING_SOON' ? styles.statusSoon : styles.statusPaused]}>
-                    {item.availabilityStatus === 'COMING_SOON' ? 'COMING SOON' : 'UNAVAILABLE'}
+              <View style={styles.serviceTextBlock}>
+                <View style={styles.serviceTitleRow}>
+                  <Text style={styles.serviceTitle} numberOfLines={1}>{item.title}</Text>
+                  {item.availabilityStatus !== 'ACTIVE' ? (
+                    <Text style={styles.serviceStatus}>
+                      {item.availabilityStatus === 'COMING_SOON' ? 'Soon' : 'Paused'}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={styles.serviceSubtitle} numberOfLines={1}>{item.subtitle}</Text>
+                <View style={styles.serviceMetaRow}>
+                  <Text style={styles.serviceFee} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+                    {formatFee(item.calloutFeeMinor)} call-out
                   </Text>
-                )}
-                <Text style={styles.tileTitle} numberOfLines={1}>{item.title}</Text>
-                <Text style={styles.tileSubtitle} numberOfLines={2}>{item.subtitle}</Text>
-                <Text style={styles.tileFeeText}>Call-out fee shown before booking</Text>
+                  <Text style={styles.serviceCount}>
+                    {item.subCategories.length} {item.subCategories.length === 1 ? 'service' : 'services'}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.serviceArrow}>
+                <ChevronRightIcon color={Colors.background} size={17} strokeWidth={3} />
               </View>
             </TouchableOpacity>
           ))}
         </View>
       </ScrollView>
 
-      <Modal visible={modalVisible} animationType="slide" transparent={true} onRequestClose={() => setModalVisible(false)}>
+      <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={() => setModalVisible(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setModalVisible(false)}>
           <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
               <View style={styles.modalTitleWrap}>
                 <Text style={styles.modalTitle}>What do you need help with?</Text>
                 <Text style={styles.modalSubtitle}>The amount shown is the call-out fee. Repairs and parts are quoted after diagnosis.</Text>
               </View>
               <TouchableOpacity style={styles.closeBtn} onPress={() => setModalVisible(false)}>
-                <X color="#64748B" size={20} />
+                <XIcon color={Colors.textMuted} size={20} />
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={styles.modalScrollBody}>
-              {selectedCategory?.subCategories.map((sub: any) => (
-                <TouchableOpacity 
-                  key={sub.name} 
+            <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.modalScrollBody}>
+              {selectedCategory?.subCategories.map((sub) => (
+                <TouchableOpacity
+                  key={sub.key || sub.name}
                   style={styles.subItemRow}
-                  onPress={() => handleSubCategorySelect(sub.name, sub.basePrice)}
+                  onPress={() => handleSubCategorySelect(sub)}
                 >
-                  <View>
+                  <View style={{ flex: 1 }}>
                     <Text style={styles.subItemName}>{sub.name}</Text>
                     <Text style={styles.subItemEstimate}>Call-out fee for visit and diagnosis</Text>
                   </View>
                   <View style={styles.subItemFeePill}>
-                    <Text style={[styles.subItemPrice, { color: selectedCategory.color }]}>R{sub.basePrice}</Text>
+                    <Text style={styles.subItemPrice} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                      {sub.feeLabel}
+                    </Text>
                   </View>
                 </TouchableOpacity>
               ))}
@@ -443,82 +700,332 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
-  scrollContainer: { 
-    padding: 20,
-    paddingBottom: 90
+  container: { flex: 1, backgroundColor: Colors.background },
+  scrollContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 112,
   },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  welcomeText: { color: '#64748B', fontSize: 14, fontWeight: '500' },
-  brandText: { color: '#FFFFFF', fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
-  proAccent: { color: '#00FF87' },
-  profileAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center' },
-  heroCard: { backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 16, padding: 20, marginBottom: 22, position: 'relative', overflow: 'hidden' },
-  heroContent: { maxWidth: '88%' },
-  heroTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '700', lineHeight: 24 },
-  heroSubtitle: { color: '#94A3B8', fontSize: 13, marginTop: 6, lineHeight: 19 },
-  heroBadge: { position: 'absolute', right: -15, top: 10, backgroundColor: '#1E293B', paddingHorizontal: 18, paddingVertical: 4, transform: [{ rotate: '12deg' }] },
-  heroBadgeText: { color: '#00FF87', fontSize: 9, fontWeight: '700', textTransform: 'uppercase' },
-  verifyBanner: { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#FBBF24', borderRadius: 12, padding: 14, marginBottom: 18 },
-  verifyBannerTitle: { color: '#FBBF24', fontSize: 14, fontWeight: '900', marginBottom: 4 },
-  verifyBannerText: { color: '#E2E8F0', fontSize: 12, fontWeight: '600', lineHeight: 18 },
-  sectionTitle: { color: '#E2E8F0', fontSize: 15, fontWeight: '700', marginBottom: 16, letterSpacing: 0.3 },
-  availabilityNotice: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, padding: 12, marginBottom: 12 },
-  availabilityNoticeText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
-  gridContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 28 },
-  gridTile: { 
-    width: GRID_SIZE, 
-    height: GRID_SIZE + 50, 
-    backgroundColor: '#111827', 
-    borderRadius: 16, 
-    borderWidth: 1, 
-    borderColor: '#1E293B', 
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.lg,
+    marginBottom: 22,
+  },
+  brandBlock: { flex: 1 },
+  logo: {
+    width: 92,
+    height: 40,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginTop: Spacing.xs,
+  },
+  locationText: { flex: 1, color: Colors.textSubtle, fontSize: 12, fontWeight: '600' },
+  iconButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#111114',
+    borderWidth: 1,
+    borderColor: '#2A2A31',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  greetingBlock: { marginBottom: 20 },
+  greeting: { color: Colors.textMuted, fontSize: 14, fontWeight: '700' },
+  headline: { color: Colors.text, fontSize: 31, lineHeight: 37, fontWeight: '900', marginTop: 6, letterSpacing: 0 },
+  activeBookingCard: {
+    backgroundColor: Colors.primary,
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 18,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 22,
+    elevation: 8,
+  },
+  activeBookingTop: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md },
+  activeBookingLabel: { color: Colors.background, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
+  activeBookingTitle: { color: Colors.background, fontSize: 18, fontWeight: '900', marginTop: 3 },
+  activeBookingMeta: { color: '#1B1B1F', fontSize: 12, fontWeight: '700', marginTop: Spacing.md },
+  statusBadge: {
+    backgroundColor: 'rgba(11, 11, 13, 0.12)',
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 5,
+  },
+  statusBadgeText: { color: Colors.background, fontSize: 10, fontWeight: '900' },
+  activeBookingActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: Spacing.xs,
+    marginTop: Spacing.md,
+  },
+  trackText: { color: Colors.background, fontSize: 13, fontWeight: '900' },
+  verifyBanner: {
+    backgroundColor: '#151312',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 181, 71, 0.42)',
+    borderRadius: 18,
+    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
+  },
+  verifyBannerTitle: { color: Colors.amber, fontSize: 14, fontWeight: '900', marginBottom: 4 },
+  verifyBannerText: { color: Colors.text, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  searchShell: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: '#111114',
+    borderWidth: 1,
+    borderColor: '#27272E',
+    borderRadius: 22,
+    paddingHorizontal: 18,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 5,
+  },
+  searchInput: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: Typography.body.fontSize,
+    fontWeight: '600',
+  },
+  groupRow: { gap: 12, paddingBottom: 18, paddingRight: 6 },
+  groupCard: {
+    width: GROUP_CARD_WIDTH,
+    minHeight: 132,
+    backgroundColor: '#101013',
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: '#292930',
+    padding: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 5,
+  },
+  groupCardSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: '#171A16',
+    shadowColor: Colors.primary,
+    shadowOpacity: 0.16,
+  },
+  groupIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 181, 71, 0.13)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 181, 71, 0.28)',
+  },
+  groupIconWrapSelected: {
+    backgroundColor: 'rgba(255, 181, 71, 0.2)',
+    borderColor: '#FFB547',
+  },
+  groupTitleStack: {
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  groupTitle: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  groupMeta: {
+    color: Colors.textSubtle,
+    fontSize: 10,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginTop: -2,
+  },
+  groupSubtitle: {
+    color: Colors.textSubtle,
+    fontSize: 10,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  trustBanner: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 7,
+    backgroundColor: '#101113',
+    borderWidth: 1,
+    borderColor: '#24242A',
+    borderRadius: 18,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    marginBottom: 22,
+  },
+  trustText: { color: Colors.textMuted, fontSize: 12, fontWeight: '700' },
+  trustDot: { color: Colors.textSubtle, fontSize: 12, fontWeight: '900' },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.md,
+  },
+  sectionTitle: { color: Colors.text, fontSize: 18, fontWeight: '900' },
+  noticeCard: {
+    backgroundColor: '#111114',
+    borderWidth: 1,
+    borderColor: '#28282F',
+    borderRadius: 20,
+    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
+  },
+  noticeTitle: { color: Colors.text, fontSize: 14, fontWeight: '900', marginBottom: 4 },
+  noticeText: { color: Colors.textMuted, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  serviceList: { gap: 12 },
+  serviceRow: {
+    minHeight: 102,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#101013',
+    borderWidth: 1,
+    borderColor: '#292930',
+    borderRadius: 26,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    elevation: 5,
+  },
+  serviceIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+    backgroundColor: '#F7F7F5',
+    alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
   },
-  tileImageContainer: { 
-    flex: 1, 
-    width: '100%', 
-    justifyContent: 'center', 
-    alignItems: 'center' 
+  serviceIcon: { width: 48, height: 48 },
+  serviceTextBlock: { flex: 1 },
+  serviceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  serviceTitle: { flex: 1, color: Colors.text, fontSize: 15, fontWeight: '900' },
+  serviceStatus: {
+    color: Colors.amber,
+    fontSize: 10,
+    fontWeight: '900',
+    backgroundColor: 'rgba(255, 181, 71, 0.12)',
+    borderRadius: Radius.pill,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    overflow: 'hidden',
   },
-  whiteBackplate: {
-    backgroundColor: '#FFFFFF',
-    padding: 16
+  serviceSubtitle: { color: Colors.textMuted, fontSize: 12, fontWeight: '600', marginTop: 4 },
+  serviceMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
   },
-  coverImage: { 
-    width: '100%', 
-    height: '100%' 
+  serviceFee: { color: Colors.primary, fontSize: 12, fontWeight: '900' },
+  serviceCount: {
+    color: Colors.textSubtle,
+    fontSize: 11,
+    fontWeight: '800',
+    backgroundColor: '#1A1A1F',
+    borderRadius: Radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    overflow: 'hidden',
   },
-  tileMetaContainer: { 
-    padding: 12, 
-    backgroundColor: '#111827',
+  serviceArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalOverlay: { flex: 1, backgroundColor: Colors.overlay, justifyContent: 'flex-end' },
+  modalContent: {
+    backgroundColor: '#101014',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    padding: 22,
     borderTopWidth: 1,
-    borderColor: '#1E293B'
+    borderColor: '#303038',
+    maxHeight: height * 0.72,
   },
-  tileTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  tileSubtitle: { color: '#64748B', fontSize: 11, marginTop: 3, lineHeight: 15 },
-  tileFeeText: { color: '#00FF87', fontSize: 10, fontWeight: '800', marginTop: 7 },
-  serviceStatusBadge: { alignSelf: 'flex-start', fontSize: 9, fontWeight: '800', borderRadius: 999, paddingHorizontal: 7, paddingVertical: 3, marginBottom: 5, overflow: 'hidden' },
-  statusSoon: { color: '#FBBF24', backgroundColor: '#FBBF2420' },
-  statusPaused: { color: '#F87171', backgroundColor: '#EF444420' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#111827', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderTopWidth: 1, borderColor: '#1E293B', maxHeight: height * 0.6 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20 },
+  modalHandle: {
+    alignSelf: 'center',
+    width: 46,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#3A3A42',
+    marginBottom: 16,
+  },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: Spacing.lg, marginBottom: Spacing.xl },
   modalTitleWrap: { flex: 1 },
-  modalTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
-  modalSubtitle: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 6 },
-  closeBtn: { backgroundColor: '#1E293B', padding: 8, borderRadius: 20, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  modalScrollBody: { paddingBottom: 24 },
-  subItemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 14, paddingVertical: 16, borderBottomWidth: 1, borderColor: '#1E293B' },
-  subItemName: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
-  subItemEstimate: { color: '#64748B', fontSize: 12, marginTop: 2 },
-  subItemFeePill: { minWidth: 76, minHeight: 38, borderRadius: 10, backgroundColor: '#090D14', borderWidth: 1, borderColor: '#1E293B', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
-  subItemPrice: { fontSize: 16, fontWeight: '800' }
+  modalTitle: { color: Colors.text, fontSize: 18, fontWeight: '900' },
+  modalSubtitle: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 6 },
+  closeBtn: {
+    backgroundColor: '#1B1B20',
+    padding: Spacing.sm,
+    borderRadius: Radius.pill,
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalScrollBody: { paddingBottom: Spacing.xxl },
+  subItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.lg,
+    minHeight: 72,
+    marginBottom: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#292930',
+    borderRadius: 18,
+    backgroundColor: '#151519',
+  },
+  subItemName: { color: Colors.text, fontSize: 15, fontWeight: '800' },
+  subItemEstimate: { color: Colors.textMuted, fontSize: 12, marginTop: 3 },
+  subItemFeePill: {
+    minWidth: 84,
+    minHeight: 40,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.input,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.md,
+  },
+  subItemPrice: { color: Colors.primary, fontSize: 15, fontWeight: '900' },
 });
-
-
-
-
-
-
-

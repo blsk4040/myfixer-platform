@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { assertConfiguredUrl, getApiBaseUrl, getExpoProjectId } from '../config/runtime.config';
+import { isExpoGoRuntime } from '../config/runtimeEnvironment';
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -11,10 +12,10 @@ const configureAndroidChannel = async (): Promise<void> => {
   if (Platform.OS !== 'android') return;
 
   await Notifications.setNotificationChannelAsync('default', {
-    name: 'MyFixer updates',
+    name: 'Paddy updates',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#00FF87',
+    lightColor: '#B8FF3D',
     sound: 'default',
   });
 };
@@ -23,6 +24,7 @@ export const registerDeviceForPushNotifications = async (
   app: PushApp,
   authHeader: Record<string, string>
 ): Promise<string | null> => {
+  if (isExpoGoRuntime) return null;
   if (!authHeader.Authorization) return null;
 
   await configureAndroidChannel();

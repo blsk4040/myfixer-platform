@@ -38,12 +38,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.disablePayoutMethod = exports.setDefaultPayoutMethod = exports.createMobileMoneyPayoutMethod = exports.createBankPayoutMethod = exports.listTechnicianPayoutMethods = exports.serializePayoutMethod = exports.PayoutMethodError = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
-const market_config_1 = require("../config/market.config");
-const payment_capabilities_config_1 = require("../config/payment-capabilities.config");
 const provider_payout_method_model_1 = __importStar(require("../models/provider-payout-method.model"));
 const technician_model_1 = __importStar(require("../models/technician.model"));
 const paystack_service_1 = require("./paystack.service");
 const payout_data_crypto_service_1 = require("./payout-data-crypto.service");
+const market_finance_guard_service_1 = require("./market-finance-guard.service");
 class PayoutMethodError extends Error {
     code;
     statusCode;
@@ -68,12 +67,8 @@ const ensureTechnicianApproved = async (technicianId) => {
 };
 const ensurePayoutCountryMatchesTechnician = (profile, countryCode, currency) => {
     const technicianCountryCode = profile.countryCode;
-    const technicianMarket = (0, market_config_1.getMarketByCountry)(technicianCountryCode);
     if (countryCode !== technicianCountryCode) {
         throw new PayoutMethodError('Payout country must match your registered technician country.', 'PAYOUT_COUNTRY_MISMATCH', 403);
-    }
-    if (currency !== technicianMarket.currency) {
-        throw new PayoutMethodError('Payout currency must match your registered technician country.', 'PAYOUT_CURRENCY_MISMATCH', 403);
     }
 };
 const serialize = (method) => ({
@@ -118,7 +113,7 @@ const createBankPayoutMethod = async (technicianId, input) => {
         throw new PayoutMethodError('Invalid technician id.', 'INVALID_TECHNICIAN_ID');
     const profile = await ensureTechnicianApproved(technicianId);
     ensurePayoutCountryMatchesTechnician(profile, input.countryCode, input.currency);
-    (0, payment_capabilities_config_1.assertPayoutMethodSupported)(input.countryCode, input.currency, provider_payout_method_model_1.ProviderPayoutMethodType.BANK_ACCOUNT);
+    await (0, market_finance_guard_service_1.assertMarketAllowsNewPayout)(input.countryCode, input.currency, provider_payout_method_model_1.ProviderPayoutProvider.PAYSTACK, provider_payout_method_model_1.ProviderPayoutMethodType.BANK_ACCOUNT);
     const accountHolderName = input.accountHolderName.trim();
     const accountNumber = input.accountNumber.replace(/\s+/g, '');
     const bankCode = input.bankCode.trim();
@@ -167,7 +162,7 @@ exports.createBankPayoutMethod = createBankPayoutMethod;
 const createMobileMoneyPayoutMethod = async (technicianId, input) => {
     const profile = await ensureTechnicianApproved(technicianId);
     ensurePayoutCountryMatchesTechnician(profile, input.countryCode, input.currency);
-    (0, payment_capabilities_config_1.assertPayoutMethodSupported)(input.countryCode, input.currency, provider_payout_method_model_1.ProviderPayoutMethodType.MOBILE_MONEY);
+    await (0, market_finance_guard_service_1.assertMarketAllowsNewPayout)(input.countryCode, input.currency, provider_payout_method_model_1.ProviderPayoutProvider.PAYSTACK, provider_payout_method_model_1.ProviderPayoutMethodType.MOBILE_MONEY);
     const operatorCode = input.operatorCode.trim();
     const phoneNumber = input.phoneNumber.trim();
     const accountName = (input.accountName || 'Mobile money recipient').trim();

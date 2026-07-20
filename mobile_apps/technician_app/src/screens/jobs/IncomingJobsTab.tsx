@@ -68,14 +68,14 @@ const styles = StyleSheet.create({
     padding: 40,
   },
   emptyTitle: {
-    color: '#FFFFFF',
+    color: '#F7F7F5',
     fontSize: 16,
     fontWeight: '800',
     textAlign: 'center',
     marginBottom: 6,
   },
   emptyText: {
-    color: '#64748B',
+    color: '#A7A7AD',
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,

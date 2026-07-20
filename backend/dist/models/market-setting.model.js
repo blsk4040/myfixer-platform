@@ -38,10 +38,12 @@ exports.PaymentProviderStatus = exports.MarketStatus = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
 var MarketStatus;
 (function (MarketStatus) {
+    MarketStatus["DRAFT"] = "DRAFT";
     MarketStatus["COMING_SOON"] = "COMING_SOON";
     MarketStatus["ACTIVE"] = "ACTIVE";
     MarketStatus["PAUSED"] = "PAUSED";
     MarketStatus["DISABLED"] = "DISABLED";
+    MarketStatus["ARCHIVED"] = "ARCHIVED";
 })(MarketStatus || (exports.MarketStatus = MarketStatus = {}));
 var PaymentProviderStatus;
 (function (PaymentProviderStatus) {
@@ -187,14 +189,15 @@ const MarketSettingSchema = new mongoose_1.Schema({
             required: true,
             trim: true,
         },
+        timezone: {
+            type: String,
+            default: '',
+            trim: true,
+        },
         status: {
             type: String,
             enum: Object.values(MarketStatus),
-            default: MarketStatus.DISABLED,
-        },
-        enabled: {
-            type: Boolean,
-            default: false,
+            default: MarketStatus.DRAFT,
         },
     },
     pricing: {
@@ -202,6 +205,11 @@ const MarketSettingSchema = new mongoose_1.Schema({
             type: Number,
             required: true,
             min: 0,
+        },
+        marketCalloutFeeMinor: {
+            type: Number,
+            min: 0,
+            default: undefined,
         },
         platformCommissionBps: {
             type: Number,
@@ -214,6 +222,38 @@ const MarketSettingSchema = new mongoose_1.Schema({
             default: 'VAT',
             trim: true,
         },
+        taxRateBps: {
+            type: Number,
+            min: 0,
+            max: 10000,
+            default: 0,
+        },
+        taxInclusive: {
+            type: Boolean,
+            default: false,
+        },
+        clientServiceFeeType: {
+            type: String,
+            enum: ['PERCENTAGE', 'FIXED', 'NONE'],
+            default: 'NONE',
+        },
+        clientServiceFeeBps: {
+            type: Number,
+            min: 0,
+            max: 10000,
+            default: 0,
+        },
+        clientServiceFeeMinor: {
+            type: Number,
+            min: 0,
+            default: 0,
+        },
+        taxableCallout: { type: Boolean, default: true },
+        taxableLabour: { type: Boolean, default: true },
+        taxableParts: { type: Boolean, default: true },
+        taxableAdditionalServices: { type: Boolean, default: true },
+        taxableClientServiceFee: { type: Boolean, default: true },
+        discountsReduceTaxableValue: { type: Boolean, default: true },
     },
     coverage: {
         supportedCities: {
@@ -273,11 +313,32 @@ const MarketSettingSchema = new mongoose_1.Schema({
             default: [],
         },
     },
+    deletionLock: {
+        locked: {
+            type: Boolean,
+            default: false,
+            index: true,
+        },
+        token: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+        lockedAt: {
+            type: Date,
+            default: null,
+        },
+        lockedBy: {
+            type: mongoose_1.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+        },
+    },
 }, { timestamps: true });
 MarketSettingSchema.index({ 'identity.countryCode': 1 }, { unique: true });
 MarketSettingSchema.index({ 'identity.status': 1 });
-MarketSettingSchema.index({ 'identity.enabled': 1 });
 MarketSettingSchema.index({ 'coverage.supportedCities': 1 });
+MarketSettingSchema.index({ 'deletionLock.locked': 1, 'deletionLock.token': 1 });
 const MarketSettingModel = mongoose_1.default.models.MarketSetting ??
     mongoose_1.default.model('MarketSetting', MarketSettingSchema);
 exports.default = MarketSettingModel;

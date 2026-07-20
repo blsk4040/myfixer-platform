@@ -23,8 +23,8 @@ export interface IProviderSettlement extends Document {
   technicianId: mongoose.Types.ObjectId;
   quoteId?: mongoose.Types.ObjectId | null;
   paymentTransactionId?: mongoose.Types.ObjectId | null;
-  countryCode: CountryCode;
-  currency: CurrencyCode;
+  countryCode: string;
+  currency: string;
   grossAmountMinor: number;
   commissionBps: number;
   commissionAmountMinor: number;
@@ -54,8 +54,10 @@ const ProviderSettlementSchema = new Schema<IProviderSettlement>(
     technicianId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     quoteId: { type: Schema.Types.ObjectId, ref: 'JobQuote', default: null, index: true },
     paymentTransactionId: { type: Schema.Types.ObjectId, ref: 'PaymentTransaction', default: null, index: true },
-    countryCode: { type: String, enum: Object.values(CountryCode), required: true, index: true },
-    currency: { type: String, enum: Object.values(CurrencyCode), required: true, index: true },
+    countryCode: { type: String, uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' }, required: true, index: true },
+    currency: { type: String, uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, required: true, index: true },
     grossAmountMinor: { type: Number, required: true, min: 0 },
     commissionBps: { type: Number, required: true, min: 0, max: 10000 },
     commissionAmountMinor: { type: Number, required: true, min: 0 },

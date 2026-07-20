@@ -1,6 +1,7 @@
 import { SoundService } from './sound.service';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import { BRAND } from '../config/brand';
 
 export class NotificationService {
   private static notifiedIncomingBookingIds = new Set<string>();
@@ -41,7 +42,7 @@ export class NotificationService {
   static async testAlertSound(): Promise<void> {
     await SoundService.playIncomingJob(`test-${Date.now()}`);
     await this.showLocalIncomingJobNotification({
-      title: 'MyFixer alert test',
+      title: `${BRAND.displayName} alert test`,
       body: 'If your device supports notification sounds in this build, you should hear this alert.',
     });
   }
@@ -57,7 +58,7 @@ export class NotificationService {
       await Notifications.scheduleNotificationAsync({
         content: {
           title: details?.title || 'New Job Request',
-          body: details?.body || 'A new service request is available. Open MyFixer to review it.',
+          body: details?.body || `A new service request is available. Open ${BRAND.displayName} to review it.`,
           sound: 'incoming_job.wav',
         },
         trigger: Platform.OS === 'android' ? { channelId: 'job-alerts' } : null,

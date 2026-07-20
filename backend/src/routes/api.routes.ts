@@ -74,23 +74,50 @@ import {
   getAdminBookingById,
   getAdminBookings,
   getAdminClients,
+  activateAdminPromotion,
+  archiveAdminPromotion,
   createAdminPromotion,
+  createAdminService,
   createAdminUser,
+  createAdminMarketCity,
+  createAdminMarketArea,
+  deleteAdminBookableService,
+  deleteAdminServiceCategory,
+  deleteAdminServiceGroup,
+  deleteAdminMarketCity,
+  deleteAdminMarketArea,
+  deleteAdminMarket,
+  duplicateAdminPromotion,
+  endAdminPromotion,
   getAdminAuditLogs,
   getAdminInvoices,
   getAdminMarkets,
   getAdminOverview,
+  getAdminPromotionAudit,
+  getAdminPromotionById,
+  getAdminPromotionPerformance,
+  getAdminPromotionRedemptions,
+  getAdminPromotionsSummary,
+  getAdminServices,
   listAdminPromotions,
   getAdminQuotes,
   getAdminWalletTransactions,
+  pauseAdminPromotion,
   getPublicMarketAvailability,
   getPublicMarkets,
+  getPublicServices,
   listAdminUsers,
+  previewAdminPricing,
   revealAdminClientContact,
   updateTechnicianCapabilityStatus,
   updateAdminMarket,
+  updateAdminMarketCity,
+  updateAdminMarketArea,
   updateAdminPromotion,
+  updateAdminService,
+  updateAdminServiceGroup,
   updateAdminUser,
+  uploadAdminServiceImage,
 } from '../controllers/admin.controller';
 import { joinServiceWaitlist } from '../controllers/waitlist.controller';
 import {
@@ -103,6 +130,7 @@ import {
 } from '../controllers/managed-collection.controller';
 import {
   cancelAdminNotification,
+  createAdminBroadcastNotification,
   getMyNotificationPreferences,
   getMyNotifications,
   listAdminNotifications,
@@ -150,6 +178,8 @@ apiRouter.post('/auth/change-password', authenticateToken, changeOwnPassword);
 apiRouter.get('/markets', getPublicMarkets);
 apiRouter.get('/markets/public', getPublicMarkets);
 apiRouter.get('/markets/:country/availability', getPublicMarketAvailability);
+apiRouter.get('/services', getPublicServices);
+apiRouter.get('/services/published', getPublicServices);
 apiRouter.post('/waitlist/service', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), joinServiceWaitlist);
 apiRouter.post('/managed-collections', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), createManagedCollectionProfile);
 apiRouter.get('/notifications', authenticateToken, getMyNotifications);
@@ -213,9 +243,19 @@ apiRouter.patch('/admin/managed-collection-reminders/:id', authenticateToken, re
 apiRouter.get('/admin/quotes', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_READ), getAdminQuotes);
 apiRouter.get('/admin/invoices', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminInvoices);
 apiRouter.get('/admin/wallet-transactions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminWalletTransactions);
-apiRouter.get('/admin/promotions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), listAdminPromotions);
-apiRouter.post('/admin/promotions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), createAdminPromotion);
-apiRouter.patch('/admin/promotions/:id', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), updateAdminPromotion);
+apiRouter.get('/admin/promotions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_READ), listAdminPromotions);
+apiRouter.get('/admin/promotions/summary', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_PERFORMANCE_READ), getAdminPromotionsSummary);
+apiRouter.post('/admin/promotions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_CREATE), createAdminPromotion);
+apiRouter.get('/admin/promotions/:id', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_READ), getAdminPromotionById);
+apiRouter.get('/admin/promotions/:id/performance', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_PERFORMANCE_READ), getAdminPromotionPerformance);
+apiRouter.get('/admin/promotions/:id/redemptions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_REDEMPTIONS_READ), getAdminPromotionRedemptions);
+apiRouter.get('/admin/promotions/:id/audit', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.ADMINS_READ), getAdminPromotionAudit);
+apiRouter.post('/admin/promotions/:id/duplicate', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_CREATE), duplicateAdminPromotion);
+apiRouter.post('/admin/promotions/:id/activate', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_ACTIVATE), activateAdminPromotion);
+apiRouter.post('/admin/promotions/:id/pause', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_PAUSE), pauseAdminPromotion);
+apiRouter.post('/admin/promotions/:id/end', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_ARCHIVE), endAdminPromotion);
+apiRouter.post('/admin/promotions/:id/archive', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_ARCHIVE), archiveAdminPromotion);
+apiRouter.patch('/admin/promotions/:id', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_UPDATE), updateAdminPromotion);
 apiRouter.get('/admin/settlements', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminSettlements);
 apiRouter.post('/admin/settlements/:settlementId/approve', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), approveAdminSettlement);
 apiRouter.post('/admin/settlements/:id/hold', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), holdAdminSettlement);
@@ -223,11 +263,28 @@ apiRouter.post('/admin/settlements/:id/release-hold', authenticateToken, require
 apiRouter.post('/admin/settlements/:id/retry-payout', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), retryAdminSettlementPayout);
 apiRouter.get('/admin/markets', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_READ), getAdminMarkets);
 apiRouter.patch('/admin/markets/:countryCode', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), updateAdminMarket);
+apiRouter.delete('/admin/markets/:countryCode', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), deleteAdminMarket);
+apiRouter.post('/admin/markets/:countryCode/cities', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), createAdminMarketCity);
+apiRouter.patch('/admin/markets/:countryCode/cities/:cityName', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), updateAdminMarketCity);
+apiRouter.delete('/admin/markets/:countryCode/cities/:cityName', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), deleteAdminMarketCity);
+apiRouter.post('/admin/markets/:countryCode/cities/:cityName/areas', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), createAdminMarketArea);
+apiRouter.patch('/admin/markets/:countryCode/cities/:cityName/areas/:areaName', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), updateAdminMarketArea);
+apiRouter.delete('/admin/markets/:countryCode/cities/:cityName/areas/:areaName', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), deleteAdminMarketArea);
+apiRouter.get('/admin/services', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_READ), getAdminServices);
+apiRouter.post('/admin/services', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), createAdminService);
+apiRouter.post('/admin/services/images', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), uploadAdminServiceImage);
+apiRouter.patch('/admin/service-groups/:groupKey', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), updateAdminServiceGroup);
+apiRouter.delete('/admin/service-groups/:groupKey', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), deleteAdminServiceGroup);
+apiRouter.delete('/admin/services/:serviceKey/bookable/:bookableServiceKey', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), deleteAdminBookableService);
+apiRouter.delete('/admin/services/:serviceKey', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), deleteAdminServiceCategory);
+apiRouter.patch('/admin/services/:serviceKey', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), updateAdminService);
+apiRouter.post('/admin/pricing/preview', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_READ), previewAdminPricing);
 apiRouter.get('/admin/users', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.ADMINS_READ), listAdminUsers);
 apiRouter.post('/admin/users', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.ADMINS_CREATE), createAdminUser);
 apiRouter.patch('/admin/users/:id', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.ADMINS_UPDATE), updateAdminUser);
 apiRouter.get('/admin/audit-logs', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.ADMINS_READ), getAdminAuditLogs);
 apiRouter.get('/admin/notifications', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_READ), listAdminNotifications);
+apiRouter.post('/admin/notifications', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_UPDATE), createAdminBroadcastNotification);
 apiRouter.post('/admin/notifications/process-due', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_UPDATE), processAdminNotifications);
 apiRouter.post('/admin/notifications/:id/retry', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_UPDATE), retryAdminNotification);
 apiRouter.post('/admin/notifications/:id/cancel', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_UPDATE), cancelAdminNotification);

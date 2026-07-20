@@ -19,7 +19,7 @@ const OSM_RASTER_STYLE: StyleSpecification = {
     },
   },
   layers: [
-    { id: 'background', type: 'background', paint: { 'background-color': '#090D14' } },
+    { id: 'background', type: 'background', paint: { 'background-color': '#0B0B0D' } },
     { id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.92 } },
   ],
 };
@@ -40,7 +40,7 @@ export function JobMapView({ jobStatus }: JobMapViewProps): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { height: 180, borderRadius: 12, overflow: 'hidden', marginVertical: 8, borderWidth: 1, borderColor: '#1E293B' },
+  container: { height: 180, borderRadius: 12, overflow: 'hidden', marginVertical: 8, borderWidth: 1, borderColor: '#303036' },
   map: { ...StyleSheet.absoluteFillObject },
-  markerDot: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#EF4444', borderWidth: 3, borderColor: '#090D14' },
+  markerDot: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#FF5D5D', borderWidth: 3, borderColor: '#0B0B0D' },
 });

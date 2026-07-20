@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import apiService from '../../services/api.service';
 import authService from '../../services/auth.service';
+import { Colors, Radius } from '../../theme';
 
 export function AddressesScreen(): React.JSX.Element {
   const [streetAddress, setStreetAddress] = useState('');
@@ -97,7 +98,7 @@ export function AddressesScreen(): React.JSX.Element {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator color="#00FF87" />
+        <ActivityIndicator color={Colors.primary} />
       </View>
     );
   }
@@ -109,16 +110,16 @@ export function AddressesScreen(): React.JSX.Element {
 
         <View style={styles.formCard}>
           <Text style={styles.label}>Street Address</Text>
-          <TextInput style={styles.input} value={streetAddress} onChangeText={setStreetAddress} placeholder="Street address" placeholderTextColor="#64748B" />
+          <TextInput style={styles.input} value={streetAddress} onChangeText={setStreetAddress} placeholder="Street address" placeholderTextColor={Colors.textSubtle} />
 
           <Text style={styles.label}>Suburb</Text>
-          <TextInput style={styles.input} value={suburb} onChangeText={setSuburb} placeholder="Suburb" placeholderTextColor="#64748B" />
+          <TextInput style={styles.input} value={suburb} onChangeText={setSuburb} placeholder="Suburb" placeholderTextColor={Colors.textSubtle} />
 
           <Text style={styles.label}>City</Text>
-          <TextInput style={styles.input} value={city} onChangeText={setCity} placeholder="City" placeholderTextColor="#64748B" />
+          <TextInput style={styles.input} value={city} onChangeText={setCity} placeholder="City" placeholderTextColor={Colors.textSubtle} />
 
           <Text style={styles.label}>Postal Code</Text>
-          <TextInput style={styles.input} value={postalCode} onChangeText={setPostalCode} placeholder="Postal code" placeholderTextColor="#64748B" />
+          <TextInput style={styles.input} value={postalCode} onChangeText={setPostalCode} placeholder="Postal code" placeholderTextColor={Colors.textSubtle} />
 
           <View style={styles.gpsBox}>
             <Text style={styles.gpsText}>
@@ -133,7 +134,7 @@ export function AddressesScreen(): React.JSX.Element {
         </View>
 
         <TouchableOpacity style={styles.actionBtn} activeOpacity={0.8} onPress={saveAddress} disabled={saving}>
-          {saving ? <ActivityIndicator color="#090D14" /> : <Text style={styles.actionBtnText}>Save Default Address</Text>}
+          {saving ? <ActivityIndicator color={Colors.background} /> : <Text style={styles.actionBtnText}>Save Default Address</Text>}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -141,16 +142,16 @@ export function AddressesScreen(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
-  loadingContainer: { flex: 1, backgroundColor: '#090D14', alignItems: 'center', justifyContent: 'center' },
+  container: { flex: 1, backgroundColor: Colors.background },
+  loadingContainer: { flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center' },
   scrollContainer: { padding: 20 },
-  sectionTitle: { color: '#64748B', fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 },
-  formCard: { backgroundColor: '#111827', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16 },
-  label: { color: '#E2E8F0', fontSize: 12, fontWeight: '700', marginBottom: 8, marginTop: 12 },
-  input: { backgroundColor: '#090D14', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 14, color: '#FFFFFF', fontSize: 14 },
-  gpsBox: { backgroundColor: '#090D14', borderColor: '#1E293B', borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 16, gap: 8 },
-  gpsText: { color: '#CBD5E1', fontSize: 12 },
-  gpsAction: { color: '#00FF87', fontSize: 12, fontWeight: '700' },
-  actionBtn: { padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 24, backgroundColor: '#00FF87' },
-  actionBtnText: { color: '#090D14', fontSize: 14, fontWeight: '800' },
+  sectionTitle: { color: Colors.textSubtle, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 },
+  formCard: { backgroundColor: Colors.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: 16 },
+  label: { color: Colors.textMuted, fontSize: 12, fontWeight: '700', marginBottom: 8, marginTop: 12 },
+  input: { backgroundColor: Colors.input, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: 14, color: Colors.text, fontSize: 14 },
+  gpsBox: { backgroundColor: Colors.input, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: 12, marginTop: 16, gap: 8 },
+  gpsText: { color: Colors.textMuted, fontSize: 12 },
+  gpsAction: { color: Colors.primary, fontSize: 12, fontWeight: '700' },
+  actionBtn: { padding: 16, borderRadius: Radius.md, alignItems: 'center', marginTop: 24, backgroundColor: Colors.primary },
+  actionBtnText: { color: Colors.background, fontSize: 14, fontWeight: '800' },
 });

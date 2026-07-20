@@ -98,7 +98,7 @@ const buildPlanPayload = (body) => {
     const name = normalizeText(body.name);
     const description = normalizeText(body.description);
     const countryCode = (0, market_config_1.normalizeCountryCode)(body.countryCode);
-    const currency = String(body.currency || '').trim().toUpperCase();
+    const currency = (0, market_config_1.normalizeIsoCurrencyCode)(body.currency);
     const priceMinor = Number(body.priceMinor ?? Math.round(Number(body.price || 0) * 100));
     const billingFrequency = body.billingFrequency;
     const collectionFrequency = body.collectionFrequency;
@@ -111,8 +111,6 @@ const buildPlanPayload = (body) => {
         throw new Error('Plan name is required.');
     if (!Number.isFinite(priceMinor) || priceMinor < 0)
         throw new Error('Valid plan price is required.');
-    if (!Object.values(market_config_1.CurrencyCode).includes(currency))
-        throw new Error('Valid currency is required.');
     if (!isEnumValue(managed_collection_subscription_model_1.BillingFrequency, billingFrequency))
         throw new Error('Valid billing frequency is required.');
     if (!isEnumValue(managed_collection_model_1.ManagedCollectionFrequency, collectionFrequency))

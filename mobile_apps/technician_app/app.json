@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "MyFixer Technician",
+    "name": "Padi Pro",
     "slug": "myfixer-technician",
     "scheme": "myfixertechnician",
     "version": "1.0.0",
@@ -24,6 +24,10 @@
         "FOREGROUND_SERVICE_LOCATION"
       ]
     },
+    "notification": {
+      "icon": "./src/assets/logo/56 PM.png",
+      "color": "#B8FF3D"
+    },
     "plugins": [
       [
         "expo-notifications",
@@ -44,7 +48,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysPermission": "Allow MyFixer to access your location to stream live updates to customers on active dispatches.",
+          "locationAlwaysPermission": "Allow Padi Pro to access your location to stream live updates to customers on active jobs.",
           "isAndroidBackgroundLocationEnabled": true
         }
       ]

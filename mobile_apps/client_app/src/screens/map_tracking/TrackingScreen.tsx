@@ -9,7 +9,6 @@ import {
   View,
   TouchableOpacity,
 } from 'react-native';
-import { Camera, Map as MapLibreMap, Marker, type StyleSpecification } from '@maplibre/maplibre-react-native';
 import { 
   Phone as LucidePhone, 
   MessageSquare as LucideMessageSquare, 
@@ -23,12 +22,27 @@ import { useJobRoute } from '../../hooks/useJobRoute';
 import { distanceMetersBetween } from '../../utils/distance';
 import { formatEta, formatTravelTime } from '../../utils/formatEta';
 import { getProviderRoleForService } from '../../utils/providerRole';
+import { Colors, Radius, Spacing } from '../../theme';
+import { isExpoGoRuntime } from '../../config/runtimeEnvironment';
 
 // ✅ Clean type bypass declarations to silence strict SVGSVGElement type checking
 const Phone = LucidePhone as any;
 const MessageSquare = LucideMessageSquare as any;
 const ShieldCheck = LucideShieldCheck as any;
 const MapPin = LucideMapPin as any;
+
+declare const require: any;
+
+type StyleSpecification = any;
+
+const MapLibreNative = (() => {
+  if (isExpoGoRuntime) return null;
+  try {
+    return require('@maplibre/maplibre-react-native');
+  } catch {
+    return null;
+  }
+})();
 
 type TrackingScreenRoute = {
   params?: {
@@ -63,7 +77,7 @@ const OSM_RASTER_STYLE: StyleSpecification = {
     },
   },
   layers: [
-    { id: 'background', type: 'background', paint: { 'background-color': '#090D14' } },
+    { id: 'background', type: 'background', paint: { 'background-color': '#0B0B0D' } },
     { id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.92 } },
   ],
 };
@@ -203,11 +217,12 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
     ? new Date(lastLocationUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : 'Waiting';
   const providerRole = getProviderRoleForService(bookingService.serviceKey, bookingService.applianceType);
+  const hasNativeMap = Boolean(MapLibreNative);
 
   if (isLoadingBooking || !mapCenter || !customerLocation) {
     return (
       <SafeAreaView style={styles.centeredScreen}>
-        <ActivityIndicator size="large" color="#00FF87" />
+        <ActivityIndicator size="large" color={Colors.primary} />
         <Text style={styles.loadingText}>Connecting secure map tracking layout...</Text>
         {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
       </SafeAreaView>
@@ -216,34 +231,44 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
 
   return (
     <View style={styles.container}>
-      <MapLibreMap mapStyle={OSM_RASTER_STYLE} style={styles.map}>
-        {cameraBounds ? (
-          <Camera bounds={cameraBounds} padding={{ top: 110, right: 42, bottom: 260, left: 42 }} />
-        ) : (
-          <Camera center={mapCenter ?? DEFAULT_CENTER} zoom={technicianLocation ? 12 : 14} />
-        )}
+      {hasNativeMap ? (
+        <MapLibreNative.Map mapStyle={OSM_RASTER_STYLE} style={styles.map}>
+          {cameraBounds ? (
+            <MapLibreNative.Camera bounds={cameraBounds} padding={{ top: 110, right: 42, bottom: 260, left: 42 }} />
+          ) : (
+            <MapLibreNative.Camera center={mapCenter ?? DEFAULT_CENTER} zoom={technicianLocation ? 12 : 14} />
+          )}
 
-        <RouteLine id="technician-route" geometry={routeState.route?.geometry} />
+          <RouteLine id="technician-route" geometry={routeState.route?.geometry} />
 
-        <Marker lngLat={toLngLat(customerLocation)}>
-          <View style={styles.customerMarkerOuter}>
-            <View style={styles.customerMarkerInner} />
-          </View>
-        </Marker>
-
-        {technicianLocation && (
-          <Marker lngLat={toLngLat(technicianLocation)}>
-            <View style={styles.technicianMarker}>
-              <View style={styles.technicianMarkerPulse} />
-              <View style={styles.technicianMarkerDot} />
+          <MapLibreNative.Marker lngLat={toLngLat(customerLocation)}>
+            <View style={styles.customerMarkerOuter}>
+              <View style={styles.customerMarkerInner} />
             </View>
-          </Marker>
-        )}
-      </MapLibreMap>
+          </MapLibreNative.Marker>
+
+          {technicianLocation && (
+            <MapLibreNative.Marker lngLat={toLngLat(technicianLocation)}>
+              <View style={styles.technicianMarker}>
+                <View style={styles.technicianMarkerPulse} />
+                <View style={styles.technicianMarkerDot} />
+              </View>
+            </MapLibreNative.Marker>
+          )}
+        </MapLibreNative.Map>
+      ) : (
+        <View style={styles.mapFallback}>
+          <MapPin color={Colors.primary} size={28} />
+          <Text style={styles.mapFallbackTitle}>Live map unavailable in this runtime</Text>
+          <Text style={styles.mapFallbackBody}>
+            Rebuild and launch the Paddy dev app to load native MapLibre tracking.
+          </Text>
+        </View>
+      )}
 
       {/* Floating Header Status Bar Indicator */}
       <View style={styles.topStatusIndicator}>
-        <View style={[styles.statusDot, { backgroundColor: technicianLocation ? '#00FF87' : '#38BDF8' }]} />
+        <View style={[styles.statusDot, { backgroundColor: technicianLocation ? Colors.primary : Colors.info }]} />
         <Text style={styles.topStatusText}>
           {technicianLocation ? `Live tracking verified ${providerRole.singular}` : 'Dispatched: Finding live coordinates...'}
         </Text>
@@ -264,8 +289,8 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
           <View style={{ flex: 1 }}>
             <Text style={styles.providerName}>{technician?.name || (technicianLocation ? `Assigned ${providerRole.capitalized}` : `Securing nearest ${providerRole.singular}`)}</Text>
             <View style={styles.verificationBadgeRow}>
-              <ShieldCheck color="#00FF87" size={14} />
-              <Text style={styles.verificationText}>Verified MyFixer Pro</Text>
+              <ShieldCheck color={Colors.primary} size={14} />
+              <Text style={styles.verificationText}>Verified Paddy Pro</Text>
             </View>
           </View>
         </View>
@@ -273,7 +298,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
         <View style={styles.divider} />
 
         <View style={styles.etaContainer}>
-          <MapPin color="#64748B" size={18} />
+          <MapPin color={Colors.textSubtle} size={18} />
           <View style={styles.etaTextBlock}>
             <Text style={styles.etaText}>
               {technicianLocation ? `Estimated travel time: ${travelTimeText}` : `Awaiting ${providerRole.singular} location...`}
@@ -290,10 +315,10 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
 
         <View style={styles.actionRow}>
           <TouchableOpacity style={styles.iconActionBtn}>
-            <Phone color="#FFFFFF" size={20} />
+            <Phone color={Colors.text} size={20} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconActionBtn}>
-            <MessageSquare color="#FFFFFF" size={20} />
+            <MessageSquare color={Colors.text} size={20} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.cancelRequestBtn}>
             <Text style={styles.cancelBtnText}>Cancel Job</Text>
@@ -305,42 +330,45 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
+  container: { flex: 1, backgroundColor: Colors.background },
   map: { ...StyleSheet.absoluteFillObject },
-  centeredScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, backgroundColor: '#090D14' },
-  loadingText: { marginTop: 14, color: '#64748B', fontSize: 14, fontWeight: '600', textAlign: 'center' },
-  errorText: { marginTop: 10, color: '#EF4444', fontSize: 13, textAlign: 'center' },
+  mapFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, backgroundColor: Colors.background },
+  mapFallbackTitle: { color: Colors.text, fontSize: 16, fontWeight: '900', marginTop: 12, textAlign: 'center' },
+  mapFallbackBody: { color: Colors.textSubtle, fontSize: 13, fontWeight: '600', lineHeight: 19, marginTop: 6, textAlign: 'center' },
+  centeredScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, backgroundColor: Colors.background },
+  loadingText: { marginTop: 14, color: Colors.textSubtle, fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  errorText: { marginTop: 10, color: Colors.danger, fontSize: 13, textAlign: 'center' },
   
-  topStatusIndicator: { position: 'absolute', top: 60, left: 20, right: 20, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', height: 44, borderRadius: 22, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
+  topStatusIndicator: { position: 'absolute', top: 60, left: 20, right: 20, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, height: 44, borderRadius: 22, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
   statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 10 },
-  topStatusText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  topStatusText: { color: Colors.text, fontSize: 13, fontWeight: '800' },
 
-  uberPanel: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#111827', borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: '#1E293B', padding: 24, paddingBottom: 34 },
-  panelHandle: { width: 36, height: 4, backgroundColor: '#1E293B', borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
+  uberPanel: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: Colors.surface, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, borderTopWidth: 1, borderColor: Colors.border, padding: Spacing.xxl, paddingBottom: 34 },
+  panelHandle: { width: 36, height: 4, backgroundColor: Colors.border, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  avatarPlaceholder: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center' },
+  avatarPlaceholder: { width: 48, height: 48, borderRadius: 24, backgroundColor: Colors.surfaceRaised, justifyContent: 'center', alignItems: 'center' },
   avatarImage: { width: '100%', height: '100%', borderRadius: 24 },
-  avatarInitial: { color: '#64748B', fontSize: 18, fontWeight: '700' },
-  providerName: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  avatarInitial: { color: Colors.textSubtle, fontSize: 18, fontWeight: '700' },
+  providerName: { color: Colors.text, fontSize: 16, fontWeight: '900' },
   verificationBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  verificationText: { color: '#64748B', fontSize: 12, fontWeight: '600' },
+  verificationText: { color: Colors.textSubtle, fontSize: 12, fontWeight: '700' },
   
-  divider: { height: 1, backgroundColor: '#1E293B', marginVertical: 18 },
+  divider: { height: 1, backgroundColor: Colors.border, marginVertical: 18 },
   etaContainer: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 },
-  etaText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },
+  etaText: { color: Colors.textMuted, fontSize: 13, fontWeight: '700' },
   etaTextBlock: { flex: 1 },
-  etaSubText: { color: '#64748B', fontSize: 12, fontWeight: '600', marginTop: 3 },
-  routeErrorText: { color: '#F59E0B', fontSize: 12, fontWeight: '700', marginTop: 5 },
+  etaSubText: { color: Colors.textSubtle, fontSize: 12, fontWeight: '600', marginTop: 3 },
+  routeErrorText: { color: Colors.amber, fontSize: 12, fontWeight: '700', marginTop: 5 },
 
   actionRow: { flexDirection: 'row', gap: 12 },
-  iconActionBtn: { width: 50, height: 50, borderRadius: 14, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', justifyContent: 'center', alignItems: 'center' },
-  cancelRequestBtn: { flex: 1, backgroundColor: '#EF444415', borderWidth: 1, borderColor: '#EF444430', height: 50, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
-  cancelBtnText: { color: '#EF4444', fontSize: 14, fontWeight: '700' },
+  iconActionBtn: { width: 50, height: 50, borderRadius: Radius.md, backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.borderStrong, justifyContent: 'center', alignItems: 'center' },
+  cancelRequestBtn: { flex: 1, backgroundColor: 'rgba(255, 93, 93, 0.08)', borderWidth: 1, borderColor: 'rgba(255, 93, 93, 0.25)', height: 50, borderRadius: Radius.md, justifyContent: 'center', alignItems: 'center' },
+  cancelBtnText: { color: Colors.danger, fontSize: 14, fontWeight: '800' },
 
-  customerMarkerOuter: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#00FF8730', alignItems: 'center', justifyContent: 'center' },
-  customerMarkerInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#00FF87' },
+  customerMarkerOuter: { width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(184, 255, 61, 0.28)', alignItems: 'center', justifyContent: 'center' },
+  customerMarkerInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.primary },
 
   technicianMarker: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
-  technicianMarkerPulse: { position: 'absolute', width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(56, 189, 248, 0.25)' },
-  technicianMarkerDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: '#FFFFFF', backgroundColor: '#38BDF8' }
+  technicianMarkerPulse: { position: 'absolute', width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(86, 184, 255, 0.25)' },
+  technicianMarkerDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: Colors.text, backgroundColor: Colors.info }
 });

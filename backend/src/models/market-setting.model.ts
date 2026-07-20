@@ -4,10 +4,12 @@ import mongoose, { Schema, Document } from 'mongoose';
 import { PaymentProviderCode } from '../config/market.config';
 
 export enum MarketStatus {
+  DRAFT = 'DRAFT',
   COMING_SOON = 'COMING_SOON',
   ACTIVE = 'ACTIVE',
   PAUSED = 'PAUSED',
   DISABLED = 'DISABLED',
+  ARCHIVED = 'ARCHIVED',
 }
 
 export enum PaymentProviderStatus {
@@ -24,13 +26,25 @@ export interface IMarketSettingDocument extends Document {
     currency: string;
     locale: string;
     status: MarketStatus;
-    enabled: boolean;
+    timezone?: string;
   };
 
   pricing: {
     defaultCalloutFeeMinor: number;
+    marketCalloutFeeMinor?: number;
     platformCommissionBps: number;
     taxLabel: string;
+    taxRateBps?: number;
+    taxInclusive?: boolean;
+    clientServiceFeeType?: 'PERCENTAGE' | 'FIXED' | 'NONE';
+    clientServiceFeeBps?: number;
+    clientServiceFeeMinor?: number;
+    taxableCallout?: boolean;
+    taxableLabour?: boolean;
+    taxableParts?: boolean;
+    taxableAdditionalServices?: boolean;
+    taxableClientServiceFee?: boolean;
+    discountsReduceTaxableValue?: boolean;
   };
 
   coverage: {
@@ -95,6 +109,13 @@ export interface IMarketSettingDocument extends Document {
       before?: unknown;
       after?: unknown;
     }[];
+  };
+
+  deletionLock?: {
+    locked: boolean;
+    token?: string;
+    lockedAt?: Date;
+    lockedBy?: mongoose.Types.ObjectId | null;
   };
 
   createdAt: Date;
@@ -257,14 +278,15 @@ const MarketSettingSchema = new Schema<IMarketSettingDocument>(
         required: true,
         trim: true,
       },
+      timezone: {
+        type: String,
+        default: '',
+        trim: true,
+      },
       status: {
         type: String,
         enum: Object.values(MarketStatus),
-        default: MarketStatus.DISABLED,
-      },
-      enabled: {
-        type: Boolean,
-        default: false,
+        default: MarketStatus.DRAFT,
       },
     },
 
@@ -273,6 +295,11 @@ const MarketSettingSchema = new Schema<IMarketSettingDocument>(
         type: Number,
         required: true,
         min: 0,
+      },
+      marketCalloutFeeMinor: {
+        type: Number,
+        min: 0,
+        default: undefined,
       },
       platformCommissionBps: {
         type: Number,
@@ -285,6 +312,38 @@ const MarketSettingSchema = new Schema<IMarketSettingDocument>(
         default: 'VAT',
         trim: true,
       },
+      taxRateBps: {
+        type: Number,
+        min: 0,
+        max: 10000,
+        default: 0,
+      },
+      taxInclusive: {
+        type: Boolean,
+        default: false,
+      },
+      clientServiceFeeType: {
+        type: String,
+        enum: ['PERCENTAGE', 'FIXED', 'NONE'],
+        default: 'NONE',
+      },
+      clientServiceFeeBps: {
+        type: Number,
+        min: 0,
+        max: 10000,
+        default: 0,
+      },
+      clientServiceFeeMinor: {
+        type: Number,
+        min: 0,
+        default: 0,
+      },
+      taxableCallout: { type: Boolean, default: true },
+      taxableLabour: { type: Boolean, default: true },
+      taxableParts: { type: Boolean, default: true },
+      taxableAdditionalServices: { type: Boolean, default: true },
+      taxableClientServiceFee: { type: Boolean, default: true },
+      discountsReduceTaxableValue: { type: Boolean, default: true },
     },
 
     coverage: {
@@ -348,14 +407,36 @@ const MarketSettingSchema = new Schema<IMarketSettingDocument>(
         default: [],
       },
     },
+
+    deletionLock: {
+      locked: {
+        type: Boolean,
+        default: false,
+        index: true,
+      },
+      token: {
+        type: String,
+        default: '',
+        trim: true,
+      },
+      lockedAt: {
+        type: Date,
+        default: null,
+      },
+      lockedBy: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+      },
+    },
   },
   { timestamps: true }
 );
 
 MarketSettingSchema.index({ 'identity.countryCode': 1 }, { unique: true });
 MarketSettingSchema.index({ 'identity.status': 1 });
-MarketSettingSchema.index({ 'identity.enabled': 1 });
 MarketSettingSchema.index({ 'coverage.supportedCities': 1 });
+MarketSettingSchema.index({ 'deletionLock.locked': 1, 'deletionLock.token': 1 });
 
 const MarketSettingModel =
   (mongoose.models.MarketSetting as mongoose.Model<IMarketSettingDocument> | undefined) ??

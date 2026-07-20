@@ -85,7 +85,10 @@ const login = async (email, password) => {
 const isNewAuditShape = (log) =>
   Boolean(log?.actor && log?.event && log?.request && Object.prototype.hasOwnProperty.call(log, 'success'));
 
-const createSeededBooking = async (customerSession, suffix, countryCode = customerSession.user?.countryCode || 'ZM') => {
+const createSeededBooking = async (customerSession, suffix, countryCode = customerSession.user?.countryCode || process.env.SMOKE_TEST_COUNTRY_CODE || '') => {
+  assert(countryCode, 'SMOKE_TEST_COUNTRY_CODE or customer countryCode is required for smoke test booking creation.');
+  const city = process.env.SMOKE_TEST_CITY || customerSession.user?.location?.city || 'Test City';
+  const area = process.env.SMOKE_TEST_AREA || customerSession.user?.location?.area || `${city} Central`;
   const { response, body } = await request('/bookings', {
     method: 'POST',
     token: customerSession.token,
@@ -97,11 +100,11 @@ const createSeededBooking = async (customerSession, suffix, countryCode = custom
       longitude: 28.3228,
       call_out_fee: 450,
       country_code: countryCode,
-      full_address: `Smoke Test Address ${suffix}, Lusaka`,
+      full_address: `Smoke Test Address ${suffix}, ${city}`,
       complex_details: 'Seeded integration test only',
-      city: 'Lusaka',
-      area: 'Lusaka Central',
-      general_area: 'Lusaka Central',
+      city,
+      area,
+      general_area: area,
       service_key: 'appliance_repair',
       category: 'appliance_repair',
     }),

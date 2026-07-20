@@ -11,10 +11,10 @@ const configureAndroidChannel = async (): Promise<void> => {
   if (Platform.OS !== 'android') return;
 
   await Notifications.setNotificationChannelAsync('default', {
-    name: 'MyFixer updates',
+    name: 'Padi Pro updates',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#00FF87',
+    lightColor: '#B8FF3D',
     sound: 'default',
   });
 };

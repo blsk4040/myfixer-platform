@@ -36,7 +36,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.VerificationStatus = exports.TechnicianApprovalStatus = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
-const market_config_1 = require("../config/market.config");
 var TechnicianApprovalStatus;
 (function (TechnicianApprovalStatus) {
     TechnicianApprovalStatus["PENDING_REVIEW"] = "PENDING_REVIEW";
@@ -85,7 +84,8 @@ const TechnicianSchema = new mongoose_1.Schema({
     },
     countryCode: {
         type: String,
-        enum: Object.values(market_config_1.CountryCode),
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
         required: true,
         index: true,
     },

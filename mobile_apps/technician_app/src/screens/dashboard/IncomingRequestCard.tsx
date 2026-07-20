@@ -56,15 +56,15 @@ export function IncomingRequestCard({
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: '#111922', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#1E293B', marginBottom: 12 },
+  card: { backgroundColor: '#17171A', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#303036', marginBottom: 12 },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
-  title: { color: '#FFFFFF', fontWeight: '700', fontSize: 16, flex: 1 },
-  price: { color: '#00E676', fontWeight: '800', fontSize: 18 },
-  distanceText: { color: '#94A3B8', marginTop: 4, fontSize: 13 },
-  descriptionText: { color: '#CBD5E1', marginTop: 10, fontSize: 13, lineHeight: 18 },
+  title: { color: '#F7F7F5', fontWeight: '700', fontSize: 16, flex: 1 },
+  price: { color: '#B8FF3D', fontWeight: '800', fontSize: 18 },
+  distanceText: { color: '#B9B9BF', marginTop: 4, fontSize: 13 },
+  descriptionText: { color: '#B9B9BF', marginTop: 10, fontSize: 13, lineHeight: 18 },
   buttonRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
-  declineButton: { flex: 1, backgroundColor: '#1E293B', paddingVertical: 12, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  acceptButton: { flex: 2, backgroundColor: '#00E676', paddingVertical: 12, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  declineText: { color: '#94A3B8', fontWeight: '700', fontSize: 14 },
-  acceptText: { color: '#111922', fontWeight: '800', fontSize: 14 },
+  declineButton: { flex: 1, backgroundColor: '#222226', paddingVertical: 12, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  acceptButton: { flex: 2, backgroundColor: '#B8FF3D', paddingVertical: 12, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  declineText: { color: '#B9B9BF', fontWeight: '700', fontSize: 14 },
+  acceptText: { color: '#0B0B0D', fontWeight: '800', fontSize: 14 },
 });

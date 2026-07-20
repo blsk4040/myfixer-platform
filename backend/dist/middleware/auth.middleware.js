@@ -57,6 +57,14 @@ const ADMIN_ROLE_PERMISSIONS = {
     [user_model_1.AdminRole.FINANCE_ADMIN]: [
         user_model_1.AdminPermission.OVERVIEW_READ,
         user_model_1.AdminPermission.FINANCE_READ,
+        user_model_1.AdminPermission.PROMOTIONS_READ,
+        user_model_1.AdminPermission.PROMOTIONS_CREATE,
+        user_model_1.AdminPermission.PROMOTIONS_UPDATE,
+        user_model_1.AdminPermission.PROMOTIONS_ACTIVATE,
+        user_model_1.AdminPermission.PROMOTIONS_PAUSE,
+        user_model_1.AdminPermission.PROMOTIONS_ARCHIVE,
+        user_model_1.AdminPermission.PROMOTIONS_PERFORMANCE_READ,
+        user_model_1.AdminPermission.PROMOTIONS_REDEMPTIONS_READ,
         user_model_1.AdminPermission.SETTINGS_READ,
     ],
     [user_model_1.AdminRole.SUPPORT_AGENT]: [
@@ -81,6 +89,7 @@ const ADMIN_ROLE_PERMISSIONS = {
         user_model_1.AdminPermission.BOOKINGS_READ,
         user_model_1.AdminPermission.TECHNICIANS_READ,
         user_model_1.AdminPermission.FINANCE_READ,
+        user_model_1.AdminPermission.PROMOTIONS_READ,
         user_model_1.AdminPermission.MARKETS_READ,
         user_model_1.AdminPermission.ADMINS_READ,
         user_model_1.AdminPermission.SETTINGS_READ,

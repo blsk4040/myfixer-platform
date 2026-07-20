@@ -24,7 +24,7 @@ module.exports = {
       'expo-location',
       {
         locationWhenInUsePermission:
-          'Allow MyFixer to show your position relative to the dispatch technician on the live map radar.',
+          'Allow Paddy to show your position relative to the assigned professional on the live map.',
       },
     ],
   ],

@@ -5,6 +5,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,14 +13,29 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { LockKeyhole, Mail, ShieldCheck } from 'lucide-react-native';
+import { LockKeyhole, Mail } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 import { Colors, IconSizes, Radius, Shadows, Spacing, Typography } from '../../theme';
 import authService, { AuthSession as LocalAuthSession } from '../../services/auth.service';
 import apiService from '../../services/api.service';
 import { assertConfiguredUrl, getApiBaseUrl } from '../../config/runtime.config';
+import { BRAND } from '../../config/brand';
+import { isExpoGoRuntime } from '../../config/runtimeEnvironment';
+
+const brandLogo = require('../../assets/logo/56 PM.png');
+
+type GoogleSigninModule = typeof import('@react-native-google-signin/google-signin')['GoogleSignin'];
+
+const loadGoogleSignin = async (): Promise<GoogleSigninModule | null> => {
+  if (isExpoGoRuntime) return null;
+  try {
+    const module = await import('@react-native-google-signin/google-signin');
+    return module.GoogleSignin;
+  } catch {
+    return null;
+  }
+};
 
 export function LoginScreen({ navigation }: any): React.JSX.Element {
   const [email, setEmail] = useState('');
@@ -32,10 +48,17 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
 
   // Configure native Google Sign-In on initial mount
   useEffect(() => {
-    GoogleSignin.configure({
-      webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-      offlineAccess: false,
+    let isMounted = true;
+    loadGoogleSignin().then((GoogleSignin) => {
+      if (!isMounted || !GoogleSignin) return;
+      GoogleSignin.configure({
+        webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+        offlineAccess: false,
+      });
     });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleLogin = async () => {
@@ -92,6 +115,11 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
     setIsGoogleLoading(true);
 
     try {
+      const GoogleSignin = await loadGoogleSignin();
+      if (!GoogleSignin) {
+        throw new Error('Google Sign-In native module is not available in this runtime. Rebuild and launch the Padi dev app, not Expo Go.');
+      }
+
       await GoogleSignin.hasPlayServices({
         showPlayServicesUpdateDialog: true,
       });
@@ -156,15 +184,13 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoidingView}>
         <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
           <View style={styles.brandContainer}>
-            <View style={styles.trustBadge} accessible accessibilityRole="text" accessibilityLabel="Secure MyFixer access">
-              <ShieldCheck color={Colors.primary} size={IconSizes.sm} />
-              <Text style={styles.trustBadgeText}>Secure client access</Text>
-            </View>
-
-            <Text style={styles.logoText}>
-              MyFixer <Text style={styles.proAccent}>Pro</Text>
-            </Text>
-            <Text style={styles.tagline}>On-demand verified field specialists</Text>
+            <Image
+              source={brandLogo}
+              style={styles.brandLogo}
+              resizeMode="contain"
+              accessible
+              accessibilityLabel={`${BRAND.displayName} logo`}
+            />
           </View>
 
           <View style={styles.formContainer}>
@@ -298,35 +324,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   brandContainer: { alignItems: 'center', marginBottom: Spacing.huge },
-  trustBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.surface,
-    marginBottom: Spacing.lg,
-  },
-  trustBadgeText: {
-    color: Colors.textMuted,
-    fontSize: Typography.caption.fontSize,
-    fontWeight: Typography.caption.fontWeight,
-  },
-  logoText: {
-    color: Colors.white,
-    fontSize: Typography.hero.fontSize,
-    fontWeight: Typography.hero.fontWeight,
-  },
-  proAccent: { color: Colors.primary },
-  tagline: {
-    color: Colors.textSubtle,
-    fontSize: Typography.label.fontSize,
-    marginTop: Spacing.xs,
-    fontWeight: '600',
-    textAlign: 'center',
+  brandLogo: {
+    width: '100%',
+    maxWidth: 320,
+    height: 164,
+    marginBottom: Spacing.sm,
   },
   formContainer: {
     width: '100%',

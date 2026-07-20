@@ -24,7 +24,7 @@ export interface IPaymentTransaction extends Document {
   customerId: mongoose.Types.ObjectId;
   technicianId?: mongoose.Types.ObjectId | null;
   amountMinor: number;
-  currency: CurrencyCode;
+  currency: string;
   status: PaymentTransactionStatus;
   providerStatus?: string;
   authorizationUrl?: string;
@@ -88,7 +88,8 @@ const PaymentTransactionSchema = new Schema<IPaymentTransaction>(
     },
     currency: {
       type: String,
-      enum: Object.values(CurrencyCode),
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
       required: true,
       index: true,
     },

@@ -7,7 +7,8 @@ const formatMoney = (amount, currency) => new Intl.NumberFormat('en', {
     currency,
     currencyDisplay: 'narrowSymbol',
 }).format(amount);
-function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLabor, partsAmount, totalAmount, currency, }) {
+function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLabor, partsAmount, discountAmount = 0, promoCode = '', promotionLabel = '', clientServiceFee = 0, taxAmount = 0, subtotalAmount, totalAmount, currency, }) {
+    const displayPromotion = promotionLabel || promoCode || 'Promotion';
     return `
     <!DOCTYPE html>
     <html>
@@ -68,6 +69,26 @@ function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLa
                 <tr>
                   <td>Acquired Materials & Component Parts</td>
                   <td style="text-align: right;">${formatMoney(partsAmount, currency)}</td>
+                </tr>` : ''}
+                ${discountAmount > 0 ? `
+                <tr>
+                  <td>${displayPromotion}</td>
+                  <td style="text-align: right; color: #DC2626;">-${formatMoney(discountAmount, currency)}</td>
+                </tr>` : ''}
+                ${typeof subtotalAmount === 'number' ? `
+                <tr>
+                  <td>Subtotal</td>
+                  <td style="text-align: right;">${formatMoney(subtotalAmount, currency)}</td>
+                </tr>` : ''}
+                ${clientServiceFee > 0 ? `
+                <tr>
+                  <td>Client Service Fee</td>
+                  <td style="text-align: right;">${formatMoney(clientServiceFee, currency)}</td>
+                </tr>` : ''}
+                ${taxAmount > 0 ? `
+                <tr>
+                  <td>Tax</td>
+                  <td style="text-align: right;">${formatMoney(taxAmount, currency)}</td>
                 </tr>` : ''}
                 <tr class="total-row">
                   <td>Total Settled Balance</td>

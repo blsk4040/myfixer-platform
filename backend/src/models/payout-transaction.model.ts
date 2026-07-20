@@ -19,8 +19,8 @@ export interface IPayoutTransaction extends Document {
   bookingId: mongoose.Types.ObjectId;
   technicianId: mongoose.Types.ObjectId;
   payoutMethodId: mongoose.Types.ObjectId;
-  countryCode: CountryCode;
-  currency: CurrencyCode;
+  countryCode: string;
+  currency: string;
   amountMinor: number;
   status: PayoutTransactionStatus;
   providerStatus?: string;
@@ -50,8 +50,10 @@ const PayoutTransactionSchema = new Schema<IPayoutTransaction>(
     bookingId: { type: Schema.Types.ObjectId, ref: 'Booking', required: true, index: true },
     technicianId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     payoutMethodId: { type: Schema.Types.ObjectId, ref: 'ProviderPayoutMethod', required: true, index: true },
-    countryCode: { type: String, enum: Object.values(CountryCode), required: true, index: true },
-    currency: { type: String, enum: Object.values(CurrencyCode), required: true, index: true },
+    countryCode: { type: String, uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' }, required: true, index: true },
+    currency: { type: String, uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, required: true, index: true },
     amountMinor: { type: Number, required: true, min: 1 },
     status: { type: String, enum: Object.values(PayoutTransactionStatus), default: PayoutTransactionStatus.INITIALIZED, index: true },
     providerStatus: { type: String, default: '', trim: true },

@@ -36,7 +36,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WalletTransaction = exports.Wallet = exports.Invoice = exports.WalletTransactionStatus = exports.WalletTransactionType = exports.InvoiceStatus = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
-const market_config_1 = require("../config/market.config");
 var InvoiceStatus;
 (function (InvoiceStatus) {
     InvoiceStatus["UNPAID"] = "UNPAID";
@@ -91,14 +90,16 @@ const InvoiceSchema = new mongoose_1.Schema({
     },
     countryCode: {
         type: String,
-        enum: Object.values(market_config_1.CountryCode),
-        default: market_config_1.CountryCode.ZA,
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
+        required: true,
         index: true,
     },
     currency: {
         type: String,
-        enum: Object.values(market_config_1.CurrencyCode),
-        default: market_config_1.CurrencyCode.ZAR,
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
+        required: true,
         index: true,
     },
     baseAmountMinor: {
@@ -209,14 +210,16 @@ const WalletSchema = new mongoose_1.Schema({
     },
     countryCode: {
         type: String,
-        enum: Object.values(market_config_1.CountryCode),
-        default: market_config_1.CountryCode.ZA,
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
+        required: true,
         index: true,
     },
     currency: {
         type: String,
-        enum: Object.values(market_config_1.CurrencyCode),
-        default: market_config_1.CurrencyCode.ZAR,
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
+        required: true,
         index: true,
     },
     availableBalanceMinor: {
@@ -292,13 +295,15 @@ const WalletTransactionSchema = new mongoose_1.Schema({
     },
     countryCode: {
         type: String,
-        enum: Object.values(market_config_1.CountryCode),
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
         required: true,
         index: true,
     },
     currency: {
         type: String,
-        enum: Object.values(market_config_1.CurrencyCode),
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
         required: true,
         index: true,
     },

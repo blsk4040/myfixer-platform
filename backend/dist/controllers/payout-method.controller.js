@@ -1,18 +1,40 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deletePayoutMethod = exports.makeDefaultPayoutMethod = exports.addMobileMoneyPayoutMethod = exports.addBankPayoutMethod = exports.getMyPayoutMethods = void 0;
 const market_config_1 = require("../config/market.config");
 const payout_method_service_1 = require("../services/payout-method.service");
 const audit_service_1 = require("../services/audit.service");
+const technician_model_1 = __importDefault(require("../models/technician.model"));
+const market_finance_guard_service_1 = require("../services/market-finance-guard.service");
 const handleError = (res, error, fallback) => {
     if (error instanceof payout_method_service_1.PayoutMethodError || error instanceof Error) {
-        const statusCode = error instanceof payout_method_service_1.PayoutMethodError ? error.statusCode : 400;
-        res.status(statusCode).json({ success: false, message: error.message, code: error instanceof payout_method_service_1.PayoutMethodError ? error.code : 'PAYOUT_METHOD_ERROR' });
+        const statusCode = error instanceof payout_method_service_1.PayoutMethodError || error instanceof market_finance_guard_service_1.MarketFinanceGuardError
+            ? error.statusCode
+            : 400;
+        res.status(statusCode).json({
+            success: false,
+            message: error.message,
+            code: error instanceof payout_method_service_1.PayoutMethodError || error instanceof market_finance_guard_service_1.MarketFinanceGuardError
+                ? error.code
+                : 'PAYOUT_METHOD_ERROR',
+        });
         return;
     }
     res.status(500).json({ success: false, message: fallback });
 };
 const technicianId = (req) => String(req.user.id ?? req.user._id);
+const getTechnicianMarketInput = async (req) => {
+    const profile = await technician_model_1.default.findOne({ userId: technicianId(req) }).select('countryCode').lean();
+    const countryCode = (0, market_config_1.normalizeCountryCode)(req.body?.countryCode || req.body?.country || profile?.countryCode);
+    const market = await (0, market_finance_guard_service_1.assertActiveMarket)(countryCode);
+    return {
+        countryCode,
+        currency: market.identity.currency,
+    };
+};
 const getMyPayoutMethods = async (req, res) => {
     try {
         res.status(200).json({ success: true, methods: await (0, payout_method_service_1.listTechnicianPayoutMethods)(technicianId(req)) });
@@ -24,8 +46,11 @@ const getMyPayoutMethods = async (req, res) => {
 exports.getMyPayoutMethods = getMyPayoutMethods;
 const addBankPayoutMethod = async (req, res) => {
     try {
-        const countryCode = (0, market_config_1.normalizeCountryCode)(req.body?.countryCode || req.body?.country);
-        const currency = (0, market_config_1.isCurrencyCode)(req.body?.currency) ? req.body.currency : market_config_1.CurrencyCode.ZAR;
+        const { countryCode, currency } = await getTechnicianMarketInput(req);
+        if (!(0, market_config_1.isCurrencyCode)(currency)) {
+            res.status(409).json({ success: false, message: 'Technician payout currency is not configured.', code: 'PAYOUT_CURRENCY_REQUIRED' });
+            return;
+        }
         const method = await (0, payout_method_service_1.createBankPayoutMethod)(technicianId(req), {
             countryCode,
             currency,
@@ -51,8 +76,11 @@ const addBankPayoutMethod = async (req, res) => {
 exports.addBankPayoutMethod = addBankPayoutMethod;
 const addMobileMoneyPayoutMethod = async (req, res) => {
     try {
-        const countryCode = (0, market_config_1.normalizeCountryCode)(req.body?.countryCode || req.body?.country);
-        const currency = (0, market_config_1.isCurrencyCode)(req.body?.currency) ? req.body.currency : market_config_1.CurrencyCode.ZAR;
+        const { countryCode, currency } = await getTechnicianMarketInput(req);
+        if (!(0, market_config_1.isCurrencyCode)(currency)) {
+            res.status(409).json({ success: false, message: 'Technician payout currency is not configured.', code: 'PAYOUT_CURRENCY_REQUIRED' });
+            return;
+        }
         const method = await (0, payout_method_service_1.createMobileMoneyPayoutMethod)(technicianId(req), {
             countryCode,
             currency,

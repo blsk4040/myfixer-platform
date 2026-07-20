@@ -1,6 +1,7 @@
 import authService, { AuthSession } from './auth.service';
 import { assertConfiguredUrl, getApiBaseUrl } from '../config/runtime.config';
 import { BookingStatus, ServiceRecipient } from '../types/booking';
+import { AppliedPromotionSnapshot, PriceBreakdown } from '../utils/financialDisplay';
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -57,6 +58,7 @@ export interface CreateBookingRequest {
   city?: string;
   area?: string;
   serviceKey?: string;
+  subcategoryKey?: string;
   category?: string;
   promoCode?: string;
   scheduledStartTime?: string;
@@ -143,6 +145,9 @@ export interface CreateBookingResponse {
   success: boolean;
   bookingId: string;
   notifiedTechnicianIds: string[];
+  priceBreakdown?: PriceBreakdown | null;
+  promotion?: AppliedPromotionSnapshot | null;
+  promotions?: AppliedPromotionSnapshot[];
 }
 
 export interface ActiveBookingResponse {
@@ -172,6 +177,9 @@ export interface BookingHistoryItem {
     additionalLaborMinor: number;
     partsAmountMinor: number;
     totalAmountMinor: number;
+    promoDiscountMinor?: number;
+    promotion?: AppliedPromotionSnapshot | null;
+    priceBreakdown?: PriceBreakdown | null;
     status: string;
   } | null;
 }
@@ -201,6 +209,9 @@ export interface JobQuote {
   }>;
   totalAmount: number;
   totalAmountMinor: number;
+  priceBreakdown?: PriceBreakdown | null;
+  promotion?: AppliedPromotionSnapshot | null;
+  promotions?: AppliedPromotionSnapshot[];
   technicianNotes?: string;
 }
 
@@ -215,6 +226,9 @@ export interface PaymentInitializeResponse {
     amount: number;
     currency: CurrencyCode;
     status: string;
+    priceBreakdown?: PriceBreakdown | null;
+    promotion?: AppliedPromotionSnapshot | null;
+    promotions?: AppliedPromotionSnapshot[];
   };
 }
 
@@ -263,9 +277,70 @@ export interface BookingChatMessage {
 export interface ServiceAvailabilityItem {
   serviceKey: string;
   label: string;
+  description?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  calloutFeeMinor?: number;
+  subcategories?: Array<{
+    subcategoryKey: string;
+    label: string;
+    description?: string;
+    status: 'ACTIVE' | 'COMING_SOON' | 'PAUSED' | 'DISABLED' | 'ARCHIVED';
+    imageKey?: string;
+    imageUrl?: string;
+    calloutFeeMinor?: number;
+  }>;
   status: 'ACTIVE' | 'COMING_SOON' | 'PAUSED' | 'DISABLED';
   canBook: boolean;
   message: string;
+}
+
+export interface MarketAvailabilityBookableService {
+  serviceKey: string;
+  legacySubcategoryKey?: string;
+  categoryKey: string;
+  groupKey: string;
+  label: string;
+  description?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  status: 'ACTIVE' | 'COMING_SOON' | 'PAUSED' | 'DISABLED' | 'ARCHIVED';
+  canBook: boolean;
+  message: string;
+  calloutFeeMinor?: number;
+  minimumChargeMinor?: number;
+  estimatedDurationMinutes?: number;
+  inspectionRequired?: boolean;
+  fixedPriceSupported?: boolean;
+  requiresCapabilityApproval?: boolean;
+  displayOrder?: number;
+  pricingSource?: string;
+}
+
+export interface MarketAvailabilityCategory {
+  categoryKey: string;
+  legacyServiceKey: string;
+  groupKey: string;
+  label: string;
+  description?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  iconKey?: string;
+  status: 'ACTIVE' | 'PUBLISHED' | 'COMING_SOON' | 'DRAFT' | 'PAUSED' | 'DISABLED' | 'ARCHIVED';
+  displayOrder?: number;
+  services: MarketAvailabilityBookableService[];
+}
+
+export interface MarketAvailabilityGroup {
+  groupKey: string;
+  label: string;
+  description?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  iconKey?: string;
+  status: string;
+  displayOrder?: number;
+  categories: MarketAvailabilityCategory[];
 }
 
 export interface MarketAvailabilityResponse {
@@ -276,8 +351,25 @@ export interface MarketAvailabilityResponse {
     currency: string;
     city: string;
     area: string;
+    market?: {
+      countryCode: string;
+      countryName: string;
+      currency: string;
+      city: string;
+      area: string;
+    };
+    groups?: MarketAvailabilityGroup[];
     services: ServiceAvailabilityItem[];
   };
+}
+
+export interface PublicMarket {
+  countryCode: string;
+  countryName: string;
+  currency: string;
+  locale?: string;
+  timezone?: string;
+  status?: string;
 }
 
 export type ManagedCollectionPropertyType = 'HOUSE' | 'APARTMENT' | 'ESTATE' | 'COMMERCIAL' | 'INDUSTRIAL';
@@ -399,6 +491,7 @@ class ApiService {
         city: payload.city,
         area: payload.area,
         service_key: payload.serviceKey,
+        subcategory_key: payload.subcategoryKey,
         category: payload.category,
         promo_code: payload.promoCode,
         scheduled_start_time: payload.scheduledStartTime,
@@ -453,6 +546,10 @@ class ApiService {
     if (params.area) query.set('area', params.area);
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return this.request<MarketAvailabilityResponse>(`/markets/${encodeURIComponent(params.countryCode)}/availability${suffix}`);
+  }
+
+  getPublicMarkets(): Promise<{ markets: PublicMarket[] }> {
+    return this.request('/markets');
   }
 
   joinServiceWaitlist(payload: {

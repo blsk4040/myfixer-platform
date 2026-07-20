@@ -14,10 +14,27 @@ import * as ImagePicker from 'expo-image-picker';
 import { Camera, Image as ImageIcon, ShieldCheck } from 'lucide-react-native';
 import apiService from '../../services/api.service';
 import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
+import { BRAND } from '../../config/brand';
 
 const CameraIcon = Camera as any;
 const ImageIconView = ImageIcon as any;
 const ShieldCheckIcon = ShieldCheck as any;
+
+const Colors = {
+  background: '#0B0B0D',
+  surface: '#17171A',
+  surfaceRaised: '#222226',
+  border: '#303036',
+  primary: '#B8FF3D',
+  text: '#F7F7F5',
+  textMuted: '#B9B9BF',
+  textSubtle: '#74747C',
+};
+
+const Radius = {
+  md: 12,
+  lg: 16,
+};
 
 const toDataUri = (asset: ImagePicker.ImagePickerAsset): string | null => {
   if (!asset.base64) return null;
@@ -82,7 +99,7 @@ export function ProfilePictureUploadScreen({ navigation }: any): React.JSX.Eleme
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <Text style={styles.title}>Profile Photo</Text>
         <Text style={styles.subtitle}>
-          Upload a clear headshot. This image is reviewed by MyFixer before customers see it.
+          Upload a clear headshot. This image is reviewed by {BRAND.displayName} before customers see it.
         </Text>
 
         <View style={styles.photoCanvasFrame}>
@@ -90,7 +107,7 @@ export function ProfilePictureUploadScreen({ navigation }: any): React.JSX.Eleme
             <Image source={{ uri: previewUri }} style={styles.profileImage} />
           ) : (
             <View style={styles.statusBox}>
-              <CameraIcon color="#64748B" size={42} />
+              <CameraIcon color={Colors.textSubtle} size={42} />
               <Text style={styles.emptyText}>No profile photo uploaded</Text>
               <Text style={styles.subEmptyText}>Use a clear front-facing photo of only you.</Text>
             </View>
@@ -99,7 +116,7 @@ export function ProfilePictureUploadScreen({ navigation }: any): React.JSX.Eleme
 
         <View style={styles.warningCard}>
           <View style={styles.warningHeader}>
-            <ShieldCheckIcon color="#00FF87" size={18} />
+            <ShieldCheckIcon color={Colors.primary} size={18} />
             <Text style={styles.warningTitle}>Admin review required</Text>
           </View>
           <Text style={styles.warningBullet}>Photo must show your real face clearly.</Text>
@@ -109,17 +126,17 @@ export function ProfilePictureUploadScreen({ navigation }: any): React.JSX.Eleme
 
         <View style={styles.actionRow}>
           <TouchableOpacity style={styles.actionButtonSecondary} onPress={() => pickProfilePhoto('camera')} disabled={isUploading}>
-            <CameraIcon color="#F8FAFC" size={18} />
+            <CameraIcon color={Colors.text} size={18} />
             <Text style={styles.actionButtonSecondaryText}>Camera</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionButtonSecondary} onPress={() => pickProfilePhoto('library')} disabled={isUploading}>
-            <ImageIconView color="#F8FAFC" size={18} />
+            <ImageIconView color={Colors.text} size={18} />
             <Text style={styles.actionButtonSecondaryText}>Gallery</Text>
           </TouchableOpacity>
         </View>
 
         <TouchableOpacity style={[styles.actionButtonPrimary, (!dataUri || isUploading) && styles.disabledButton]} onPress={uploadPhoto} disabled={!dataUri || isUploading}>
-          {isUploading ? <ActivityIndicator color="#090D14" /> : <Text style={styles.actionButtonPrimaryText}>Submit Photo for Review</Text>}
+          {isUploading ? <ActivityIndicator color={Colors.background} /> : <Text style={styles.actionButtonPrimaryText}>Submit Photo for Review</Text>}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -127,23 +144,23 @@ export function ProfilePictureUploadScreen({ navigation }: any): React.JSX.Eleme
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
+  container: { flex: 1, backgroundColor: Colors.background },
   scrollContainer: { padding: 20 },
-  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', marginBottom: 6 },
-  subtitle: { color: '#94A3B8', fontSize: 13, lineHeight: 19, marginBottom: 22 },
-  photoCanvasFrame: { width: '100%', aspectRatio: 1, backgroundColor: '#111827', borderRadius: 18, borderWidth: 1, borderColor: '#1E293B', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginBottom: 18 },
+  title: { color: Colors.text, fontSize: 22, fontWeight: '900', marginBottom: 6 },
+  subtitle: { color: Colors.textMuted, fontSize: 13, lineHeight: 19, marginBottom: 22 },
+  photoCanvasFrame: { width: '100%', aspectRatio: 1, backgroundColor: Colors.surface, borderRadius: 18, borderWidth: 1, borderColor: Colors.border, justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginBottom: 18 },
   profileImage: { width: '100%', height: '100%' },
   statusBox: { alignItems: 'center', padding: 22 },
-  emptyText: { color: '#E2E8F0', fontSize: 15, fontWeight: '800', marginTop: 12 },
-  subEmptyText: { color: '#64748B', fontSize: 12, marginTop: 5, textAlign: 'center' },
-  warningCard: { backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', padding: 16, borderRadius: 12, width: '100%', marginBottom: 18 },
+  emptyText: { color: Colors.text, fontSize: 15, fontWeight: '800', marginTop: 12 },
+  subEmptyText: { color: Colors.textSubtle, fontSize: 12, marginTop: 5, textAlign: 'center' },
+  warningCard: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, padding: 16, borderRadius: Radius.md, width: '100%', marginBottom: 18 },
   warningHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  warningTitle: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
-  warningBullet: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginBottom: 4 },
+  warningTitle: { color: Colors.text, fontSize: 13, fontWeight: '900' },
+  warningBullet: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 4 },
   actionRow: { flexDirection: 'row', gap: 10 },
-  actionButtonPrimary: { backgroundColor: '#00FF87', width: '100%', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 12 },
-  actionButtonPrimaryText: { color: '#090D14', fontSize: 14, fontWeight: '900' },
-  actionButtonSecondary: { flex: 1, backgroundColor: '#111827', padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#1E293B', flexDirection: 'row', gap: 8 },
-  actionButtonSecondaryText: { color: '#F8FAFC', fontSize: 14, fontWeight: '800' },
+  actionButtonPrimary: { backgroundColor: Colors.primary, width: '100%', padding: 16, borderRadius: Radius.md, alignItems: 'center', marginTop: 12 },
+  actionButtonPrimaryText: { color: Colors.background, fontSize: 14, fontWeight: '900' },
+  actionButtonSecondary: { flex: 1, backgroundColor: Colors.surface, padding: 15, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.border, flexDirection: 'row', gap: 8 },
+  actionButtonSecondaryText: { color: Colors.text, fontSize: 14, fontWeight: '800' },
   disabledButton: { opacity: 0.5 },
 });

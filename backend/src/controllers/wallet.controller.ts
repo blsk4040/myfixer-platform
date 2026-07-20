@@ -1,19 +1,37 @@
 // c:/myfixer-platform/backend/src/controllers/wallet.controller.ts
 import { Request, Response } from 'express';
 import { Wallet, WalletTransaction } from '../models/billing.model';
-import { CurrencyCode, fromMinorUnits, toMinorUnits } from '../config/market.config';
+import { CurrencyCode, fromMinorUnits, getMarketByCountry, normalizeIsoCountryCode, normalizeIsoCurrencyCode } from '../config/market.config';
 import { logAuditEvent } from '../services/audit.service';
+import Technician from '../models/technician.model';
+import User from '../models/user.model';
+
+const resolveWalletMarket = async (userId: string): Promise<{ countryCode: string; currency: string }> => {
+  const technician = await Technician.findOne({ userId }).select('countryCode').lean();
+  const user = await User.findById(userId).select('countryCode currency').lean();
+  const countryCode = normalizeIsoCountryCode(technician?.countryCode || user?.countryCode || 'ZA');
+  const market = getMarketByCountry(countryCode);
+  const currency = normalizeIsoCurrencyCode(user?.currency || market?.currency || CurrencyCode.ZAR);
+  return { countryCode, currency };
+};
 
 export const getWalletBalance = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).user?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, message: 'Authentication is required.' });
+      return;
+    }
 
     let wallet = await Wallet.findOne({ technicianId: userId });
     
     // Auto-create an empty wallet collection document if it doesn't exist yet
     if (!wallet) {
+      const market = await resolveWalletMarket(userId);
       wallet = await Wallet.create({
         technicianId: userId,
+        countryCode: market.countryCode,
+        currency: market.currency,
         availableBalanceMinor: 0,
         pendingBalanceMinor: 0,
         totalEarnedMinor: 0,

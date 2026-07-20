@@ -1,6 +1,6 @@
 // src/services/email/templates/invoiceTemplate.ts
 
-import { CurrencyCode } from '../../../config/market.config';
+import { IsoCurrencyCode } from '../../../config/market.config';
 
 interface InvoiceEmailProps {
   customerName: string;
@@ -8,11 +8,17 @@ interface InvoiceEmailProps {
   baseAmount: number;
   additionalLabor: number;
   partsAmount: number;
+  discountAmount?: number;
+  promoCode?: string;
+  promotionLabel?: string;
+  clientServiceFee?: number;
+  taxAmount?: number;
+  subtotalAmount?: number;
   totalAmount: number;
-  currency: CurrencyCode;
+  currency: IsoCurrencyCode;
 }
 
-const formatMoney = (amount: number, currency: CurrencyCode): string =>
+const formatMoney = (amount: number, currency: IsoCurrencyCode): string =>
   new Intl.NumberFormat('en', {
     style: 'currency',
     currency,
@@ -25,9 +31,16 @@ export function generateInvoiceHtml({
   baseAmount,
   additionalLabor,
   partsAmount,
+  discountAmount = 0,
+  promoCode = '',
+  promotionLabel = '',
+  clientServiceFee = 0,
+  taxAmount = 0,
+  subtotalAmount,
   totalAmount,
   currency,
 }: InvoiceEmailProps): string {
+  const displayPromotion = promotionLabel || promoCode || 'Promotion';
   return `
     <!DOCTYPE html>
     <html>
@@ -88,6 +101,26 @@ export function generateInvoiceHtml({
                 <tr>
                   <td>Acquired Materials & Component Parts</td>
                   <td style="text-align: right;">${formatMoney(partsAmount, currency)}</td>
+                </tr>` : ''}
+                ${discountAmount > 0 ? `
+                <tr>
+                  <td>${displayPromotion}</td>
+                  <td style="text-align: right; color: #DC2626;">-${formatMoney(discountAmount, currency)}</td>
+                </tr>` : ''}
+                ${typeof subtotalAmount === 'number' ? `
+                <tr>
+                  <td>Subtotal</td>
+                  <td style="text-align: right;">${formatMoney(subtotalAmount, currency)}</td>
+                </tr>` : ''}
+                ${clientServiceFee > 0 ? `
+                <tr>
+                  <td>Client Service Fee</td>
+                  <td style="text-align: right;">${formatMoney(clientServiceFee, currency)}</td>
+                </tr>` : ''}
+                ${taxAmount > 0 ? `
+                <tr>
+                  <td>Tax</td>
+                  <td style="text-align: right;">${formatMoney(taxAmount, currency)}</td>
                 </tr>` : ''}
                 <tr class="total-row">
                   <td>Total Settled Balance</td>

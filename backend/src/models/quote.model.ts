@@ -43,8 +43,8 @@ export interface IJobQuote extends Document {
   customerId: mongoose.Types.ObjectId;
   technicianId: mongoose.Types.ObjectId;
 
-  countryCode: CountryCode;
-  currency: CurrencyCode;
+  countryCode: string;
+  currency: string;
 
   status: QuoteStatus;
   version: number;
@@ -160,14 +160,16 @@ const JobQuoteSchema = new Schema<IJobQuote>(
 
     countryCode: {
       type: String,
-      enum: Object.values(CountryCode),
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
       required: true,
       index: true,
     },
 
     currency: {
       type: String,
-      enum: Object.values(CurrencyCode),
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
       required: true,
       index: true,
     },

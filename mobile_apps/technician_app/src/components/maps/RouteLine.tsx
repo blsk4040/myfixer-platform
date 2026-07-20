@@ -29,7 +29,7 @@ export function RouteLine({ id, geometry }: RouteLineProps): React.JSX.Element |
       <Layer
         id={`${id}-line`}
         type="line"
-        paint={{ 'line-color': '#00FF87', 'line-width': 5, 'line-opacity': 0.95 }}
+        paint={{ 'line-color': '#B8FF3D', 'line-width': 5, 'line-opacity': 0.95 }}
         layout={{ 'line-join': 'round', 'line-cap': 'round' }}
       />
     </GeoJSONSource>

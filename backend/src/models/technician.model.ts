@@ -62,7 +62,7 @@ export interface ITechnicianDocument extends Document {
 
   approvalStatus: TechnicianApprovalStatus;
 
-  countryCode: CountryCode;
+  countryCode: string;
   city: string;
   serviceCategories: string[];
 
@@ -173,7 +173,8 @@ const TechnicianSchema = new Schema<ITechnicianDocument>(
 
     countryCode: {
       type: String,
-      enum: Object.values(CountryCode),
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
       required: true,
       index: true,
     },

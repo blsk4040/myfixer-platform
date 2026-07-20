@@ -36,11 +36,11 @@ export function CompletedJobsTab(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { padding: 20 },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
-  emptyTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 6 },
-  emptyText: { color: '#64748B', fontSize: 14, textAlign: 'center', lineHeight: 20 },
-  jobCard: { backgroundColor: '#111827', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#1E293B', marginBottom: 10 },
+  emptyTitle: { color: '#F7F7F5', fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 6 },
+  emptyText: { color: '#A7A7AD', fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  jobCard: { backgroundColor: '#17171A', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#303036', marginBottom: 10 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  applianceText: { color: '#E2E8F0', fontSize: 14, fontWeight: '600' },
-  ratingText: { color: '#64748B', fontSize: 11, marginTop: 4 },
-  payoutText: { color: '#00FF87', fontSize: 14, fontWeight: '700' },
+  applianceText: { color: '#F7F7F5', fontSize: 14, fontWeight: '700' },
+  ratingText: { color: '#A7A7AD', fontSize: 11, marginTop: 4 },
+  payoutText: { color: '#B8FF3D', fontSize: 14, fontWeight: '800' },
 });

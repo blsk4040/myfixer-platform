@@ -4,8 +4,7 @@ import PaymentVault from '../models/paymentVault.model';
 import { PaystackService } from '../services/paystack.service';
 import { AuthenticatedRequest } from '../types/auth.types';
 import crypto from 'crypto';
-import Booking from '../models/booking.model';
-import { getMarketByCountry } from '../config/market.config';
+import Booking, { BookingPaymentStatus, PricingMode } from '../models/booking.model';
 import { PaymentMethodStatus } from '../models/paymentVault.model';
 import { logAuditEvent } from '../services/audit.service';
 import { createNotifications } from '../services/notification.service';
@@ -18,7 +17,9 @@ import {
 } from '../services/payment-workflow.service';
 import { processPaystackTransferWebhookPayload } from '../services/settlement.service';
 import { verifyPaystackSignature } from '../services/paystack.service';
-import PaymentTransaction from '../models/payment-transaction.model';
+import PaymentTransaction, { PaymentProvider } from '../models/payment-transaction.model';
+import JobQuote, { QuoteStatus } from '../models/quote.model';
+import { assertMarketAllowsPaymentCollection, MarketFinanceGuardError } from '../services/market-finance-guard.service';
 
 export class PaymentController {
   static async initializePayment(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -52,6 +53,10 @@ export class PaymentController {
         reused: result.reused,
       });
     } catch (error) {
+      if (error instanceof MarketFinanceGuardError) {
+        res.status(error.statusCode).json({ message: error.message, code: error.code });
+        return;
+      }
       if (error instanceof PaymentWorkflowError) {
         res.status(error.statusCode).json({ message: error.message, code: error.code });
         return;
@@ -281,7 +286,7 @@ export class PaymentController {
   static async chargeSavedCard(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const userId = req.user._id;
-      const { amountMinor, amountInCents, bookingId } = req.body;
+      const { bookingId, quoteId } = req.body;
 
       if (!req.user.email) {
         res.status(400).json({ error: 'Authenticated user email is required to charge a saved card.' });
@@ -294,15 +299,24 @@ export class PaymentController {
         return;
       }
 
-      const market = getMarketByCountry(booking.countryCode);
-      if (!market.paymentProviders.includes('PAYSTACK')) {
-        res.status(400).json({ error: `Paystack is not enabled for ${market.countryName}.` });
-        return;
-      }
+      await assertMarketAllowsPaymentCollection(booking.countryCode, booking.currency, PaymentProvider.PAYSTACK);
 
-      const normalizedAmount = Number(amountMinor ?? amountInCents);
-      if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0 || !bookingId) {
-        res.status(400).json({ error: 'A valid amountMinor and bookingId are required.' });
+      let normalizedAmount = booking.priceMinor;
+      if (booking.pricingMode !== PricingMode.FIXED_PRICE || quoteId) {
+        const quote = await JobQuote.findOne({
+          bookingId: booking._id,
+          status: QuoteStatus.APPROVED,
+          isCurrent: { $ne: false },
+          ...(quoteId ? { _id: quoteId } : {}),
+        }).sort({ version: -1, createdAt: -1 });
+        if (!quote) {
+          res.status(409).json({ error: 'An approved quote is required before charging a saved card.' });
+          return;
+        }
+        normalizedAmount = quote.totalAmountMinor;
+      }
+      if (!Number.isInteger(normalizedAmount) || normalizedAmount <= 0 || !bookingId) {
+        res.status(400).json({ error: 'A valid server-side booking amount is required.' });
         return;
       }
 
@@ -372,6 +386,10 @@ export class PaymentController {
         currency: booking.currency,
       });
     } catch (error) {
+      if (error instanceof MarketFinanceGuardError) {
+        res.status(error.statusCode).json({ error: error.message, code: error.code });
+        return;
+      }
       console.error('Failed to charge saved card:', error);
       res.status(500).json({ error: 'Unable to process saved-card payment.' });
     }

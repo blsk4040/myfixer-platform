@@ -51,6 +51,70 @@ const state = {
   },
   revealedClientContacts: {},
   revealTimers: {},
+  marketWorkflow: {
+    selectedCountryCode: '',
+    tab: 'configure',
+    showCreateCountry: false,
+    editingCountryCode: '',
+    actionMenuCountryCode: '',
+    deleteCountryCode: '',
+    selectedCityName: '',
+    showCreateCity: false,
+    editingCityName: '',
+    actionMenuCityName: '',
+    actionMenuCityDirection: 'down',
+    deleteCityName: '',
+    selectedAreaName: '',
+    showCreateArea: false,
+    editingAreaName: '',
+    actionMenuAreaName: '',
+    actionMenuAreaDirection: 'down',
+    deleteAreaName: '',
+    message: '',
+    error: '',
+  },
+  promotionWorkspace: {
+    tab: 'directory',
+    statusTab: 'ALL',
+    detailTab: 'overview',
+    selectedPromotionId: '',
+    filters: {
+      search: '',
+      mode: '',
+      status: '',
+      market: '',
+      service: '',
+      fundingSource: '',
+      dateFrom: '',
+      dateTo: '',
+    },
+    createStep: 0,
+    draft: {},
+    redemptions: [],
+    redemptionsState: '',
+    audit: [],
+    performance: null,
+  },
+  serviceWorkspace: {
+    showCreateGroup: false,
+    selectedGroupKey: '',
+    selectedCategoryKey: '',
+    actionMenuGroupKey: '',
+    actionMenuCategoryKey: '',
+    renameGroupKey: '',
+    renameCategoryKey: '',
+    deleteGroupKey: '',
+    deleteCategoryKey: '',
+    showCreateCategory: false,
+    showCreateBookableService: false,
+    selectedBookableServiceKey: '',
+    drawerOpen: false,
+    drawerMode: '',
+    categoryDraft: {},
+    bookableDraft: {},
+    message: '',
+    error: '',
+  },
   collectionOperationFilters: {
     countryCode: '',
     city: '',
@@ -102,11 +166,16 @@ const state = {
     ledger: [],
     settlements: [],
     promotions: [],
+    promotionSummary: null,
     promotionMeta: {
       discountTypes: [],
       statuses: [],
+      triggerTypes: [],
+      fundingSources: [],
+      stackingPolicies: [],
     },
     markets: [],
+    serviceCatalog: [],
     adminUsers: [],
     auditLogs: [],
     marketMeta: {
@@ -138,8 +207,9 @@ const views = [
   { id: 'settlements', label: 'Settlements', icon: 'P', permission: 'finance.read' },
   { id: 'promotions', label: 'Promotions', icon: '%', permission: 'finance.read' },
   { id: 'ledger', label: 'Wallet Ledger', icon: 'L', permission: 'finance.read' },
-  { id: 'adminUsers', label: 'Admin Users', icon: 'A', permission: 'admins.read' },
-  { id: 'settings', label: 'Settings', icon: 'S', permission: 'markets.read' },
+  { id: 'adminUsers', label: 'Users', icon: 'A', permission: 'admins.read' },
+  { id: 'services', label: 'Services', icon: 'S', permission: 'markets.read' },
+  { id: 'settings', label: 'Markets', icon: 'S', permission: 'markets.read' },
   { id: 'auditLogs', label: 'Audit Logs', icon: 'H', permission: 'admins.read' },
 ];
 
@@ -149,11 +219,11 @@ const rolePermissions = {
   SUPER_ADMIN: ['*'],
   OPERATIONS_MANAGER: ['overview.read', 'bookings.read', 'bookings.update', 'technicians.read', 'clients.contact.read', 'settings.read'],
   DISPATCHER: ['overview.read', 'bookings.read', 'bookings.update'],
-  FINANCE_ADMIN: ['overview.read', 'finance.read', 'settings.read'],
+  FINANCE_ADMIN: ['overview.read', 'finance.read', 'promotions.read', 'promotions.create', 'promotions.update', 'promotions.activate', 'promotions.pause', 'promotions.archive', 'promotions.performance.read', 'promotions.redemptions.read', 'settings.read'],
   SUPPORT_AGENT: ['overview.read', 'bookings.read', 'technicians.read', 'clients.contact.read'],
   TECHNICIAN_REVIEWER: ['overview.read', 'technicians.read', 'technicians.review'],
   MARKET_MANAGER: ['overview.read', 'markets.read', 'markets.update', 'settings.read'],
-  READ_ONLY_ADMIN: ['overview.read', 'bookings.read', 'technicians.read', 'finance.read', 'markets.read', 'admins.read', 'settings.read'],
+  READ_ONLY_ADMIN: ['overview.read', 'bookings.read', 'technicians.read', 'finance.read', 'promotions.read', 'markets.read', 'admins.read', 'settings.read'],
 };
 
 const SERVICE_ACTIVATION_PERMISSION = 'markets.services.activate';
@@ -164,17 +234,68 @@ const IDLE_WARNING_MS = 60 * 1000;
 const API_HEALTH_INTERVAL_MS = 60 * 1000;
 const API_HEALTH_SLOW_MS = 1500;
 const API_HEALTH_TIMEOUT_MS = 5000;
+const DEFAULT_TOP_LEVEL_SERVICE_GROUPS = [
+  { groupKey: 'home_services', label: 'Home Services', displayOrder: 10 },
+  { groupKey: 'auto_services', label: 'Auto Services', displayOrder: 20 },
+  { groupKey: 'business_services', label: 'Business Services', displayOrder: 30 },
+];
+const DEFAULT_HOME_SERVICE_CATEGORIES = [
+  { serviceKey: 'appliance_repair', label: 'Appliance Repair', displayOrder: 10 },
+  { serviceKey: 'cleaning', label: 'Cleaning Service', displayOrder: 20 },
+  { serviceKey: 'electrical', label: 'Electrical Repair', displayOrder: 30 },
+  { serviceKey: 'gardening', label: 'Gardening Service', displayOrder: 40 },
+  { serviceKey: 'maintenance', label: 'Maintenance Service', displayOrder: 50 },
+  { serviceKey: 'painting', label: 'Painting Service', displayOrder: 60 },
+  { serviceKey: 'plumbing', label: 'Plumbing', displayOrder: 70 },
+];
 let idleWarningTimer = null;
 let idleLogoutTimer = null;
 let clockTimer = null;
 let apiHealthTimer = null;
 
 const FALLBACK_COUNTRIES = [
-  ['ZA', 'South Africa'], ['GH', 'Ghana'], ['NG', 'Nigeria'], ['KE', 'Kenya'], ['UG', 'Uganda'], ['TZ', 'Tanzania'], ['RW', 'Rwanda'], ['ZM', 'Zambia'],
+  ['ZA', 'South Africa'], ['GH', 'Ghana'], ['NG', 'Nigeria'], ['KE', 'Kenya'], ['UG', 'Uganda'], ['TZ', 'Tanzania'], ['RW', 'Rwanda'],
   ['US', 'United States'], ['GB', 'United Kingdom'], ['CA', 'Canada'], ['AU', 'Australia'], ['NZ', 'New Zealand'], ['IE', 'Ireland'],
   ['BW', 'Botswana'], ['NA', 'Namibia'], ['ZW', 'Zimbabwe'], ['MW', 'Malawi'], ['MZ', 'Mozambique'], ['AO', 'Angola'], ['CD', 'Congo - Kinshasa'],
   ['ET', 'Ethiopia'], ['EG', 'Egypt'], ['MA', 'Morocco'], ['CI', "Cote d'Ivoire"], ['SN', 'Senegal'], ['IN', 'India'], ['AE', 'United Arab Emirates'],
 ];
+const COUNTRY_METADATA = [
+  { code: 'ZA', name: 'South Africa', currency: 'ZAR', locale: 'en-ZA', timezones: ['Africa/Johannesburg'] },
+  { code: 'GH', name: 'Ghana', currency: 'GHS', locale: 'en-GH', timezones: ['Africa/Accra'] },
+  { code: 'NG', name: 'Nigeria', currency: 'NGN', locale: 'en-NG', timezones: ['Africa/Lagos'] },
+  { code: 'KE', name: 'Kenya', currency: 'KES', locale: 'en-KE', timezones: ['Africa/Nairobi'] },
+  { code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timezones: ['Africa/Kampala'] },
+  { code: 'TZ', name: 'Tanzania', currency: 'TZS', locale: 'en-TZ', timezones: ['Africa/Dar_es_Salaam'] },
+  { code: 'RW', name: 'Rwanda', currency: 'RWF', locale: 'en-RW', timezones: ['Africa/Kigali'] },
+  { code: 'ZM', name: 'Zambia', currency: 'ZMW', locale: 'en-ZM', timezones: ['Africa/Lusaka'] },
+  { code: 'US', name: 'United States', currency: 'USD', locale: 'en-US', timezones: ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Phoenix', 'America/Anchorage', 'Pacific/Honolulu'] },
+  { code: 'GB', name: 'United Kingdom', currency: 'GBP', locale: 'en-GB', timezones: ['Europe/London'] },
+  { code: 'CA', name: 'Canada', currency: 'CAD', locale: 'en-CA', timezones: ['America/Toronto', 'America/Winnipeg', 'America/Edmonton', 'America/Vancouver', 'America/Halifax', 'America/St_Johns'] },
+  { code: 'AU', name: 'Australia', currency: 'AUD', locale: 'en-AU', timezones: ['Australia/Sydney', 'Australia/Melbourne', 'Australia/Brisbane', 'Australia/Adelaide', 'Australia/Perth', 'Australia/Darwin', 'Australia/Hobart'] },
+  { code: 'NZ', name: 'New Zealand', currency: 'NZD', locale: 'en-NZ', timezones: ['Pacific/Auckland', 'Pacific/Chatham'] },
+  { code: 'IE', name: 'Ireland', currency: 'EUR', locale: 'en-IE', timezones: ['Europe/Dublin'] },
+  { code: 'BW', name: 'Botswana', currency: 'BWP', locale: 'en-BW', timezones: ['Africa/Gaborone'] },
+  { code: 'NA', name: 'Namibia', currency: 'NAD', locale: 'en-NA', timezones: ['Africa/Windhoek'] },
+  { code: 'ZW', name: 'Zimbabwe', currency: 'ZWL', locale: 'en-ZW', timezones: ['Africa/Harare'] },
+  { code: 'MW', name: 'Malawi', currency: 'MWK', locale: 'en-MW', timezones: ['Africa/Blantyre'] },
+  { code: 'MZ', name: 'Mozambique', currency: 'MZN', locale: 'pt-MZ', timezones: ['Africa/Maputo'] },
+  { code: 'AO', name: 'Angola', currency: 'AOA', locale: 'pt-AO', timezones: ['Africa/Luanda'] },
+  { code: 'CD', name: 'Congo - Kinshasa', currency: 'CDF', locale: 'fr-CD', timezones: ['Africa/Kinshasa', 'Africa/Lubumbashi'] },
+  { code: 'ET', name: 'Ethiopia', currency: 'ETB', locale: 'en-ET', timezones: ['Africa/Addis_Ababa'] },
+  { code: 'EG', name: 'Egypt', currency: 'EGP', locale: 'ar-EG', timezones: ['Africa/Cairo'] },
+  { code: 'MA', name: 'Morocco', currency: 'MAD', locale: 'fr-MA', timezones: ['Africa/Casablanca'] },
+  { code: 'CI', name: "Cote d'Ivoire", currency: 'XOF', locale: 'fr-CI', timezones: ['Africa/Abidjan'] },
+  { code: 'SN', name: 'Senegal', currency: 'XOF', locale: 'fr-SN', timezones: ['Africa/Dakar'] },
+  { code: 'IN', name: 'India', currency: 'INR', locale: 'en-IN', timezones: ['Asia/Kolkata'] },
+  { code: 'AE', name: 'United Arab Emirates', currency: 'AED', locale: 'en-AE', timezones: ['Asia/Dubai'] },
+];
+const TIMEZONE_ALIASES = {
+  SAST: 'Africa/Johannesburg',
+  'GMT+2': 'Africa/Johannesburg',
+  'UTC+2': 'Africa/Johannesburg',
+  'South Africa Standard Time': 'Africa/Johannesburg',
+  'Africa/Pretoria': 'Africa/Johannesburg',
+};
 
 function hasPermission(permission) {
   if (!permission) return true;
@@ -249,6 +370,55 @@ function getCountryOptions() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function countryMetadataList() {
+  const byCode = new Map(COUNTRY_METADATA.map((country) => [country.code, { ...country, timezones: [...country.timezones] }]));
+
+  (state.data.marketMeta.availableMarkets || []).forEach((market) => {
+    const view = getMarketView(market);
+    const code = normalizeMarketCountryCode(view.countryCode || market.countryCode);
+    if (!code) return;
+    const existing = byCode.get(code) || { code, name: view.countryName || code, currency: view.currency || '', locale: view.locale || `en-${code}`, timezones: [] };
+    byCode.set(code, {
+      ...existing,
+      name: view.countryName || existing.name,
+      currency: view.currency || existing.currency,
+      locale: view.locale || existing.locale,
+      timezones: existing.timezones.length ? existing.timezones : (view.timezone ? [view.timezone] : []),
+    });
+  });
+
+  return Array.from(byCode.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function findCountryMetadata(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return null;
+  return countryMetadataList().find((country) =>
+    country.code.toLowerCase() === normalized ||
+    country.name.toLowerCase() === normalized ||
+    `${country.name} (${country.code})`.toLowerCase() === normalized
+  ) || null;
+}
+
+function canonicalTimezoneForCountry(value, countryCode = '') {
+  const timezone = String(value || '').trim();
+  if (!timezone) return '';
+  const alias = TIMEZONE_ALIASES[timezone] || TIMEZONE_ALIASES[timezone.toUpperCase()];
+  if (alias) return alias;
+  if (countryCode === 'ZA' && /^africa\/(pretoria|johannesburg)$/i.test(timezone)) return 'Africa/Johannesburg';
+  return timezone;
+}
+
+function timezoneOptionsForCountry(country, selectedTimezone = '') {
+  const selected = canonicalTimezoneForCountry(selectedTimezone, country?.code || '');
+  const options = [...(country?.timezones || [])];
+  if (selected && isValidIanaTimezone(selected) && !options.includes(selected)) options.unshift(selected);
+  return {
+    selected: options.includes(selected) ? selected : options[0] || selected,
+    options,
+  };
+}
+
 function renderCountryOptions(selected = '') {
   return getCountryOptions()
     .map((country) => `<option value="${escapeHtml(country.code)}" data-currency="${escapeHtml(country.currency || '')}" ${country.code === selected ? 'selected' : ''}>${escapeHtml(country.label)}</option>`)
@@ -277,8 +447,9 @@ function getMarketView(market = {}) {
     countryCode: market.identity?.countryCode || market.countryCode || '',
     countryName: market.identity?.countryName || market.countryName || '',
     currency: market.identity?.currency || market.currency || '',
-    status: market.identity?.status || market.status || (market.identity?.enabled ?? market.enabled ? 'ACTIVE' : 'DISABLED'),
-    enabled: market.identity?.enabled ?? market.enabled,
+    locale: market.identity?.locale || market.locale || '',
+    timezone: market.identity?.timezone || market.timezone || '',
+    status: market.identity?.status || market.status || 'DRAFT',
     defaultCalloutFee: typeof market.pricing?.defaultCalloutFeeMinor === 'number'
       ? market.pricing.defaultCalloutFeeMinor / 100
       : typeof market.pricing?.defaultCalloutFee === 'number'
@@ -286,6 +457,17 @@ function getMarketView(market = {}) {
       : market.defaultCalloutFee || 0,
     platformCommissionBps: market.pricing?.platformCommissionBps ?? market.platformCommissionBps ?? 0,
     taxLabel: market.pricing?.taxLabel || market.taxLabel || '',
+    taxRateBps: market.pricing?.taxRateBps ?? 0,
+    taxInclusive: market.pricing?.taxInclusive === true,
+    clientServiceFeeType: market.pricing?.clientServiceFeeType || 'NONE',
+    clientServiceFeeBps: market.pricing?.clientServiceFeeBps ?? 0,
+    clientServiceFeeMinor: market.pricing?.clientServiceFeeMinor ?? 0,
+    taxableCallout: market.pricing?.taxableCallout !== false,
+    taxableLabour: market.pricing?.taxableLabour !== false,
+    taxableParts: market.pricing?.taxableParts !== false,
+    taxableAdditionalServices: market.pricing?.taxableAdditionalServices !== false,
+    taxableClientServiceFee: market.pricing?.taxableClientServiceFee !== false,
+    discountsReduceTaxableValue: market.pricing?.discountsReduceTaxableValue !== false,
     serviceCategories: market.coverage?.serviceCategories || market.serviceCategories || [],
     supportedCities: market.coverage?.supportedCities || market.supportedCities || [],
     cityServiceAvailability: market.coverage?.cityServiceAvailability || market.cityServiceAvailability || [],
@@ -307,6 +489,41 @@ function serviceKeyFrom(value) {
     .replace(/^_+|_+$/g, '');
 }
 
+function serviceGroupIconKey(groupKey = '', label = '') {
+  const text = `${groupKey || ''} ${label || ''}`.toLowerCase();
+  if (/(auto|car|vehicle|mechanic)/.test(text)) return 'auto';
+  if (/(business|office|company|commercial)/.test(text)) return 'business';
+  if (/(it|tech|computer|laptop|software|support)/.test(text)) return 'it';
+  if (/(health|care|medical|nurse|doctor)/.test(text)) return 'health';
+  if (/(rent|rental|lease|property|key)/.test(text)) return 'rent';
+  if (/(home|house|clean|plumb|paint|garden|maintenance|appliance)/.test(text)) return 'home';
+  return 'service';
+}
+
+function serviceGroupIconPath(iconKey) {
+  const paths = {
+    auto: '<path d="M5 13l2-5h10l2 5" /><path d="M7 17h10" /><path d="M6 13h12v5H6z" /><path d="M8 18v2" /><path d="M16 18v2" />',
+    business: '<path d="M8 7V5h8v2" /><path d="M5 8h14v11H5z" /><path d="M9 12h6" />',
+    health: '<path d="M12 20s-7-4.5-7-10a4 4 0 017-2 4 4 0 017 2c0 5.5-7 10-7 10z" /><path d="M12 9v6" /><path d="M9 12h6" />',
+    home: '<path d="M4 11l8-7 8 7" /><path d="M6 10v10h12V10" /><path d="M10 20v-6h4v6" />',
+    it: '<path d="M5 5h14v10H5z" /><path d="M9 19h6" /><path d="M12 15v4" />',
+    rent: '<path d="M8 11a4 4 0 118 0 4 4 0 01-8 0z" /><path d="M12 15v6" /><path d="M12 18h4" />',
+    service: '<path d="M14 7l3 3-7 7H7v-3z" /><path d="M5 19h14" />',
+  };
+  return paths[iconKey] || paths.service;
+}
+
+function renderServiceGroupIcon(group) {
+  const iconKey = serviceGroupIconKey(group?.groupIconKey || group?.groupKey, group?.label);
+  return `
+    <span class="service-top-level-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        ${serviceGroupIconPath(iconKey)}
+      </svg>
+    </span>
+  `;
+}
+
 function labelFromServiceKey(serviceKey) {
   return String(serviceKey || '')
     .split('_')
@@ -320,6 +537,73 @@ function formatTechnicianServices(services = []) {
     .map((service) => service.label || labelFromServiceKey(service.serviceKey))
     .filter(Boolean);
   return labels.length ? labels.join(', ') : 'No service selected';
+}
+
+function technicianServiceSelections(services = []) {
+  const selectedKeys = normalizeServiceEntries(services)
+    .map((service) => serviceKeyFrom(service.serviceKey || service.key || service.label))
+    .filter(Boolean);
+  if (!selectedKeys.length) return [];
+
+  const serviceCatalog = state.data.serviceCatalog || [];
+  const groupsByKey = new Map(serviceGroupsFromCatalog().map((group) => [group.groupKey, group]));
+  const rowsByKey = new Map();
+
+  serviceCatalog.forEach((service) => {
+    const serviceKey = serviceKeyFrom(service.serviceKey || '');
+    if (!serviceKey) return;
+    rowsByKey.set(serviceKey, service);
+  });
+
+  return selectedKeys.map((serviceKey) => {
+    const record = rowsByKey.get(serviceKey);
+    const groupKey = serviceKeyFrom(record?.groupKey || '');
+    const group = groupKey ? groupsByKey.get(groupKey) : null;
+    const bookableCount = Array.isArray(record?.subcategories) ? record.subcategories.length : 0;
+    return {
+      serviceKey,
+      label: record?.label || labelFromServiceKey(serviceKey),
+      status: record?.status || 'REQUESTED',
+      groupKey,
+      groupLabel: record?.groupLabel || group?.label || 'Selected Services',
+      bookableCount,
+    };
+  }).sort((a, b) => a.groupLabel.localeCompare(b.groupLabel) || a.label.localeCompare(b.label));
+}
+
+function renderTechnicianServiceSelections(services = []) {
+  const selections = technicianServiceSelections(services);
+  if (!selections.length) {
+    return '<div class="technician-service-empty">No service categories selected during signup.</div>';
+  }
+
+  const groups = selections.reduce((map, item) => {
+    const key = item.groupKey || item.groupLabel;
+    if (!map.has(key)) map.set(key, { label: item.groupLabel, items: [] });
+    map.get(key).items.push(item);
+    return map;
+  }, new Map());
+
+  return `
+    <div class="technician-service-review" aria-label="Selected service categories">
+      ${Array.from(groups.values()).map((group) => `
+        <div class="technician-service-group">
+          <div class="technician-service-group-header">
+            <strong>${escapeHtml(group.label)}</strong>
+            <span>${group.items.length} selected</span>
+          </div>
+          <div class="technician-service-list">
+            ${group.items.map((item) => `
+              <span class="technician-service-pill">
+                <em>${escapeHtml(item.label)}</em>
+                <small>${item.bookableCount ? `${item.bookableCount} bookable ${item.bookableCount === 1 ? 'service' : 'services'}` : escapeHtml(item.status)}</small>
+              </span>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
 }
 
 function formatYearsExperience(years) {
@@ -721,14 +1005,16 @@ async function loadAllData() {
       quotes: hasPermission('bookings.read') ? api('/admin/quotes?limit=100') : Promise.resolve({ quotes: [] }),
       invoices: hasPermission('finance.read') ? api('/admin/invoices?limit=100') : Promise.resolve({ invoices: [] }),
       settlements: hasPermission('finance.read') ? api('/admin/settlements') : Promise.resolve({ settlements: [] }),
-      promotions: hasPermission('finance.read') ? api('/admin/promotions') : Promise.resolve({ promotions: [], discountTypes: [], statuses: [] }),
+      promotions: hasPermission('promotions.read') ? api('/admin/promotions') : Promise.resolve({ promotions: [], discountTypes: [], statuses: [] }),
+      promotionSummary: hasPermission('promotions.performance.read') ? api('/admin/promotions/summary') : Promise.resolve({ summary: null }),
       ledger: hasPermission('finance.read') ? api('/admin/wallet-transactions?limit=100') : Promise.resolve({ transactions: [] }),
       markets: hasPermission('markets.read') ? api('/admin/markets') : Promise.resolve({ markets: [], availableStatuses: [], availablePaymentProviders: [], defaultServiceCategories: [], availableMarkets: [] }),
+      services: hasPermission('markets.read') ? api('/admin/services') : Promise.resolve({ services: [], statuses: [] }),
       adminUsers: hasPermission('admins.read') ? api('/admin/users') : Promise.resolve({ admins: [], roles: [], permissionsByRole: {} }),
       auditLogs: hasPermission('admins.read') ? api('/admin/audit-logs?limit=100') : Promise.resolve({ logs: [] }),
     };
 
-    const [overview, clients, technicians, bookings, managedCollections, collectionOperations, notifications, subscriptions, quotes, invoices, settlements, promotions, ledger, markets, adminUsers, auditLogs] = await Promise.all(Object.values(requests));
+    const [overview, clients, technicians, bookings, managedCollections, collectionOperations, notifications, subscriptions, quotes, invoices, settlements, promotions, promotionSummary, ledger, markets, services, adminUsers, auditLogs] = await Promise.all(Object.values(requests));
 
     state.data.overview = overview.overview;
     state.data.clients = clients.clients || [];
@@ -763,12 +1049,17 @@ async function loadAllData() {
     state.data.invoices = invoices.invoices || [];
     state.data.settlements = settlements.settlements || [];
     state.data.promotions = promotions.promotions || [];
+    state.data.promotionSummary = promotionSummary.summary || null;
     state.data.promotionMeta = {
       discountTypes: promotions.discountTypes || [],
       statuses: promotions.statuses || [],
+      triggerTypes: promotions.triggerTypes || [],
+      fundingSources: promotions.fundingSources || [],
+      stackingPolicies: promotions.stackingPolicies || [],
     };
     state.data.ledger = ledger.transactions || [];
     state.data.markets = markets.markets || [];
+    state.data.serviceCatalog = services.services || [];
     state.data.marketMeta = {
       availableStatuses: markets.availableStatuses || [],
     availablePaymentProviders: markets.availablePaymentProviders || [],
@@ -849,156 +1140,7 @@ async function openBooking(id) {
     alert(error.message);
   }
 }
-
-async function saveMarket(event, countryCode) {
-  event.preventDefault();
-  if (!canMutate('markets.update')) {
-    alert('You do not have permission to update market settings.');
-    return;
-  }
-  const formElement = event.currentTarget;
-  const form = new FormData(formElement);
-  const formCountryCode = String(form.get('countryCode') || '').trim();
-  const customCountryCode = String(form.get('customCountryCode') || '').trim().toUpperCase();
-  const selectedCountryCode = countryCode || customCountryCode || (formCountryCode === '__CUSTOM__' ? '' : formCountryCode);
-  if (!selectedCountryCode) {
-    alert('Please choose a country to add.');
-    return;
-  }
-
-  const paymentProviderSettings = collectPaymentProviderRows(formElement);
-  const cityServiceAvailability = collectCityServiceRows(formElement);
-  const paymentProviders = paymentProviderSettings.map((row) => row.provider);
-  const supportedCities = cityServiceAvailability.map((row) => row.city);
-  const serviceCategoryMap = new Map();
-  cityServiceAvailability
-    .flatMap((row) => row.services || [])
-    .forEach((service) => {
-      const normalized = normalizeServiceEntry(service);
-      if (normalized) serviceCategoryMap.set(normalized.serviceKey, normalized);
-    });
-  const serviceCategories = Array.from(serviceCategoryMap.values());
-  const taxLabel = form.get('taxLabel');
-  const supportWhatsapp = form.get('supportWhatsapp');
-  const supportEscalationEmail = form.get('supportEscalationEmail');
-
-  const payload = {
-    countryName: String(form.get('countryName') || '').trim(),
-    status: String(form.get('status') || 'DISABLED'),
-    currency: String(form.get('currency') || ''),
-    defaultCalloutFee: Number(form.get('defaultCalloutFee') || 0),
-    platformCommissionBps: Math.round(Number(form.get('commissionPercent') || 0) * 100),
-    taxLabel: taxLabel === null ? undefined : String(taxLabel).trim(),
-    supportedCities,
-    serviceCategories,
-    cityServiceAvailability,
-    paymentProviders,
-    paymentProviderSettings,
-    supportEmail: String(form.get('supportEmail') || ''),
-    supportPhone: String(form.get('supportPhone') || ''),
-    supportWhatsapp: supportWhatsapp === null ? undefined : String(supportWhatsapp),
-    supportEscalationEmail: supportEscalationEmail === null ? undefined : String(supportEscalationEmail),
-    identity: {
-      countryName: String(form.get('countryName') || '').trim(),
-      status: String(form.get('status') || 'DISABLED'),
-      currency: String(form.get('currency') || ''),
-    },
-    pricing: {
-      defaultCalloutFeeMinor: Math.round(Number(form.get('defaultCalloutFee') || 0) * 100),
-      platformCommissionBps: Math.round(Number(form.get('commissionPercent') || 0) * 100),
-      taxLabel: taxLabel === null ? undefined : String(taxLabel).trim(),
-    },
-    coverage: {
-      supportedCities,
-      serviceCategories,
-      cityServiceAvailability,
-    },
-    payments: {
-      paymentProviders,
-      providerSettings: paymentProviderSettings,
-    },
-    support: {
-      email: String(form.get('supportEmail') || ''),
-      phone: String(form.get('supportPhone') || ''),
-      whatsapp: supportWhatsapp === null ? undefined : String(supportWhatsapp),
-      escalationEmail: supportEscalationEmail === null ? undefined : String(supportEscalationEmail),
-    },
-  };
-
-  try {
-    await api(`/admin/markets/${selectedCountryCode}`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    });
-    event.currentTarget.reset();
-    await refresh();
-  } catch (error) {
-    alert(error.message);
-  }
-}
-
-function collectCityServiceRows(form) {
-  return Array.from(form.querySelectorAll('[data-city-service-row]'))
-    .map((row) => {
-      const services = Array.from(row.querySelectorAll('[data-service-entry-row]'))
-        .map((serviceRow) => ({
-          serviceKey: serviceKeyFrom(serviceRow.querySelector('[data-service-key]')?.value || ''),
-          label: serviceRow.querySelector('[data-service-label]')?.value.trim() || '',
-          status: serviceRow.querySelector('[data-service-status]')?.value || 'ACTIVE',
-        }))
-        .filter((service) => service.serviceKey)
-        .map((service) => ({
-          ...service,
-          label: service.label || labelFromServiceKey(service.serviceKey),
-        }));
-      const legacyServices = String(row.querySelector('[data-city-services]')?.value || '')
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
-        .map(normalizeServiceEntry)
-        .filter(Boolean);
-      const areas = Array.from(row.querySelectorAll('[data-area-entry-row]'))
-        .map((areaRow) => ({
-          name: areaRow.querySelector('[data-area-name]')?.value.trim() || '',
-          status: areaRow.querySelector('[data-area-status]')?.value || 'ACTIVE',
-          services: String(areaRow.querySelector('[data-area-services]')?.value || '')
-            .split(',')
-            .map((item) => {
-              const [rawKey, rawStatus] = item.split(':').map((part) => part.trim());
-              const serviceKey = serviceKeyFrom(rawKey);
-              return serviceKey
-                ? { serviceKey, label: labelFromServiceKey(serviceKey), status: rawStatus || 'ACTIVE' }
-                : null;
-            })
-            .filter(Boolean),
-        }))
-        .filter((area) => area.name);
-      return {
-        city: row.querySelector('[data-city]')?.value.trim() || '',
-        status: row.querySelector('[data-city-status]')?.value || 'ACTIVE',
-        services: services.length ? services : legacyServices,
-        areas,
-      };
-    })
-    .filter((row) => row.city);
-}
-
-function collectPaymentProviderRows(form) {
-  return Array.from(form.querySelectorAll('[data-provider-row]'))
-    .map((row, index) => ({
-      provider: row.querySelector('[data-provider]')?.value.trim().toUpperCase() || '',
-      status: row.querySelector('[data-provider-status]')?.value || 'DISABLED',
-      methods: String(row.querySelector('[data-provider-methods]')?.value || '')
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean),
-      priority: Number(row.querySelector('[data-provider-priority]')?.value || index + 1),
-      payoutEnabled: Boolean(row.querySelector('[data-provider-payout]')?.checked),
-      configReference: row.querySelector('[data-provider-config]')?.value.trim() || '',
-    }))
-    .filter((row) => row.provider);
-}
-
+
 async function createAdminUser(event) {
   event.preventDefault();
   if (!canMutate('admins.create')) {
@@ -1140,14 +1282,19 @@ function renderLogin() {
         <div class="media-overlay">
           <div class="brand-lockup">
             <img
-              src="https://res.cloudinary.com/dz7dr3wku/image/upload/v1783803342/myfixer_logo_dlan5o.png"
+              src="https://res.cloudinary.com/dz7dr3wku/image/upload/v1784232641/final_logo_main_xx1y3f.png"
               alt="MyFixer logo"
               class="brand-logo"
             />
-            <div>
-              <h1>MyFixer Back Office</h1>
-              <p>Centralized platform for managing operations, markets, workforce, dispatch, payments, and provider trust across the MyFixer ecosystem.</p>
-            </div>
+              <div>
+                <h1 class="login-product-title">
+                  <span class="admin-padi-wordmark" aria-label="Padi">
+                    <span class="admin-padi-pad">Pad</span><span class="admin-padi-i"><span class="admin-padi-dot"></span><span class="admin-padi-stem"></span></span>
+                  </span>
+                  <span>BackOffice</span>
+                </h1>
+                <p>A secure operations workspace for managing Padi markets, providers, dispatch, payments, and platform trust.</p>
+              </div>
           </div>
           <div class="media-stats">
             <div><strong>Secure</strong><span>Internal access only</span></div>
@@ -1213,8 +1360,8 @@ function renderShell() {
       <aside class="sidebar">
         <div class="sidebar-brand">
           <img
-            src="https://res.cloudinary.com/dz7dr3wku/image/upload/v1783803342/myfixer_logo_dlan5o.png"
-            alt="MyFixer logo"
+            src="https://res.cloudinary.com/dz7dr3wku/image/upload/v1784232641/final_logo_main_xx1y3f.png"
+            alt="Padi logo"
             class="brand-logo small"
           />
         </div>
@@ -1289,7 +1436,14 @@ function setupIdleSecurity() {
   ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach((eventName) => {
     window.addEventListener(eventName, resetIdleTimer, { passive: true });
   });
+  window.addEventListener('keydown', handleGlobalKeydown);
   resetIdleTimer();
+}
+
+function handleGlobalKeydown(event) {
+  if (event.key === 'Escape' && state.activeView === 'services' && state.serviceWorkspace.drawerOpen) {
+    requestCloseBookableServiceDrawer();
+  }
 }
 
 function setView(view) {
@@ -1317,6 +1471,7 @@ function renderActiveView() {
   if (state.activeView === 'promotions') return renderPromotions();
   if (state.activeView === 'ledger') return renderLedger();
   if (state.activeView === 'adminUsers') return renderAdminUsers();
+  if (state.activeView === 'services') return renderServices();
   if (state.activeView === 'settings') return renderSettings();
   if (state.activeView === 'auditLogs') return renderAuditLogs();
   return '';
@@ -1361,14 +1516,16 @@ function renderProviderReviewQueue() {
 }
 
 function renderMarketCoverage() {
-  const markets = (state.data.markets || []).map(getMarketView);
-  if (!markets.length) return renderEmpty('No launch markets have been configured yet.');
+  const markets = (state.data.markets || [])
+    .map(getMarketView)
+    .filter((market) => String(market.status || '').toUpperCase() === 'ACTIVE');
+  if (!markets.length) return renderEmpty('No active markets yet.');
 
   return `
     <div class="coverage-grid">
       ${markets.slice(0, 6).map((market) => {
         const activeCities = (market.cityServiceAvailability || [])
-          .filter((city) => String(city.status || '').toUpperCase() === 'ACTIVE' || city.enabled === true);
+          .filter((city) => String(city.status || '').toUpperCase() === 'ACTIVE');
         const serviceCount = normalizeServiceEntries(market.serviceCategories || []).length;
         const providerCount = (market.providerSettings || market.paymentProviders || []).length;
         return `
@@ -1457,67 +1614,378 @@ function renderRecentAdminActivity() {
   `;
 }
 
-function renderOverview() {
-  const overview = state.data.overview || {};
-  const fallbackTotalProviders = state.data.technicians.length;
-  const auditAction = hasPermission('admins.read')
-    ? '<button class="ghost-button compact" onclick="setView(\'auditLogs\')">Open</button>'
-    : '<span>Read only</span>';
-  const marketAction = hasPermission('markets.read')
-    ? '<button class="ghost-button compact" onclick="setView(\'settings\')">Open</button>'
-    : '<span>Read only</span>';
-  const technicianAction = hasPermission('technicians.read')
-    ? '<button class="ghost-button compact" onclick="setView(\'technicians\')">Open</button>'
-    : '<span>Read only</span>';
-  const cards = [
-    { label: 'Active bookings', value: overview.activeBookings || 0 },
-    { label: 'Pending providers', value: overview.pendingTechnicians || 0, view: 'technicians' },
-    { label: 'Approved providers', value: overview.approvedTechnicians || 0, view: 'technicians' },
-    { label: 'Clients', value: overview.clients || 0, view: 'clients' },
-    { label: 'Pending quotes', value: overview.pendingQuotes || 0 },
-    { label: 'Unpaid invoices', value: overview.unpaidInvoices || 0 },
-    { label: 'Completed jobs', value: overview.completedBookings || 0 },
-    { label: 'Total providers', value: getOverviewNumber(overview.totalTechnicians, fallbackTotalProviders), view: 'technicians' },
-  ];
+function getActiveOperatingMarkets() {
+  return (state.data.markets || [])
+    .map(getMarketView)
+    .filter((market) => String(market.status || '').toUpperCase() === 'ACTIVE');
+}
 
+function moneyMinorFrom(record = {}, decimalField, minorField) {
+  if (typeof record[minorField] === 'number') return record[minorField];
+  if (typeof record[decimalField] === 'number') return Math.round(record[decimalField] * 100);
+  return 0;
+}
+
+function invoiceCountryCode(invoice = {}) {
+  return String(
+    invoice.countryCode ||
+    invoice.bookingId?.countryCode ||
+    invoice.bookingId?.identity?.countryCode ||
+    ''
+  ).toUpperCase();
+}
+
+function bookingCountryCode(booking = {}) {
+  return String(booking.countryCode || booking.identity?.countryCode || '').toUpperCase();
+}
+
+function invoiceTotalMinor(invoice = {}) {
+  return moneyMinorFrom(invoice, 'totalAmount', 'totalAmountMinor');
+}
+
+function invoiceCommissionMinor(invoice = {}) {
+  return moneyMinorFrom(invoice, 'platformCommissionAmount', 'platformCommissionAmountMinor');
+}
+
+function invoiceTechnicianNetMinor(invoice = {}) {
+  return moneyMinorFrom(invoice, 'technicianNetAmount', 'technicianNetAmountMinor');
+}
+
+function bookingValueMinor(booking = {}) {
+  return moneyMinorFrom(booking, 'price', 'priceMinor') ||
+    moneyMinorFrom(booking.finalBilling || {}, 'totalAmount', 'totalAmountMinor');
+}
+
+function sumMinor(rows, selector) {
+  return rows.reduce((total, row) => total + selector(row), 0);
+}
+
+function rowsForActiveMarkets(rows, getCountryCode, activeMarkets) {
+  const activeCodes = new Set(activeMarkets.map((market) => market.countryCode).filter(Boolean));
+  if (!activeCodes.size) return [];
+  return rows.filter((row) => activeCodes.has(getCountryCode(row)));
+}
+
+function overviewDataset() {
+  const overview = state.data.overview || {};
+  const activeMarkets = getActiveOperatingMarkets();
+  const activeInvoices = rowsForActiveMarkets(state.data.invoices || [], invoiceCountryCode, activeMarkets);
+  const activeBookings = rowsForActiveMarkets(state.data.bookings || [], bookingCountryCode, activeMarkets);
+  const primaryCurrency = activeMarkets[0]?.currency || activeInvoices[0]?.currency || 'ZAR';
+  const paidInvoices = activeInvoices.filter((invoice) => String(invoice.status || '').toUpperCase() === 'PAID');
+  const unpaidInvoices = activeInvoices.filter((invoice) => String(invoice.status || '').toUpperCase() === 'UNPAID');
+  const refundedInvoices = activeInvoices.filter((invoice) => String(invoice.status || '').toUpperCase().includes('REFUND'));
+  const failedInvoices = activeInvoices.filter((invoice) => String(invoice.status || '').toUpperCase().includes('FAIL'));
+  const completedBookings = activeBookings.filter((booking) => String(booking.status || '').toUpperCase() === 'COMPLETED');
+  const acceptedBookings = activeBookings.filter((booking) => ['ACCEPTED', 'IN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'DIAGNOSTIC_DONE', 'COMPLETED'].includes(String(booking.status || '').toUpperCase()));
+  const approvedQuotes = (state.data.quotes || []).filter((quote) => String(quote.status || '').toUpperCase().includes('APPROVED'));
+  const escrowMinor = (state.data.ledger || [])
+    .filter((row) => ['CLIENT_PAYMENT', 'TECHNICIAN_EARNING_PENDING'].includes(String(row.type || '').toUpperCase()))
+    .reduce((total, row) => total + moneyMinorFrom(row, 'amount', 'amountMinor'), 0);
+
+  return {
+    overview,
+    activeMarkets,
+    activeInvoices,
+    activeBookings,
+    paidInvoices,
+    unpaidInvoices,
+    refundedInvoices,
+    failedInvoices,
+    completedBookings,
+    acceptedBookings,
+    approvedQuotes,
+    primaryCurrency,
+    grossRevenueMinor: sumMinor(paidInvoices, invoiceTotalMinor),
+    platformFeesMinor: sumMinor(paidInvoices, invoiceCommissionMinor),
+    technicianPayoutsMinor: sumMinor(paidInvoices, invoiceTechnicianNetMinor),
+    pendingPaymentsMinor: sumMinor(unpaidInvoices, invoiceTotalMinor),
+    escrowMinor,
+    activeProviderCount: getOverviewNumber(overview.approvedTechnicians, (state.data.technicians || []).filter(isApprovedProvider).length),
+  };
+}
+
+function formatTrend(value = 0) {
+  if (!value) return '0% vs previous period';
+  const prefix = value > 0 ? '+' : '';
+  return `${prefix}${value}% vs previous period`;
+}
+
+function sparklineSvg(points = [], tone = 'blue') {
+  const safePoints = points.length ? points : [0, 0, 0, 0, 0, 0, 0];
+  const max = Math.max(...safePoints, 1);
+  const step = 72 / Math.max(safePoints.length - 1, 1);
+  const path = safePoints
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${index * step} ${24 - ((point / max) * 20)}`)
+    .join(' ');
+  return `<svg class="sparkline ${tone}" viewBox="0 0 72 28" aria-hidden="true"><path d="${path}" /></svg>`;
+}
+
+function buildRevenueTrendRows(invoices, days = 7) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (days - index - 1));
+    const key = date.toISOString().slice(0, 10);
+    const totalMinor = invoices
+      .filter((invoice) => String(invoice.createdAt || '').slice(0, 10) === key)
+      .reduce((total, invoice) => total + invoiceTotalMinor(invoice), 0);
+    return { label: date.toLocaleDateString(undefined, { weekday: 'short' }), key, totalMinor };
+  });
+}
+
+function renderOverviewFilterBar(data) {
   return `
-    <div class="metric-grid">
-      ${cards.map((card) => `
-        <article class="metric-card ${card.view ? 'clickable' : ''}" ${card.view ? `onclick="setView('${card.view}')"` : ''}>
-          <span>${card.label}</span>
-          <strong>${card.value}</strong>
-        </article>
+    <div class="overview-filter-bar">
+      <label><span>Date Range</span><select><option>7 Days</option><option>Today</option><option>30 Days</option><option>90 Days</option><option>This Year</option><option>Custom Range</option></select></label>
+      <label><span>Active Market</span><select><option value="">All active markets</option>${data.activeMarkets.map((market) => `<option value="${escapeHtml(market.countryCode)}">${escapeHtml(market.countryName || market.countryCode)}</option>`).join('')}</select></label>
+      <button class="ghost-button compact" onclick="refresh()">Refresh</button>
+      <button class="ghost-button compact" title="TODO: Connect to analytics export endpoint.">Export</button>
+    </div>
+  `;
+}
+
+function renderKpiCard({ label, value, trend = 0, icon = '$', tone = 'blue', spark = [] }) {
+  const trendClass = trend < 0 ? 'down' : trend > 0 ? 'up' : 'flat';
+  const trendSymbol = trend < 0 ? '&#9660;' : trend > 0 ? '&#9650;' : '&#8212;';
+  return `
+    <article class="business-kpi ${tone}">
+      <div class="business-kpi-head"><span>${escapeHtml(label)}</span><strong>${escapeHtml(icon)}</strong></div>
+      <div class="business-kpi-value">${value}</div>
+      <div class="business-kpi-trend ${trendClass}">${trendSymbol} ${escapeHtml(formatTrend(trend))}</div>
+      ${sparklineSvg(spark, tone)}
+    </article>
+  `;
+}
+
+function renderBusinessKpis(data) {
+  const revenueSpark = buildRevenueTrendRows(data.paidInvoices).map((row) => row.totalMinor);
+  const bookingSpark = buildRevenueTrendRows(data.activeBookings.map((booking) => ({
+    createdAt: booking.createdAt,
+    totalAmountMinor: bookingValueMinor(booking),
+  }))).map((row) => row.totalMinor);
+  const cards = [
+    { label: 'Gross Revenue', value: moneyFromMinor(data.grossRevenueMinor, data.primaryCurrency), icon: 'R', tone: 'green', spark: revenueSpark },
+    { label: 'Platform Fees', value: moneyFromMinor(data.platformFeesMinor, data.primaryCurrency), icon: '%', tone: 'blue', spark: revenueSpark },
+    { label: 'Technician Payouts', value: moneyFromMinor(data.technicianPayoutsMinor, data.primaryCurrency), icon: 'P', tone: 'purple', spark: revenueSpark },
+    { label: 'Pending Payments', value: moneyFromMinor(data.pendingPaymentsMinor, data.primaryCurrency), icon: '!', tone: 'amber', spark: revenueSpark },
+    { label: 'Active Bookings', value: data.activeBookings.length, icon: 'B', tone: 'blue', spark: bookingSpark },
+    { label: 'Active Providers', value: data.activeProviderCount, icon: 'T', tone: 'green', spark: [0, 0, data.activeProviderCount] },
+  ];
+  return `<div class="business-kpi-grid">${cards.map(renderKpiCard).join('')}</div>`;
+}
+
+function renderRevenueTrend(data) {
+  const rows = buildRevenueTrendRows(data.paidInvoices, 7);
+  const max = Math.max(...rows.map((row) => row.totalMinor), 1);
+  const points = rows
+    .map((row, index) => `${(index / Math.max(rows.length - 1, 1)) * 100},${100 - ((row.totalMinor / max) * 82 + 8)}`)
+    .join(' ');
+  return `
+    <section class="panel business-panel hero-chart">
+      <div class="panel-header"><div><h2>Revenue Trend</h2><span>Primary business revenue over the selected period</span></div><span class="status info">7 DAYS</span></div>
+      <div class="line-chart-wrap">
+        <svg class="line-chart" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Revenue trend chart">
+          <polyline class="line-chart-fill" points="0,100 ${points} 100,100" />
+          <polyline class="line-chart-line" points="${points}" />
+        </svg>
+        ${rows.every((row) => row.totalMinor === 0) ? '<div class="chart-empty-note">No paid revenue recorded for this period.</div>' : ''}
+      </div>
+      <div class="chart-axis">${rows.map((row) => `<span>${escapeHtml(row.label)}</span>`).join('')}</div>
+    </section>
+  `;
+}
+
+function rankedEntries(map, limit = 6) {
+  return Array.from(map.values())
+    .sort((a, b) => (b.amountMinor || b.count || 0) - (a.amountMinor || a.count || 0))
+    .slice(0, limit);
+}
+
+function revenueByCategory(data) {
+  const rows = new Map();
+  data.activeInvoices.forEach((invoice) => {
+    const label = invoice.bookingId?.applianceType || invoice.serviceKey || invoice.category || 'Uncategorized';
+    const key = serviceKeyFrom(label);
+    const current = rows.get(key) || { label: labelFromServiceKey(key) || label, amountMinor: 0 };
+    current.amountMinor += invoiceTotalMinor(invoice);
+    rows.set(key, current);
+  });
+  return rankedEntries(rows);
+}
+
+function renderHorizontalBars(rows, currency) {
+  if (!rows.length || rows.every((row) => !row.amountMinor)) return renderEmpty('No revenue breakdown is available yet.');
+  const max = Math.max(...rows.map((row) => row.amountMinor), 1);
+  return `
+    <div class="bar-list">
+      ${rows.map((row) => `
+        <div class="bar-row">
+          <div><strong>${escapeHtml(row.label)}</strong><span>${moneyFromMinor(row.amountMinor, currency)}</span></div>
+          <div class="bar-track"><span style="width: ${Math.max(4, Math.round((row.amountMinor / max) * 100))}%"></span></div>
+        </div>
       `).join('')}
     </div>
-    <div class="two-column">
-      <section class="panel">
-        <div class="panel-header"><h2>Recent Bookings</h2><span>${state.data.bookings.length} latest</span></div>
-        ${renderBookingTable(state.data.bookings.slice(0, 6))}
-      </section>
-      <section class="panel">
-        <div class="panel-header"><h2>Provider Review Queue</h2>${technicianAction}</div>
-        ${renderProviderReviewQueue()}
-      </section>
+  `;
+}
+
+function revenueByActiveCountry(data) {
+  return data.activeMarkets.map((market) => {
+    const amountMinor = data.activeInvoices
+      .filter((invoice) => invoiceCountryCode(invoice) === market.countryCode)
+      .reduce((total, invoice) => total + invoiceTotalMinor(invoice), 0);
+    return {
+      label: market.countryName || market.countryCode,
+      countryCode: market.countryCode,
+      currency: market.currency || data.primaryCurrency,
+      amountMinor,
+    };
+  });
+}
+
+function renderRevenueByCountryDonut(rows, currency) {
+  if (!rows.length) return renderEmpty('No active operating markets are configured.');
+  const total = rows.reduce((sum, row) => sum + row.amountMinor, 0);
+  const colors = ['#00ff87', '#38bdf8', '#a78bfa', '#f59e0b', '#f472b6', '#22d3ee'];
+  let offset = 0;
+  const segments = rows.map((row, index) => {
+    const percent = total > 0 ? row.amountMinor / total : rows.length === 1 ? 1 : 1 / rows.length;
+    const dash = `${percent * 100} ${100 - (percent * 100)}`;
+    const segment = `<circle r="15.9" cx="18" cy="18" style="stroke:${colors[index % colors.length]};stroke-dasharray:${dash};stroke-dashoffset:${-offset};"></circle>`;
+    offset += percent * 100;
+    return segment;
+  }).join('');
+  return `
+    <div class="donut-layout">
+      <div class="donut-chart">
+        <svg viewBox="0 0 36 36" aria-label="Revenue by active country"><circle class="donut-bg" r="15.9" cx="18" cy="18"></circle>${segments}</svg>
+        <div><strong>${total > 0 ? moneyFromMinor(total, currency) : '0%'}</strong><span>Total</span></div>
+      </div>
+      <div class="donut-legend">
+        ${rows.map((row, index) => {
+          const percent = total > 0 ? Math.round((row.amountMinor / total) * 100) : rows.length === 1 ? 100 : Math.round(100 / rows.length);
+          return `<div><i style="background:${colors[index % colors.length]}"></i><span>${escapeHtml(row.label)}</span><strong>${percent}%</strong></div>`;
+        }).join('')}
+      </div>
     </div>
-    <div class="two-column">
-      <section class="panel">
-        <div class="panel-header"><h2>Revenue Snapshot</h2></div>
-        ${renderCurrencyTotals(overview.totalsByCurrency || {})}
-      </section>
-      <section class="panel">
-        <div class="panel-header"><h2>Platform Readiness</h2><span>${escapeHtml(resolveApiEnvironment())}</span></div>
-        ${renderPlatformReadiness()}
-      </section>
+  `;
+}
+
+function renderFinancialDistribution(data) {
+  return `
+    <div class="overview-grid two">
+      <section class="panel business-panel"><div class="panel-header"><div><h2>Platform Fees</h2><span>Commission retained by MyFixer</span></div></div><div class="financial-total">${moneyFromMinor(data.platformFeesMinor, data.primaryCurrency)}</div>${sparklineSvg(buildRevenueTrendRows(data.paidInvoices).map((row) => row.totalMinor), 'blue')}<p class="business-note">TODO: Replace with finance analytics endpoint for period-over-period growth.</p></section>
+      <section class="panel business-panel"><div class="panel-header"><div><h2>Technician Payouts</h2><span>Net earnings owed or paid to providers</span></div></div><div class="financial-total">${moneyFromMinor(data.technicianPayoutsMinor, data.primaryCurrency)}</div>${sparklineSvg(buildRevenueTrendRows(data.paidInvoices).map((row) => row.totalMinor), 'purple')}<p class="business-note">TODO: Connect settlement analytics for paid vs pending payout timing.</p></section>
     </div>
-    <div class="two-column wide-right">
-      <section class="panel">
-        <div class="panel-header"><h2>Recent Admin Activity</h2>${auditAction}</div>
-        ${renderRecentAdminActivity()}
-      </section>
-      <section class="panel">
-        <div class="panel-header"><h2>Market Coverage</h2>${marketAction}</div>
-        ${renderMarketCoverage()}
-      </section>
+  `;
+}
+
+function renderPaymentHealth(data) {
+  const items = [
+    ['Successful Payments', data.paidInvoices.length, 'green'],
+    ['Pending Payments', data.unpaidInvoices.length, 'amber'],
+    ['Escrow Balance', moneyFromMinor(data.escrowMinor, data.primaryCurrency), 'blue'],
+    ['Failed Payments', data.failedInvoices.length, 'red'],
+    ['Refunds', data.refundedInvoices.length, 'purple'],
+  ];
+  return `
+    <section class="panel business-panel">
+      <div class="panel-header"><div><h2>Payment Health</h2><span>Payment flow and exception status</span></div></div>
+      <div class="payment-health-grid">${items.map(([label, value, tone]) => `<article class="${tone}"><span>${escapeHtml(label)}</span><strong>${value}</strong></article>`).join('')}</div>
+    </section>
+  `;
+}
+
+function renderRevenueFunnel(data) {
+  const funnel = [
+    ['Bookings', data.activeBookings.length],
+    ['Accepted', data.acceptedBookings.length],
+    ['Quote Approved', data.approvedQuotes.length],
+    ['Payment Received', data.paidInvoices.length],
+    ['Completed', data.completedBookings.length],
+    ['Revenue', moneyFromMinor(data.grossRevenueMinor, data.primaryCurrency)],
+  ];
+  const max = Math.max(...funnel.map((item) => typeof item[1] === 'number' ? item[1] : 0), 1);
+  return `
+    <section class="panel business-panel">
+      <div class="panel-header"><div><h2>Revenue Funnel</h2><span>Where bookings convert into revenue</span></div></div>
+      <div class="funnel-list">${funnel.map(([label, value]) => {
+        const width = typeof value === 'number' ? Math.max(18, Math.round((value / max) * 100)) : 100;
+        return `<div class="funnel-step"><span style="width:${width}%"><strong>${escapeHtml(label)}</strong><em>${value}</em></span></div>`;
+      }).join('')}</div>
+    </section>
+  `;
+}
+
+function topServices(data) {
+  const rows = new Map();
+  data.activeBookings.forEach((booking) => {
+    const label = booking.applianceType || booking.serviceKey || booking.category || 'Uncategorized';
+    const key = serviceKeyFrom(label);
+    const current = rows.get(key) || { label: labelFromServiceKey(key) || label, count: 0, amountMinor: 0 };
+    current.count += 1;
+    current.amountMinor += bookingValueMinor(booking);
+    rows.set(key, current);
+  });
+  return rankedEntries(rows, 5);
+}
+
+function topTechnicians(data) {
+  const rows = new Map();
+  data.completedBookings.forEach((booking) => {
+    const id = booking.technicianId?._id || booking.technicianId || booking.assignedTechnicianId || 'unassigned';
+    const name = booking.technicianName || booking.technicianId?.name || (id === 'unassigned' ? 'Unassigned' : 'Technician');
+    const current = rows.get(String(id)) || { label: name, count: 0, amountMinor: 0 };
+    current.count += 1;
+    current.amountMinor += bookingValueMinor(booking);
+    rows.set(String(id), current);
+  });
+  return rankedEntries(rows, 5);
+}
+
+function renderRankedList(rows, currency, emptyMessage) {
+  if (!rows.length) return renderEmpty(emptyMessage);
+  return `
+    <div class="ranked-list">
+      ${rows.map((row, index) => `<article><span>${index + 1}</span><div><strong>${escapeHtml(row.label)}</strong><small>${row.count || 0} ${row.count === 1 ? 'job' : 'jobs'}</small></div><em>${moneyFromMinor(row.amountMinor || 0, currency)}</em></article>`).join('')}
+    </div>
+  `;
+}
+
+function renderAiInsights(data) {
+  const insights = [];
+  if (!data.grossRevenueMinor) insights.push('No revenue recorded for the selected period.');
+  if (!data.failedInvoices.length) insights.push('No failed payments detected.');
+  if (data.pendingPaymentsMinor) insights.push(`Pending payments total ${moneyFromMinor(data.pendingPaymentsMinor, data.primaryCurrency)}.`);
+  if ((state.data.technicians || []).filter(isPendingProvider).length === 0) insights.push('Provider approval queue is clear.');
+  if (data.activeMarkets.length === 1) insights.push(`${data.activeMarkets[0].countryName || data.activeMarkets[0].countryCode} is currently 100% of active-market revenue.`);
+  return `
+    <section class="panel business-panel ai-insights">
+      <div class="panel-header"><div><h2>AI Business Insights</h2><span>Rule-based now, AI-ready later</span></div></div>
+      <div class="insight-list">${insights.map((insight) => `<p>${escapeHtml(insight)}</p>`).join('')}</div>
+    </section>
+  `;
+}
+
+function renderOverview() {
+  const data = overviewDataset();
+  return `
+    <div class="business-command-center">
+      ${renderOverviewFilterBar(data)}
+      ${renderBusinessKpis(data)}
+      ${renderRevenueTrend(data)}
+      <div class="overview-grid two">
+        <section class="panel business-panel"><div class="panel-header"><div><h2>Revenue by Category</h2><span>Highest earning service lines</span></div></div>${renderHorizontalBars(revenueByCategory(data), data.primaryCurrency)}</section>
+        <section class="panel business-panel"><div class="panel-header"><div><h2>Revenue by Country</h2><span>Active operating markets only</span></div></div>${renderRevenueByCountryDonut(revenueByActiveCountry(data), data.primaryCurrency)}</section>
+      </div>
+      ${renderFinancialDistribution(data)}
+      <div class="overview-grid two">${renderPaymentHealth(data)}${renderRevenueFunnel(data)}</div>
+      <div class="overview-grid two">
+        <section class="panel business-panel"><div class="panel-header"><div><h2>Top Services</h2><span>Ranked by booking value</span></div></div>${renderRankedList(topServices(data), data.primaryCurrency, 'No service performance data yet.')}</section>
+        <section class="panel business-panel"><div class="panel-header"><div><h2>Top Technicians</h2><span>Completed jobs and revenue</span></div></div>${renderRankedList(topTechnicians(data), data.primaryCurrency, 'No technician revenue ranking yet.')}</section>
+      </div>
+      ${renderAiInsights(data)}
     </div>
   `;
 }
@@ -1619,6 +2087,7 @@ function renderTechnicians() {
           const photoUrl = tech.documents?.profilePhotoUrl || user.profilePhotoUrl || '';
           const photoStatus = tech.documents?.profilePhotoStatus || 'NOT_SUBMITTED';
           const serviceLabel = formatTechnicianServices(tech.serviceCategories || []);
+          const serviceSelections = renderTechnicianServiceSelections(tech.serviceCategories || []);
           const experienceLabel = formatYearsExperience(tech.yearsExperience);
           const radiusLabel = formatServiceRadius(tech.serviceRadiusKm);
           const providerLabel = tech.businessName || 'Independent provider';
@@ -1644,6 +2113,13 @@ function renderTechnicians() {
                     <span>${escapeHtml(experienceLabel)} • ${escapeHtml(radiusLabel)}</span>
                     <span>${escapeHtml(providerLabel)} • ${escapeHtml(transportLabel)}</span>
                     <span>ID / Registration: ${escapeHtml(idLabel)}</span>
+                  </div>
+                  <div class="technician-service-section">
+                    <div class="technician-service-section-header">
+                      <strong>Signup Service Categories</strong>
+                      <span>${escapeHtml(serviceLabel)}</span>
+                    </div>
+                    ${serviceSelections}
                   </div>
                   ${tech.review?.rejectionReason ? `<p class="warning-text">${escapeHtml(tech.review.rejectionReason)}</p>` : ''}
                 </div>
@@ -1850,11 +2326,11 @@ function renderCollectionOperations() {
         <div class="form-grid">
           <div>
             <label>Country</label>
-            <input name="countryCode" value="${escapeHtml(filters.countryCode || '')}" placeholder="ZA, ZM, GH" />
+            <input name="countryCode" value="${escapeHtml(filters.countryCode || '')}" placeholder="ZA" />
           </div>
           <div>
             <label>City</label>
-            <input name="city" value="${escapeHtml(filters.city || '')}" placeholder="Lusaka" />
+            <input name="city" value="${escapeHtml(filters.city || '')}" placeholder="City" />
           </div>
           <div>
             <label>Area</label>
@@ -1993,6 +2469,38 @@ async function cancelNotification(id) {
   }
 }
 
+async function sendClientNotification(event) {
+  event.preventDefault();
+  if (!canMutate('bookings.update')) {
+    alert('You do not have permission to send client notifications.');
+    return;
+  }
+
+  const form = new FormData(event.currentTarget);
+  const payload = {
+    audience: String(form.get('audience') || 'CLIENTS').trim(),
+    title: String(form.get('title') || '').trim(),
+    message: String(form.get('message') || '').trim(),
+  };
+
+  if (!payload.title || !payload.message) {
+    alert('Enter both a title and message.');
+    return;
+  }
+
+  try {
+    await api('/admin/notifications', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    event.currentTarget.reset();
+    await refresh();
+    alert('Client alert broadcast sent.');
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
 function renderNotifications() {
   const rows = state.data.notifications || [];
   const meta = state.data.notificationMeta || {};
@@ -2002,10 +2510,46 @@ function renderNotifications() {
   const metricCards = ['PENDING', 'SCHEDULED', 'SENT', 'FAILED', 'CANCELLED', 'READ'].map((status) => [status, counts[status] || 0]);
 
   return `
+    <section class="panel notification-hero">
+      <div class="panel-header">
+        <div><h2>Notification Center</h2><span>Broadcast alerts go to the app bell. Inbox remains for invoices, quotes, receipts and payment documents.</span></div>
+        ${canUpdate ? '<button class="primary-button compact" onclick="processDueNotifications()">Process Due</button>' : ''}
+      </div>
+      ${canUpdate ? `
+        <form class="notification-composer" onsubmit="sendClientNotification(event)">
+          <div>
+            <span class="eyebrow">Send Broadcast Alert</span>
+            <h3>Broadcast bell notification</h3>
+            <p>Send one in-app alert to the selected audience. It appears under the bell/Alerts, not Inbox.</p>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label>Audience</label>
+              <select name="audience" required>
+                <option value="CLIENTS">Clients</option>
+                <option value="TECHNICIANS">Padi Pro Providers</option>
+                <option value="ALL">Everyone</option>
+              </select>
+            </div>
+            <div>
+              <label>Title</label>
+              <input name="title" maxlength="120" placeholder="Short alert title" required />
+            </div>
+            <div class="span-2">
+              <label>Message</label>
+              <textarea name="message" maxlength="600" rows="6" placeholder="Write the client-facing alert" required></textarea>
+            </div>
+          </div>
+          <div class="review-actions">
+            <button class="primary-button compact" type="submit">Send Alert</button>
+            <button class="ghost-button compact" type="reset">Clear</button>
+          </div>
+        </form>
+      ` : '<div class="empty-state">You have read-only access to notifications.</div>'}
+    </section>
     <section class="panel">
       <div class="panel-header">
-        <div><h2>Notification Center</h2><span>In-App and Email are enabled. Push, SMS, and WhatsApp are foundation-only.</span></div>
-        ${canUpdate ? '<button class="primary-button compact" onclick="processDueNotifications()">Process Due</button>' : ''}
+        <div><h2>Delivery Queue</h2><span>Review delivery status, retry failed messages and process due notifications.</span></div>
       </div>
       <form class="settings-form" onsubmit="applyNotificationFilters(event)">
         <div class="form-grid">
@@ -2187,8 +2731,8 @@ function renderSubscriptions() {
           <label>Description</label>
           <input name="description" placeholder="Weekly pickup with red, green, and blue bins" />
           <div class="form-grid">
-            <div><label>Country</label><input name="countryCode" required placeholder="ZM" /></div>
-            <div><label>Currency</label><input name="currency" required placeholder="ZMW" /></div>
+            <div><label>Country</label><input name="countryCode" required placeholder="ZA" /></div>
+            <div><label>Currency</label><input name="currency" required placeholder="ZAR" /></div>
             <div><label>Price</label><input name="price" type="number" min="0" step="0.01" required /></div>
             <div>
               <label>Billing Frequency</label>
@@ -2322,14 +2866,33 @@ function renderInvoices() {
 
 function renderSettlements() {
   const rows = state.data.settlements || [];
+  const settlementPromotionSummary = (settlement) => {
+    const breakdown = settlement.metadata?.priceBreakdown || {};
+    const promotions = Array.isArray(settlement.metadata?.promotions)
+      ? settlement.metadata.promotions
+      : settlement.metadata?.promotion
+        ? [settlement.metadata.promotion]
+        : [];
+    const promotionDiscountMinor = Number(breakdown.promotionDiscountMinor || promotions.reduce((sum, promotion) => sum + Number(promotion.discountMinor || 0), 0));
+    if (!promotionDiscountMinor) return '<span class="status info">No promotion</span>';
+    const firstPromotion = promotions[0] || {};
+    const label = firstPromotion.code || firstPromotion.campaignName || firstPromotion.promotionName || 'Promotion';
+    const funding = firstPromotion.fundingSource || breakdown.promotionFundingSource || 'Stored snapshot';
+    return `
+      <strong>${escapeHtml(label)}</strong>
+      <span>${moneyFromMinor(promotionDiscountMinor, settlement.currency || 'ZAR')} discount · ${escapeHtml(funding)}</span>
+      <span>MyFixer ${moneyFromMinor(Number(breakdown.promotionPlatformFundedMinor || 0), settlement.currency || 'ZAR')} · Provider ${moneyFromMinor(Number(breakdown.promotionTechnicianFundedMinor || 0), settlement.currency || 'ZAR')} · Partner ${moneyFromMinor(Number(breakdown.promotionPartnerFundedMinor || 0), settlement.currency || 'ZAR')}</span>
+    `;
+  };
   return `
     <section class="panel">
       <div class="panel-header"><h2>Settlement Centre</h2><span>${rows.length} latest</span></div>
-      ${renderGenericTable(rows, ['Settlement', 'Booking', 'Currency', 'Gross', 'Commission', 'Net', 'Status', 'Payout', 'Actions'], (settlement) => [
+      ${renderGenericTable(rows, ['Settlement', 'Booking', 'Currency', 'Gross', 'Promotion', 'Commission', 'Net', 'Status', 'Payout', 'Actions'], (settlement) => [
         escapeHtml(settlement.id || settlement._id || '-'),
         escapeHtml(settlement.bookingId || '-'),
         escapeHtml(settlement.currency || '-'),
         moneyFromMinor(settlement.grossAmountMinor || 0, settlement.currency || 'ZAR'),
+        settlementPromotionSummary(settlement),
         moneyFromMinor(settlement.commissionAmountMinor || 0, settlement.currency || 'ZAR'),
         moneyFromMinor(settlement.netAmountMinor || 0, settlement.currency || 'ZAR'),
         `<span class="status ${statusClass(settlement.status)}">${escapeHtml(settlement.status || '-')}</span>`,
@@ -2391,40 +2954,7 @@ async function retrySettlementPayout(id) {
 
 async function createPromotion(event) {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  const discountType = String(form.get('discountType') || 'PERCENTAGE');
-  const discountValueRaw = Number(form.get('discountValue') || 0);
-  const discountValue = discountType === 'FIXED_AMOUNT'
-    ? Math.round(discountValueRaw * 100)
-    : discountValueRaw;
-
-  const payload = {
-    code: String(form.get('code') || '').trim().toUpperCase(),
-    name: String(form.get('name') || '').trim(),
-    description: String(form.get('description') || '').trim(),
-    status: String(form.get('status') || 'ACTIVE').toUpperCase(),
-    discountType,
-    discountValue,
-    maxDiscountMinor: Math.round(Number(form.get('maxDiscount') || 0) * 100) || null,
-    minBookingAmountMinor: Math.round(Number(form.get('minBookingAmount') || 0) * 100) || 0,
-    countryCode: String(form.get('countryCode') || ''),
-    currency: String(form.get('currency') || ''),
-    startsAt: String(form.get('startsAt') || '') || null,
-    expiresAt: String(form.get('expiresAt') || '') || null,
-    usageLimit: Number(form.get('usageLimit') || 0) || null,
-    perClientLimit: Number(form.get('perClientLimit') || 0) || null,
-  };
-
-  try {
-    await api('/admin/promotions', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-    event.currentTarget.reset();
-    await refresh();
-  } catch (error) {
-    alert(error.message);
-  }
+  await savePromotionDraft('draft');
 }
 
 function syncPromotionCurrency(select) {
@@ -2435,6 +2965,27 @@ function syncPromotionCurrency(select) {
   const selectedCurrency = select.selectedOptions?.[0]?.dataset?.currency || '';
   currencyInput.value = selectedCurrency;
   currencyInput.placeholder = selectedCurrency || 'Optional, e.g. ZAR';
+}
+
+function updatePromotionFormVisibility(form) {
+  if (!form) return;
+  const triggerType = String(form.elements.triggerType?.value || 'CODE').toUpperCase();
+  const discountType = String(form.elements.discountType?.value || 'PERCENTAGE').toUpperCase();
+  const fundingSource = String(form.elements.fundingSource?.value || 'MYFIXER').toUpperCase();
+  form.querySelectorAll('[data-promo-field]').forEach((field) => {
+    const key = field.dataset.promoField;
+    const visible =
+      (key === 'code' && triggerType === 'CODE') ||
+      (key === 'discountValue' && discountType !== 'FREE_CALLOUT') ||
+      (key === 'maxDiscount' && discountType === 'PERCENTAGE') ||
+      (key === 'currency' && discountType !== 'PERCENTAGE') ||
+      (key === 'freeCallout' && discountType === 'FREE_CALLOUT') ||
+      (key === 'fundingSplit' && fundingSource === 'SHARED') ||
+      !['code', 'discountValue', 'maxDiscount', 'currency', 'freeCallout', 'fundingSplit'].includes(key || '');
+    field.hidden = !visible;
+  });
+  if (form.elements.code) form.elements.code.required = triggerType === 'CODE';
+  if (form.elements.discountValue) form.elements.discountValue.required = discountType !== 'FREE_CALLOUT';
 }
 
 async function updatePromotion(id, patch) {
@@ -2450,31 +3001,517 @@ async function updatePromotion(id, patch) {
   }
 }
 
+function getActivePromotionMarkets() {
+  return (state.data.markets || []).filter((market) => getMarketView(market).status === 'ACTIVE');
+}
+
+function defaultPromotionDraft(overrides = {}) {
+  const market = getActivePromotionMarkets()[0];
+  const marketView = market ? getMarketView(market) : {};
+  return {
+    name: '',
+    customerTitle: '',
+    description: '',
+    internalNotes: '',
+    triggerType: 'AUTOMATIC',
+    code: '',
+    discountType: 'PERCENTAGE',
+    discountValue: 10,
+    maxDiscount: '',
+    minBookingAmount: '',
+    countryCode: marketView.countryCode || '',
+    currency: marketView.currency || '',
+    cityKeys: '',
+    areaKeys: '',
+    serviceKeys: '',
+    subcategoryKeys: '',
+    firstBookingOnly: false,
+    clientSegment: '',
+    paymentMethod: '',
+    daysOfWeek: '',
+    timeWindow: '',
+    fundingSource: 'MYFIXER',
+    platformFundingPercent: 100,
+    technicianFundingPercent: 0,
+    partnerFundingPercent: 0,
+    partnerReference: '',
+    startsAt: '',
+    expiresAt: '',
+    timezone: marketView.timezone || '',
+    usageLimit: '',
+    perClientLimit: '',
+    budget: '',
+    priority: 100,
+    stackingPolicy: 'EXCLUSIVE',
+    maxPromotionsPerBooking: 1,
+    ...overrides,
+  };
+}
+
+function selectedPromotion() {
+  return (state.data.promotions || []).find((promotion) => String(promotion._id) === String(state.promotionWorkspace.selectedPromotionId));
+}
+
+function setPromotionWorkspaceTab(tab) {
+  state.promotionWorkspace.tab = tab;
+  render();
+}
+
+function setPromotionStatusTab(tab) {
+  state.promotionWorkspace.statusTab = tab;
+  render();
+}
+
+function setPromotionFilter(key, value) {
+  state.promotionWorkspace.filters[key] = value;
+  render();
+}
+
+function clearPromotionFilters() {
+  state.promotionWorkspace.statusTab = 'ALL';
+  state.promotionWorkspace.filters = { search: '', mode: '', status: '', market: '', service: '', fundingSource: '', dateFrom: '', dateTo: '' };
+  render();
+}
+
+function setPromotionDraftField(key, value, type = 'text') {
+  const draft = { ...defaultPromotionDraft(), ...(state.promotionWorkspace.draft || {}) };
+  draft[key] = type === 'checkbox' ? Boolean(value) : value;
+  if (key === 'countryCode') {
+    const market = getActivePromotionMarkets().find((item) => getMarketView(item).countryCode === value);
+    const view = market ? getMarketView(market) : {};
+    draft.currency = view.currency || '';
+    draft.timezone = view.timezone || '';
+  }
+  if (key === 'triggerType' && value === 'AUTOMATIC') draft.code = '';
+  if (key === 'fundingSource' && value !== 'SHARED') {
+    draft.platformFundingPercent = value === 'MYFIXER' ? 100 : 0;
+    draft.technicianFundingPercent = value === 'PROVIDER' ? 100 : 0;
+    draft.partnerFundingPercent = value === 'PARTNER' ? 100 : 0;
+  }
+  if (key === 'stackingPolicy' && value === 'EXCLUSIVE') draft.maxPromotionsPerBooking = 1;
+  state.promotionWorkspace.draft = draft;
+  render();
+}
+
+function startCreatePromotion(sourceId = '') {
+  const source = (state.data.promotions || []).find((promotion) => String(promotion._id) === String(sourceId));
+  state.promotionWorkspace.draft = source
+    ? defaultPromotionDraft({
+        name: `${source.name || 'Promotion'} Copy`,
+        customerTitle: source.metadata?.customerTitle || source.name || '',
+        description: source.description || '',
+        internalNotes: source.metadata?.internalNotes || '',
+        triggerType: source.triggerType || 'AUTOMATIC',
+        code: '',
+        discountType: source.discountType || 'PERCENTAGE',
+        discountValue: source.discountType === 'FIXED_AMOUNT' ? Number(source.discountValue || 0) / 100 : Number(source.discountValue || 0),
+        maxDiscount: source.maxDiscountMinor ? Number(source.maxDiscountMinor) / 100 : '',
+        minBookingAmount: source.minBookingAmountMinor ? Number(source.minBookingAmountMinor) / 100 : '',
+        countryCode: source.countryCode || '',
+        currency: source.currency || '',
+        cityKeys: (source.cityKeys || []).join(', '),
+        areaKeys: (source.areaKeys || []).join(', '),
+        serviceKeys: (source.serviceKeys || []).join(', '),
+        subcategoryKeys: (source.subcategoryKeys || []).join(', '),
+        firstBookingOnly: source.firstBookingOnly === true,
+        fundingSource: source.fundingSource || 'MYFIXER',
+        platformFundingPercent: Math.round((source.fundingSplitBps?.platform || 0) / 100),
+        technicianFundingPercent: Math.round((source.fundingSplitBps?.technician || 0) / 100),
+        partnerFundingPercent: Math.round((source.fundingSplitBps?.partner || 0) / 100),
+        budget: source.budgetMinor ? Number(source.budgetMinor) / 100 : '',
+        priority: source.priority || 100,
+        stackingPolicy: source.stackingPolicy || 'EXCLUSIVE',
+      })
+    : defaultPromotionDraft();
+  state.promotionWorkspace.createStep = 0;
+  state.promotionWorkspace.tab = 'create';
+  render();
+}
+
+function setPromotionWizardStep(step) {
+  state.promotionWorkspace.createStep = Math.max(0, Math.min(5, Number(step) || 0));
+  render();
+}
+
+function buildPromotionPayload(status = 'DRAFT') {
+  const draft = { ...defaultPromotionDraft(), ...(state.promotionWorkspace.draft || {}) };
+  const discountType = String(draft.discountType || 'PERCENTAGE').toUpperCase();
+  return {
+    code: draft.triggerType === 'CODE' ? String(draft.code || '').trim().toUpperCase() : '',
+    name: String(draft.name || '').trim(),
+    customerTitle: String(draft.customerTitle || '').trim(),
+    description: String(draft.description || '').trim(),
+    internalNotes: String(draft.internalNotes || '').trim(),
+    triggerType: String(draft.triggerType || 'AUTOMATIC').toUpperCase(),
+    status,
+    discountType,
+    discountValue: discountType === 'FIXED_AMOUNT' ? Math.round(Number(draft.discountValue || 0) * 100) : Number(draft.discountValue || (discountType === 'FREE_CALLOUT' ? 1 : 0)),
+    maxDiscountMinor: Math.round(Number(draft.maxDiscount || 0) * 100) || null,
+    minBookingAmountMinor: Math.round(Number(draft.minBookingAmount || 0) * 100) || 0,
+    countryCode: String(draft.countryCode || '').trim().toUpperCase(),
+    currency: String(draft.currency || '').trim().toUpperCase(),
+    cityKeys: String(draft.cityKeys || ''),
+    areaKeys: String(draft.areaKeys || ''),
+    serviceKeys: String(draft.serviceKeys || ''),
+    subcategoryKeys: String(draft.subcategoryKeys || ''),
+    firstBookingOnly: draft.firstBookingOnly === true,
+    priority: Number(draft.priority || 100),
+    stackingPolicy: String(draft.stackingPolicy || 'EXCLUSIVE').toUpperCase(),
+    fundingSource: String(draft.fundingSource || 'MYFIXER').toUpperCase(),
+    fundingSplitBps: {
+      platform: Math.round(Number(draft.platformFundingPercent || 0) * 100),
+      technician: Math.round(Number(draft.technicianFundingPercent || 0) * 100),
+      partner: Math.round(Number(draft.partnerFundingPercent || 0) * 100),
+    },
+    budgetMinor: Math.round(Number(draft.budget || 0) * 100) || null,
+    startsAt: String(draft.startsAt || '') || null,
+    expiresAt: String(draft.expiresAt || '') || null,
+    usageLimit: Number(draft.usageLimit || 0) || null,
+    perClientLimit: Number(draft.perClientLimit || 0) || null,
+    partnerReference: String(draft.partnerReference || ''),
+  };
+}
+
+function promotionReadinessIssues() {
+  const draft = { ...defaultPromotionDraft(), ...(state.promotionWorkspace.draft || {}) };
+  const issues = [];
+  if (!String(draft.name || '').trim()) issues.push('Campaign name');
+  if (draft.triggerType === 'CODE' && !String(draft.code || '').trim()) issues.push('Promo code');
+  if (!draft.countryCode) issues.push('Active market');
+  if (!getActivePromotionMarkets().length) issues.push('No active market is available');
+  const splitTotal = Number(draft.platformFundingPercent || 0) + Number(draft.technicianFundingPercent || 0) + Number(draft.partnerFundingPercent || 0);
+  if (draft.fundingSource === 'SHARED' && Math.round(splitTotal * 100) !== 10000) issues.push('Funding split must equal 100%');
+  if (draft.stackingPolicy === 'EXCLUSIVE' && Number(draft.maxPromotionsPerBooking || 1) > 1) issues.push('Exclusive campaigns cannot allow multiple promotions');
+  return issues;
+}
+
+async function savePromotionDraft(action = 'draft') {
+  if (!canMutate('promotions.create')) {
+    alert('You do not have permission to create promotions.');
+    return;
+  }
+  const issues = promotionReadinessIssues();
+  if (action !== 'draft' && issues.length) {
+    alert(`Cannot ${action} yet: ${issues.join(', ')}`);
+    return;
+  }
+  try {
+    const payload = buildPromotionPayload('DRAFT');
+    const result = await api('/admin/promotions', { method: 'POST', body: JSON.stringify(payload) });
+    if (action === 'activate') await api(`/admin/promotions/${result.promotion._id}/activate`, { method: 'POST' });
+    state.promotionWorkspace.draft = {};
+    state.promotionWorkspace.tab = 'directory';
+    await refresh();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function duplicatePromotion(id) {
+  if (!canMutate('promotions.create')) return;
+  if (!confirm('Create a new draft copy of this campaign?')) return;
+  try {
+    await api(`/admin/promotions/${id}/duplicate`, { method: 'POST' });
+    await refresh();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function runPromotionLifecycle(id, action) {
+  const permission = action === 'activate' ? 'promotions.activate' : action === 'pause' ? 'promotions.pause' : 'promotions.archive';
+  if (!canMutate(permission)) return;
+  if (!confirm(`${action[0].toUpperCase()}${action.slice(1)} this promotion?`)) return;
+  try {
+    await api(`/admin/promotions/${id}/${action}`, { method: 'POST' });
+    await refresh();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function openPromotionDetails(id, tab = 'overview') {
+  state.promotionWorkspace.selectedPromotionId = id;
+  state.promotionWorkspace.detailTab = tab;
+  state.promotionWorkspace.tab = 'details';
+  try {
+    const [performance, redemptions, audit] = await Promise.all([
+      hasPermission('promotions.performance.read') ? api(`/admin/promotions/${id}/performance`) : Promise.resolve({ performance: null }),
+      hasPermission('promotions.redemptions.read') ? api(`/admin/promotions/${id}/redemptions`) : Promise.resolve({ redemptions: [] }),
+      hasPermission('admins.read') ? api(`/admin/promotions/${id}/audit`) : Promise.resolve({ logs: [] }),
+    ]);
+    state.promotionWorkspace.performance = performance.performance || null;
+    state.promotionWorkspace.redemptions = redemptions.redemptions || [];
+    state.promotionWorkspace.audit = audit.logs || [];
+  } catch (error) {
+    alert(error.message);
+  }
+  render();
+}
+
+function promotionOffer(promotion) {
+  const currency = promotion.currency || 'ZAR';
+  if (promotion.discountType === 'PERCENTAGE') return `${promotion.discountValue}% off${promotion.maxDiscountMinor ? `, max ${moneyFromMinor(promotion.maxDiscountMinor, currency)}` : ''}`;
+  if (promotion.discountType === 'FIXED_AMOUNT') return `${moneyFromMinor(promotion.discountValue || 0, currency)} off`;
+  if (promotion.discountType === 'FREE_CALLOUT') return 'Free Call-out Fee';
+  if (promotion.discountType === 'SERVICE_FEE_WAIVER') return 'Service Fee Waiver';
+  if (promotion.discountType === 'CAPPED_PERCENTAGE') return `${promotion.discountValue}% capped`;
+  return escapeHtml(promotion.discountType || '-');
+}
+
+function promotionScope(promotion) {
+  return [promotion.countryCode || 'All markets', ...(promotion.cityKeys || []).slice(0, 2), ...(promotion.serviceKeys || []).slice(0, 2), promotion.firstBookingOnly ? 'First booking' : ''].filter(Boolean).join(' / ');
+}
+
+function promotionFundingSummary(promotion) {
+  if (promotion.fundingSource === 'SHARED') {
+    const split = promotion.fundingSplitBps || {};
+    return `Shared ${Math.round((split.platform || 0) / 100)}%/${Math.round((split.technician || 0) / 100)}%/${Math.round((split.partner || 0) / 100)}%`;
+  }
+  return promotion.fundingSource || 'MYFIXER';
+}
+
+function filteredPromotions() {
+  const workspace = state.promotionWorkspace;
+  const filters = workspace.filters;
+  return (state.data.promotions || []).filter((promotion) => {
+    const displayStatus = promotion.displayStatus || promotion.status || 'DRAFT';
+    const haystack = `${promotion.name || ''} ${promotion.metadata?.customerTitle || ''} ${promotion.code || ''}`.toLowerCase();
+    if (workspace.statusTab !== 'ALL' && displayStatus !== workspace.statusTab) return false;
+    if (filters.search && !haystack.includes(filters.search.toLowerCase())) return false;
+    if (filters.mode && promotion.triggerType !== filters.mode) return false;
+    if (filters.status && displayStatus !== filters.status) return false;
+    if (filters.market && promotion.countryCode !== filters.market) return false;
+    if (filters.service && !(promotion.serviceKeys || []).includes(filters.service)) return false;
+    if (filters.fundingSource && promotion.fundingSource !== filters.fundingSource) return false;
+    if (filters.dateFrom && promotion.expiresAt && new Date(promotion.expiresAt) < new Date(filters.dateFrom)) return false;
+    if (filters.dateTo && promotion.startsAt && new Date(promotion.startsAt) > new Date(filters.dateTo)) return false;
+    return true;
+  });
+}
+
+function renderPromotionSummary() {
+  const summary = state.data.promotionSummary;
+  const cards = [
+    ['Active Promotions', summary?.activePromotions ?? 'Not available yet'],
+    ['Scheduled Promotions', summary?.scheduledPromotions ?? 'Not available yet'],
+    ['Total Redemptions', summary?.totalRedemptions ?? 'Not available yet'],
+    ['Total Discount Granted', summary ? moneyFromMinor(summary.totalDiscountGrantedMinor || 0, 'ZAR') : 'Not available yet'],
+    ['Revenue Influenced', summary ? moneyFromMinor(summary.revenueInfluencedMinor || 0, 'ZAR') : 'Not available yet'],
+    ['Remaining Campaign Budget', summary ? moneyFromMinor(summary.remainingCampaignBudgetMinor || 0, 'ZAR') : 'Not available yet'],
+  ];
+  return `<div class="metric-grid">${cards.map(([label, value]) => `<article class="metric-card"><span>${label}</span><strong>${value}</strong></article>`).join('')}</div>`;
+}
+
+function renderPromotionFilters() {
+  const filters = state.promotionWorkspace.filters;
+  const statuses = ['ALL', 'DRAFT', 'SCHEDULED', 'ACTIVE', 'PAUSED', 'EXPIRED', 'EXHAUSTED', 'ARCHIVED'];
+  const markets = getActivePromotionMarkets().map((market) => getMarketView(market));
+  const services = state.data.serviceCatalog || [];
+  const modes = state.data.promotionMeta.triggerTypes?.length ? state.data.promotionMeta.triggerTypes : ['AUTOMATIC', 'CODE'];
+  const fundingSources = state.data.promotionMeta.fundingSources?.length ? state.data.promotionMeta.fundingSources : ['MYFIXER', 'PROVIDER', 'PARTNER', 'SHARED'];
+  return `
+    <div class="tab-row">
+      ${statuses.map((status) => `<button class="ghost-button compact ${state.promotionWorkspace.statusTab === status ? 'active' : ''}" onclick="setPromotionStatusTab('${status}')">${status === 'ALL' ? 'All' : status[0] + status.slice(1).toLowerCase()}</button>`).join('')}
+    </div>
+    <div class="filter-grid">
+      <input aria-label="Search promotions" placeholder="Search name or code" value="${escapeHtml(filters.search)}" oninput="setPromotionFilter('search', this.value)" />
+      <select aria-label="Mode" onchange="setPromotionFilter('mode', this.value)"><option value="">All modes</option>${modes.map((mode) => `<option value="${mode}" ${filters.mode === mode ? 'selected' : ''}>${mode === 'AUTOMATIC' ? 'Automatic' : 'Promo Code'}</option>`).join('')}</select>
+      <select aria-label="Status" onchange="setPromotionFilter('status', this.value)"><option value="">All statuses</option>${statuses.filter((item) => item !== 'ALL').map((status) => `<option value="${status}" ${filters.status === status ? 'selected' : ''}>${status}</option>`).join('')}</select>
+      <select aria-label="Market" onchange="setPromotionFilter('market', this.value)"><option value="">All active markets</option>${markets.map((market) => `<option value="${market.countryCode}" ${filters.market === market.countryCode ? 'selected' : ''}>${escapeHtml(market.countryName || market.countryCode)}</option>`).join('')}</select>
+      <select aria-label="Service" onchange="setPromotionFilter('service', this.value)"><option value="">All services</option>${services.map((service) => `<option value="${escapeHtml(service.serviceKey)}" ${filters.service === service.serviceKey ? 'selected' : ''}>${escapeHtml(service.label || service.serviceKey)}</option>`).join('')}</select>
+      <select aria-label="Funding" onchange="setPromotionFilter('fundingSource', this.value)"><option value="">All funding</option>${fundingSources.map((source) => `<option value="${source}" ${filters.fundingSource === source ? 'selected' : ''}>${source}</option>`).join('')}</select>
+      <input aria-label="Date from" type="date" value="${escapeHtml(filters.dateFrom)}" onchange="setPromotionFilter('dateFrom', this.value)" />
+      <input aria-label="Date to" type="date" value="${escapeHtml(filters.dateTo)}" onchange="setPromotionFilter('dateTo', this.value)" />
+      <button class="ghost-button compact" onclick="clearPromotionFilters()">Clear Filters</button>
+    </div>
+  `;
+}
+
+function renderPromotionActions(promotion) {
+  const id = promotion._id;
+  const displayStatus = promotion.displayStatus || promotion.status || 'DRAFT';
+  const actions = [`<button class="ghost-button compact" onclick="openPromotionDetails('${id}')">View</button>`];
+  if (canMutate('promotions.create')) actions.push(`<button class="ghost-button compact" onclick="duplicatePromotion('${id}')">Duplicate</button>`);
+  if (canMutate('promotions.activate') && ['DRAFT', 'PAUSED'].includes(displayStatus)) actions.push(`<button class="ghost-button compact" onclick="runPromotionLifecycle('${id}', 'activate')">Activate</button>`);
+  if (canMutate('promotions.pause') && displayStatus === 'ACTIVE') actions.push(`<button class="ghost-button compact" onclick="runPromotionLifecycle('${id}', 'pause')">Pause</button>`);
+  if (canMutate('promotions.archive') && !['ARCHIVED', 'ENDED'].includes(displayStatus)) actions.push(`<button class="ghost-button compact" onclick="runPromotionLifecycle('${id}', 'end')">End</button>`);
+  if (canMutate('promotions.archive') && displayStatus !== 'ARCHIVED') actions.push(`<button class="ghost-button compact" onclick="runPromotionLifecycle('${id}', 'archive')">Archive</button>`);
+  if (hasPermission('promotions.performance.read')) actions.push(`<button class="ghost-button compact" onclick="openPromotionDetails('${id}', 'performance')">Performance</button>`);
+  if (hasPermission('promotions.redemptions.read')) actions.push(`<button class="ghost-button compact" onclick="openPromotionDetails('${id}', 'redemptions')">Redemptions</button>`);
+  if (hasPermission('admins.read')) actions.push(`<button class="ghost-button compact" onclick="openPromotionDetails('${id}', 'audit')">Audit</button>`);
+  return `<div class="action-cluster">${actions.join('')}</div>`;
+}
+
+function renderPromotionDirectory() {
+  const promotions = filteredPromotions();
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <div><h2>Campaign Directory</h2><span>${promotions.length} campaigns</span></div>
+        ${canMutate('promotions.create') ? '<button class="primary-button compact" onclick="startCreatePromotion()">Create Promotion</button>' : ''}
+      </div>
+      ${renderPromotionFilters()}
+      ${promotions.length ? renderGenericTable(promotions, ['Promotion', 'Mode', 'Offer', 'Scope', 'Schedule', 'Usage', 'Budget', 'Funding', 'Status', 'Actions'], (promotion) => [
+        `<strong>${escapeHtml(promotion.metadata?.customerTitle || promotion.name || '-')}</strong><span>${promotion.metadata?.customerTitle && promotion.metadata.customerTitle !== promotion.name ? escapeHtml(promotion.name) : ''}${promotion.triggerType === 'CODE' && promotion.code ? ` ${escapeHtml(promotion.code)}` : ''}</span>`,
+        `<span class="status info">${promotion.triggerType === 'AUTOMATIC' ? 'Automatic' : 'Promo Code'}</span>`,
+        promotionOffer(promotion),
+        escapeHtml(promotionScope(promotion)),
+        `${formatDate(promotion.startsAt)}<span>${formatDate(promotion.expiresAt)} ${promotion.metadata?.timezone ? escapeHtml(promotion.metadata.timezone) : ''}</span>`,
+        `${promotion.usageCount || 0}${promotion.usageLimit ? ` of ${promotion.usageLimit}` : ' redemptions'}<span>${promotion.usageLimit ? '' : 'Unlimited'}</span>`,
+        `${promotion.budgetMinor ? `${moneyFromMinor(promotion.redeemedBudgetMinor || 0, promotion.currency || 'ZAR')} of ${moneyFromMinor(promotion.budgetMinor, promotion.currency || 'ZAR')} used` : 'Unlimited'}<span>${promotion.budgetMinor ? `${Math.min(100, Math.round(((promotion.redeemedBudgetMinor || 0) / promotion.budgetMinor) * 100))}% used` : 'No budget cap'}</span>`,
+        escapeHtml(promotionFundingSummary(promotion)),
+        `<span class="status ${statusClass(promotion.displayStatus || promotion.status)}">${escapeHtml(promotion.displayStatus || promotion.status || 'DRAFT')}</span>`,
+        renderPromotionActions(promotion),
+      ]) : `<div class="empty"><strong>No promotions have been created yet.</strong><p>Create an automatic offer or promo-code campaign to encourage bookings.</p>${canMutate('promotions.create') ? '<button class="primary-button compact" onclick="startCreatePromotion()">Create Promotion</button>' : ''}</div>`}
+    </section>
+  `;
+}
+
+function renderPromotionWizard() {
+  const draft = { ...defaultPromotionDraft(), ...(state.promotionWorkspace.draft || {}) };
+  const steps = ['Basics', 'Discount', 'Eligibility', 'Funding', 'Schedule & Limits', 'Preview & Save'];
+  const step = state.promotionWorkspace.createStep;
+  const activeMarkets = getActivePromotionMarkets().map((market) => getMarketView(market));
+  const services = state.data.serviceCatalog || [];
+  const selectedService = services.find((service) => service.serviceKey === draft.serviceKeys);
+  const issues = promotionReadinessIssues();
+  return `
+    <section class="panel">
+      <div class="panel-header"><div><h2>Create Promotion</h2><span>New campaigns save as DRAFT first.</span></div><button class="ghost-button compact" onclick="setPromotionWorkspaceTab('directory')">Back to Directory</button></div>
+      <div class="tab-row">${steps.map((label, index) => `<button class="ghost-button compact ${step === index ? 'active' : ''}" onclick="setPromotionWizardStep(${index})">${index + 1}. ${label}</button>`).join('')}</div>
+      <form class="settings-form" data-promotion-form onsubmit="createPromotion(event)">
+        ${step === 0 ? `
+          <label>Internal Campaign Name</label><input required value="${escapeHtml(draft.name)}" oninput="setPromotionDraftField('name', this.value)" />
+          <label>Customer-facing Title</label><input value="${escapeHtml(draft.customerTitle)}" oninput="setPromotionDraftField('customerTitle', this.value)" />
+          <label>Customer-facing Description</label><textarea rows="3" oninput="setPromotionDraftField('description', this.value)">${escapeHtml(draft.description)}</textarea>
+          <label>Internal Admin Notes</label><textarea rows="3" oninput="setPromotionDraftField('internalNotes', this.value)">${escapeHtml(draft.internalNotes)}</textarea>
+          <div class="form-grid"><div><label>Promotion Mode</label><select onchange="setPromotionDraftField('triggerType', this.value)"><option value="AUTOMATIC" ${draft.triggerType === 'AUTOMATIC' ? 'selected' : ''}>Apply Automatically</option><option value="CODE" ${draft.triggerType === 'CODE' ? 'selected' : ''}>Promo Code</option></select></div>${draft.triggerType === 'CODE' ? `<div><label>Promo Code</label><input required value="${escapeHtml(draft.code)}" oninput="setPromotionDraftField('code', this.value.toUpperCase().replace(/\\\\s+/g, ''))" /><p class="setting-help tight">Codes are normalized and matched case-insensitively.</p></div>` : ''}</div>
+        ` : ''}
+        ${step === 1 ? `
+          <div class="form-grid"><div><label>Discount Type</label><select onchange="setPromotionDraftField('discountType', this.value)">${['PERCENTAGE', 'FIXED_AMOUNT', 'FREE_CALLOUT', 'SERVICE_FEE_WAIVER', 'CAPPED_PERCENTAGE'].map((type) => `<option value="${type}" ${draft.discountType === type ? 'selected' : ''}>${type}</option>`).join('')}</select></div>${!['FREE_CALLOUT', 'SERVICE_FEE_WAIVER'].includes(draft.discountType) ? `<div><label>${draft.discountType === 'FIXED_AMOUNT' ? 'Amount' : 'Percentage'}</label><input type="number" min="0" step="0.01" value="${escapeHtml(draft.discountValue)}" oninput="setPromotionDraftField('discountValue', this.value)" /></div>` : ''}</div>
+          ${['PERCENTAGE', 'CAPPED_PERCENTAGE'].includes(draft.discountType) ? `<label>Maximum Discount Cap</label><input type="number" min="0" step="0.01" value="${escapeHtml(draft.maxDiscount)}" oninput="setPromotionDraftField('maxDiscount', this.value)" /><p class="setting-help tight">Eligible line items are resolved by backend pricing.</p>` : ''}
+          ${draft.discountType === 'FREE_CALLOUT' ? '<p class="setting-help">This promotion waives the eligible Call-out Fee.</p>' : ''}
+          ${draft.discountType === 'SERVICE_FEE_WAIVER' ? '<p class="setting-help">This affects the client service fee, not provider earnings automatically.</p>' : ''}
+        ` : ''}
+        ${step === 2 ? `
+          ${activeMarkets.length ? '' : '<p class="empty">No active market exists. You can save a DRAFT, but activation is blocked until a market is active.</p>'}
+          <div class="form-grid"><div><label>Active Market</label><select onchange="setPromotionDraftField('countryCode', this.value)"><option value="">Select active market</option>${activeMarkets.map((market) => `<option value="${market.countryCode}" ${draft.countryCode === market.countryCode ? 'selected' : ''}>${escapeHtml(market.countryName || market.countryCode)}</option>`).join('')}</select></div><div><label>Currency</label><input value="${escapeHtml(draft.currency)}" readonly /></div></div>
+          <div class="form-grid"><div><label>Cities</label><input value="${escapeHtml(draft.cityKeys)}" placeholder="city keys" oninput="setPromotionDraftField('cityKeys', this.value)" /></div><div><label>Areas</label><input value="${escapeHtml(draft.areaKeys)}" placeholder="area keys" oninput="setPromotionDraftField('areaKeys', this.value)" /></div></div>
+          <div class="form-grid"><div><label>Service</label><select onchange="setPromotionDraftField('serviceKeys', this.value)"><option value="">All published services</option>${services.map((service) => `<option value="${escapeHtml(service.serviceKey)}" ${draft.serviceKeys === service.serviceKey ? 'selected' : ''}>${escapeHtml(service.label || service.serviceKey)}</option>`).join('')}</select></div><div><label>Subcategory</label><select onchange="setPromotionDraftField('subcategoryKeys', this.value)"><option value="">All subcategories</option>${(selectedService?.subcategories || []).map((sub) => `<option value="${escapeHtml(sub.subcategoryKey)}" ${draft.subcategoryKeys === sub.subcategoryKey ? 'selected' : ''}>${escapeHtml(sub.label || sub.subcategoryKey)}</option>`).join('')}</select></div></div>
+          <div class="form-grid"><label class="inline-check"><input type="checkbox" ${draft.firstBookingOnly ? 'checked' : ''} onchange="setPromotionDraftField('firstBookingOnly', this.checked, 'checkbox')" /> First booking</label><div><label>Minimum Subtotal</label><input type="number" min="0" step="0.01" value="${escapeHtml(draft.minBookingAmount)}" oninput="setPromotionDraftField('minBookingAmount', this.value)" /></div></div>
+          <div class="form-grid"><div><label>Client Segment</label><select onchange="setPromotionDraftField('clientSegment', this.value)"><option value="">Any clients</option><option value="NEW" ${draft.clientSegment === 'NEW' ? 'selected' : ''}>New clients</option><option value="RETURNING" ${draft.clientSegment === 'RETURNING' ? 'selected' : ''}>Returning clients</option></select></div><div><label>Payment Method</label><input value="${escapeHtml(draft.paymentMethod)}" oninput="setPromotionDraftField('paymentMethod', this.value)" /></div></div>
+          <div class="form-grid"><div><label>Days of Week</label><input value="${escapeHtml(draft.daysOfWeek)}" placeholder="MON,TUE" oninput="setPromotionDraftField('daysOfWeek', this.value)" /></div><div><label>Time Window</label><input value="${escapeHtml(draft.timeWindow)}" placeholder="09:00-17:00" oninput="setPromotionDraftField('timeWindow', this.value)" /></div></div>
+        ` : ''}
+        ${step === 3 ? `
+          <label>Funding Source</label><select onchange="setPromotionDraftField('fundingSource', this.value)">${['MYFIXER', 'PROVIDER', 'PARTNER', 'SHARED'].map((source) => `<option value="${source}" ${draft.fundingSource === source ? 'selected' : ''}>${source}</option>`).join('')}</select>
+          ${draft.fundingSource === 'MYFIXER' ? '<p class="setting-help">Technician earnings are not reduced by this promotion.</p>' : ''}
+          ${draft.fundingSource === 'PROVIDER' ? '<p class="setting-help">The provider-funded portion may reduce provider earnings.</p>' : ''}
+          ${draft.fundingSource === 'PARTNER' ? `<label>Partner Reference</label><input value="${escapeHtml(draft.partnerReference)}" oninput="setPromotionDraftField('partnerReference', this.value)" />` : ''}
+          ${draft.fundingSource === 'SHARED' ? `<div class="form-grid"><div><label>MyFixer %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.platformFundingPercent)}" oninput="setPromotionDraftField('platformFundingPercent', this.value)" /></div><div><label>Provider %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.technicianFundingPercent)}" oninput="setPromotionDraftField('technicianFundingPercent', this.value)" /></div><div><label>Partner %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.partnerFundingPercent)}" oninput="setPromotionDraftField('partnerFundingPercent', this.value)" /></div></div><p class="setting-help tight">Shared funding splits must total 100%.</p>` : ''}
+        ` : ''}
+        ${step === 4 ? `
+          <div class="form-grid"><div><label>Start Date/Time</label><input type="datetime-local" value="${escapeHtml(draft.startsAt)}" oninput="setPromotionDraftField('startsAt', this.value)" /></div><div><label>End Date/Time</label><input type="datetime-local" value="${escapeHtml(draft.expiresAt)}" oninput="setPromotionDraftField('expiresAt', this.value)" /></div></div>
+          <label>Timezone</label><input value="${escapeHtml(draft.timezone)}" oninput="setPromotionDraftField('timezone', this.value)" />
+          <div class="form-grid"><div><label>Total Usage Limit</label><input type="number" min="0" value="${escapeHtml(draft.usageLimit)}" oninput="setPromotionDraftField('usageLimit', this.value)" /></div><div><label>Per-client Usage Limit</label><input type="number" min="0" value="${escapeHtml(draft.perClientLimit)}" oninput="setPromotionDraftField('perClientLimit', this.value)" /></div></div>
+          <div class="form-grid"><div><label>Campaign Budget</label><input type="number" min="0" step="0.01" value="${escapeHtml(draft.budget)}" oninput="setPromotionDraftField('budget', this.value)" /></div><div><label>Priority</label><input type="number" min="0" value="${escapeHtml(draft.priority)}" oninput="setPromotionDraftField('priority', this.value)" /><p class="setting-help tight">Higher priority campaigns are selected before lower priority ones.</p></div></div>
+          <div class="form-grid"><div><label>Stacking</label><select onchange="setPromotionDraftField('stackingPolicy', this.value)"><option value="EXCLUSIVE" ${draft.stackingPolicy === 'EXCLUSIVE' ? 'selected' : ''}>Stacking disabled</option><option value="STACKABLE" ${draft.stackingPolicy === 'STACKABLE' ? 'selected' : ''}>Stackable</option></select></div><div><label>Maximum Promotions per Booking</label><input type="number" min="1" value="${escapeHtml(draft.maxPromotionsPerBooking)}" oninput="setPromotionDraftField('maxPromotionsPerBooking', this.value)" /></div></div>
+        ` : ''}
+        ${step === 5 ? `
+          <div class="metric-grid"><article class="metric-card"><span>Original amount</span><strong>Not available yet</strong></article><article class="metric-card"><span>Promotion discount</span><strong>${promotionOffer(buildPromotionPayload('DRAFT'))}</strong></article><article class="metric-card"><span>Service fee</span><strong>Backend preview</strong></article><article class="metric-card"><span>Tax</span><strong>Backend preview</strong></article><article class="metric-card"><span>Total</span><strong>Backend approved at pricing</strong></article></div>
+          <div class="metric-grid"><article class="metric-card"><span>MyFixer contribution</span><strong>${draft.platformFundingPercent || 0}%</strong></article><article class="metric-card"><span>Provider contribution</span><strong>${draft.technicianFundingPercent || 0}%</strong></article><article class="metric-card"><span>Partner contribution</span><strong>${draft.partnerFundingPercent || 0}%</strong></article><article class="metric-card"><span>Estimated technician impact</span><strong>${['MYFIXER', 'PARTNER'].includes(draft.fundingSource) ? 'No reduction' : 'Provider portion only'}</strong></article></div>
+          <div class="mini-card"><strong>Activation Readiness</strong><p>${issues.length ? escapeHtml(issues.join(', ')) : 'Ready for lifecycle validation.'}</p></div>
+        ` : ''}
+        <div class="action-cluster">
+          ${step > 0 ? `<button class="ghost-button" type="button" onclick="setPromotionWizardStep(${step - 1})">Previous</button>` : ''}
+          ${step < 5 ? `<button class="ghost-button" type="button" onclick="setPromotionWizardStep(${step + 1})">Next</button>` : ''}
+          <button class="primary-button" type="submit">Save Draft</button>
+          ${step === 5 && canMutate('promotions.activate') ? `<button class="ghost-button" type="button" onclick="savePromotionDraft('activate')" ${issues.length ? 'disabled' : ''}>Activate</button>` : ''}
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+function renderPromotionDetails() {
+  const promotion = selectedPromotion();
+  if (!promotion) return '<section class="panel"><div class="empty">Promotion not found.</div></section>';
+  const tabs = ['overview', 'eligibility', 'funding', 'performance', 'redemptions', 'audit'];
+  const tab = state.promotionWorkspace.detailTab || 'overview';
+  const performance = state.promotionWorkspace.performance;
+  const redemptions = state.promotionWorkspace.redemptions || [];
+  const audit = state.promotionWorkspace.audit || [];
+  return `
+    <section class="panel">
+      <div class="panel-header"><div><h2>${escapeHtml(promotion.metadata?.customerTitle || promotion.name)}</h2><span>${promotion.triggerType === 'CODE' && promotion.code ? escapeHtml(promotion.code) : promotion.triggerType === 'AUTOMATIC' ? 'Automatic campaign' : ''}</span></div><button class="ghost-button compact" onclick="setPromotionWorkspaceTab('directory')">Back to Directory</button></div>
+      <div class="tab-row">${tabs.map((item) => `<button class="ghost-button compact ${tab === item ? 'active' : ''}" onclick="openPromotionDetails('${promotion._id}', '${item}')">${item[0].toUpperCase()}${item.slice(1)}</button>`).join('')}</div>
+      ${tab === 'overview' ? `<div class="metric-grid"><article class="metric-card"><span>Offer</span><strong>${promotionOffer(promotion)}</strong></article><article class="metric-card"><span>Status</span><strong>${escapeHtml(promotion.displayStatus || promotion.status)}</strong></article><article class="metric-card"><span>Usage</span><strong>${promotion.usageCount || 0}${promotion.usageLimit ? ` / ${promotion.usageLimit}` : ''}</strong></article><article class="metric-card"><span>Budget</span><strong>${promotion.budgetMinor ? moneyFromMinor(promotion.redeemedBudgetMinor || 0, promotion.currency || 'ZAR') : 'Unlimited'}</strong></article></div>` : ''}
+      ${tab === 'eligibility' ? `<div class="mini-card"><strong>Readable Rules</strong><p>${escapeHtml(promotionScope(promotion))}</p><p>Minimum subtotal: ${moneyFromMinor(promotion.minBookingAmountMinor || 0, promotion.currency || 'ZAR')}</p><p>${promotion.firstBookingOnly ? 'First booking only' : 'All eligible clients'}</p></div>` : ''}
+      ${tab === 'funding' ? `<div class="metric-grid"><article class="metric-card"><span>Funding Source</span><strong>${escapeHtml(promotion.fundingSource || 'MYFIXER')}</strong></article><article class="metric-card"><span>Split</span><strong>${escapeHtml(promotionFundingSummary(promotion))}</strong></article><article class="metric-card"><span>Total Funded Discount</span><strong>${moneyFromMinor(promotion.redeemedBudgetMinor || 0, promotion.currency || 'ZAR')}</strong></article><article class="metric-card"><span>Provider Impact</span><strong>${['MYFIXER', 'PARTNER'].includes(promotion.fundingSource) ? 'No reduction' : 'Provider portion only'}</strong></article></div>` : ''}
+      ${tab === 'performance' ? (performance ? `<div class="metric-grid">${Object.entries(performance).map(([key, value]) => `<article class="metric-card"><span>${escapeHtml(key)}</span><strong>${value === null ? 'Not available yet' : key.toLowerCase().includes('minor') ? moneyFromMinor(value, promotion.currency || 'ZAR') : escapeHtml(value)}</strong></article>`).join('')}</div>` : '<div class="empty">No campaign performance data is available yet.</div>') : ''}
+      ${tab === 'redemptions' ? (redemptions.length ? renderGenericTable(redemptions, ['Client', 'Booking', 'State', 'Discount', 'Funding', 'Reserved At', 'Redeemed At'], (row) => [escapeHtml(row.clientId || '-'), escapeHtml(row.bookingId || '-'), `<span class="status ${statusClass(row.state)}">${escapeHtml(row.state || '-')}</span>`, moneyFromMinor(row.discountMinor || 0, promotion.currency || 'ZAR'), escapeHtml(row.fundingSource || '-'), formatDate(row.reservedAt), formatDate(row.redeemedAt)]) : '<div class="empty">No clients have redeemed this promotion yet.</div>') : ''}
+      ${tab === 'audit' ? (audit.length ? renderGenericTable(audit, ['Administrator', 'Action', 'Timestamp', 'Result'], (log) => [escapeHtml(log.actor?.email || '-'), escapeHtml(log.event?.action || '-'), formatDate(log.createdAt), log.success === false ? '<span class="status bad">Failed</span>' : '<span class="status good">Success</span>']) : '<div class="empty">No audit history is available yet.</div>') : ''}
+      ${promotion.hasActivity ? '<p class="setting-help">This campaign has redemptions. Material financial changes require a new version.</p>' : ''}
+    </section>
+  `;
+}
+
+function renderPromotionsWorkspace() {
+  const tab = state.promotionWorkspace.tab || 'directory';
+  return `
+    <section class="panel">
+      <div class="panel-header"><div><h2>Promotions</h2><span>Campaign management workspace</span></div></div>
+      <div class="tab-row">
+        <button class="ghost-button compact ${tab === 'directory' ? 'active' : ''}" onclick="setPromotionWorkspaceTab('directory')">Campaign Directory</button>
+        ${canMutate('promotions.create') ? `<button class="ghost-button compact ${tab === 'create' ? 'active' : ''}" onclick="startCreatePromotion()">Create Promotion</button>` : ''}
+        ${state.promotionWorkspace.selectedPromotionId ? `<button class="ghost-button compact ${tab === 'details' ? 'active' : ''}" onclick="setPromotionWorkspaceTab('details')">Promotion Details</button>` : ''}
+      </div>
+    </section>
+    ${renderPromotionSummary()}
+    ${tab === 'create' ? renderPromotionWizard() : tab === 'details' ? renderPromotionDetails() : renderPromotionDirectory()}
+  `;
+}
+
 function renderPromotions() {
+  return renderPromotionsWorkspace();
   const promotions = state.data.promotions || [];
   const discountTypes = state.data.promotionMeta.discountTypes.length
     ? state.data.promotionMeta.discountTypes
     : ['PERCENTAGE', 'FIXED_AMOUNT'];
+  const triggerTypes = state.data.promotionMeta.triggerTypes?.length ? state.data.promotionMeta.triggerTypes : ['AUTOMATIC', 'CODE'];
+  const fundingSources = state.data.promotionMeta.fundingSources?.length ? state.data.promotionMeta.fundingSources : ['MYFIXER', 'PROVIDER', 'PARTNER', 'SHARED'];
+  const stackingPolicies = state.data.promotionMeta.stackingPolicies?.length ? state.data.promotionMeta.stackingPolicies : ['EXCLUSIVE', 'STACKABLE'];
   return `
     <div class="two-column">
       <section class="panel">
-        <div class="panel-header"><h2>Promo Codes</h2><span>${promotions.length} configured</span></div>
-        ${renderGenericTable(promotions, ['Code', 'Discount', 'Scope', 'Usage', 'Status', 'Actions'], (promotion) => [
-          `<strong>${escapeHtml(promotion.code)}</strong><span>${escapeHtml(promotion.name || '-')}</span>`,
+        <div class="panel-header"><h2>Promotions</h2><span>${promotions.length} campaigns</span></div>
+        ${renderGenericTable(promotions, ['Campaign', 'Discount', 'Targeting', 'Budget', 'Usage', 'Status', 'Actions'], (promotion) => [
+          `<strong>${escapeHtml(promotion.name || '-')}</strong><span>${escapeHtml(promotion.triggerType || 'CODE')}${promotion.code ? ` · ${escapeHtml(promotion.code)}` : ''}</span>`,
           promotion.discountType === 'PERCENTAGE'
             ? `${escapeHtml(promotion.discountValue)}%<span>Max ${promotion.maxDiscountMinor ? moneyFromMinor(promotion.maxDiscountMinor, promotion.currency || 'ZAR') : 'No cap'}</span>`
             : `${moneyFromMinor(promotion.discountValue, promotion.currency || 'ZAR')}<span>Fixed amount</span>`,
-          `${escapeHtml(promotion.countryCode || 'All countries')}<span>${escapeHtml(promotion.currency || 'Any currency')}</span>`,
-          `${promotion.usageCount || 0}<span>${promotion.usageLimit ? `of ${promotion.usageLimit}` : 'unlimited'}</span>`,
+          `${escapeHtml(promotion.countryCode || 'All countries')}<span>${escapeHtml([...(promotion.cityKeys || []), ...(promotion.areaKeys || []), ...(promotion.serviceKeys || [])].join(', ') || 'All scopes')}</span>`,
+          `${promotion.budgetMinor ? moneyFromMinor(promotion.budgetMinor, promotion.currency || 'ZAR') : 'No cap'}<span>Redeemed ${moneyFromMinor(promotion.redeemedBudgetMinor || 0, promotion.currency || 'ZAR')}</span>`,
+          `${promotion.usageCount || 0}<span>${promotion.usageLimit ? `of ${promotion.usageLimit}` : 'unlimited'} · ${escapeHtml(promotion.fundingSource || 'MYFIXER')}</span>`,
           `<span class="status ${statusClass(promotion.status)}">${escapeHtml(promotion.status)}</span>`,
-          `<button class="ghost-button compact" onclick="updatePromotion('${promotion._id}', { status: '${promotion.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'}' })">${promotion.status === 'ACTIVE' ? 'Pause' : 'Activate'}</button>`,
+          `<div class="action-cluster"><button class="ghost-button compact" onclick="updatePromotion('${promotion._id}', { status: '${promotion.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'}' })">${promotion.status === 'ACTIVE' ? 'Pause' : 'Activate'}</button><button class="ghost-button compact" onclick="updatePromotion('${promotion._id}', { status: 'ENDED' })">End</button><button class="ghost-button compact" onclick="updatePromotion('${promotion._id}', { status: 'ARCHIVED' })">Archive</button></div>`,
         ])}
       </section>
       <section class="panel">
-        <div class="panel-header"><h2>Create Promo</h2><span>Uber-style client discounts</span></div>
-        <form class="settings-form" onsubmit="createPromotion(event)">
-          <label>Promo Code</label>
-          <input name="code" required placeholder="FIXER50" />
+        <div class="panel-header"><h2>Create Campaign</h2><span>Automatic or code-based discounts</span></div>
+        <form class="settings-form" data-promotion-form onsubmit="createPromotion(event)" oninput="updatePromotionFormVisibility(this)" onchange="updatePromotionFormVisibility(this)">
+          <div class="form-grid">
+            <div>
+              <label>Trigger</label>
+              <select name="triggerType">
+                ${triggerTypes.map((type) => `<option value="${type}">${type}</option>`).join('')}
+              </select>
+            </div>
+            <div data-promo-field="code">
+              <label>Promo Code</label>
+              <input name="code" placeholder="Required for CODE campaigns" />
+            </div>
+          </div>
           <label>Name</label>
           <input name="name" required placeholder="Launch discount" />
           <label>Description</label>
@@ -2486,7 +3523,7 @@ function renderPromotions() {
                 ${discountTypes.map((type) => `<option value="${type}">${type}</option>`).join('')}
               </select>
             </div>
-            <div>
+            <div data-promo-field="discountValue">
               <label>Discount Value</label>
               <input name="discountValue" type="number" min="0" step="0.01" required placeholder="10" />
             </div>
@@ -2495,16 +3532,20 @@ function renderPromotions() {
             <div>
               <label>Status</label>
               <select name="status">
+                <option value="DRAFT">DRAFT</option>
                 <option value="ACTIVE">ACTIVE</option>
                 <option value="PAUSED">PAUSED</option>
                 <option value="EXPIRED">EXPIRED</option>
+                <option value="ENDED">ENDED</option>
+                <option value="ARCHIVED">ARCHIVED</option>
               </select>
             </div>
-            <div>
+            <div data-promo-field="maxDiscount">
               <label>Max Discount Amount</label>
               <input name="maxDiscount" type="number" min="0" step="0.01" placeholder="0 for no cap" />
             </div>
           </div>
+          <p class="setting-help tight" data-promo-field="freeCallout">Free call-out campaigns discount the configured call-out fee only. Repairs and parts still follow quote approval.</p>
           <div class="form-grid">
             <div>
               <label>Minimum Booking Amount</label>
@@ -2519,9 +3560,65 @@ function renderPromotions() {
               <p class="setting-help tight">Checked against the booking market/location, not just the client profile.</p>
             </div>
           </div>
-          <label>Currency</label>
-          <input name="currency" placeholder="Optional, e.g. ZAR" />
-          <p class="setting-help tight">Auto-filled from the selected country. Leave blank only for multi-currency/global promos.</p>
+          <div data-promo-field="currency">
+            <label>Currency</label>
+            <input name="currency" placeholder="Optional, e.g. ZAR" />
+            <p class="setting-help tight">Auto-filled from the selected country. Leave blank only for multi-currency/global promos.</p>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label>City Keys</label>
+              <input name="cityKeys" placeholder="Optional CSV, e.g. johannesburg" />
+            </div>
+            <div>
+              <label>Area Keys</label>
+              <input name="areaKeys" placeholder="Optional CSV, e.g. bryanston" />
+            </div>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label>Service Keys</label>
+              <input name="serviceKeys" placeholder="Optional CSV, e.g. plumbing,electrical" />
+            </div>
+            <div>
+              <label>Subcategory Keys</label>
+              <input name="subcategoryKeys" placeholder="Optional CSV" />
+            </div>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label>Priority</label>
+              <input name="priority" type="number" min="0" step="1" value="100" />
+            </div>
+            <div>
+              <label>Stacking</label>
+              <select name="stackingPolicy">
+                ${stackingPolicies.map((policy) => `<option value="${policy}">${policy}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label>Campaign Budget</label>
+              <input name="budget" type="number" min="0" step="0.01" placeholder="0 for uncapped" />
+            </div>
+            <div>
+              <label>Funding Source</label>
+              <select name="fundingSource">
+                ${fundingSources.map((source) => `<option value="${source}">${source}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-grid" data-promo-field="fundingSplit">
+            <div><label>MyFixer Funding %</label><input name="platformFundingPercent" type="number" min="0" max="100" step="0.01" value="100" /></div>
+            <div><label>Provider Funding %</label><input name="technicianFundingPercent" type="number" min="0" max="100" step="0.01" value="0" /></div>
+          </div>
+          <div data-promo-field="fundingSplit"><label>Partner Funding %</label><input name="partnerFundingPercent" type="number" min="0" max="100" step="0.01" value="0" /><p class="setting-help tight">Shared funding splits must total 100%.</p></div>
+          <label>Eligible Client IDs</label>
+          <input name="eligibleClientIds" placeholder="Optional CSV of client IDs" />
+          <label>Excluded Client IDs</label>
+          <input name="excludedClientIds" placeholder="Optional CSV of client IDs" />
+          <label class="inline-check"><input name="firstBookingOnly" type="checkbox" /> First booking only</label>
           <div class="form-grid">
             <div>
               <label>Starts At</label>
@@ -2675,487 +3772,2725 @@ function renderClientContactToggle(admin) {
   `;
 }
 
-function renderSettings() {
-  const canUpdateMarkets = canMutate('markets.update');
+function serviceGroupsFromCatalog() {
+  const groups = new Map();
+
+  DEFAULT_TOP_LEVEL_SERVICE_GROUPS.forEach((group) => {
+    groups.set(group.groupKey, {
+      groupKey: group.groupKey,
+      label: group.label,
+      displayOrder: group.displayOrder,
+      source: 'default',
+      persisted: false,
+      groupIconKey: group.groupIconKey || group.groupKey,
+      categoryCount: 0,
+      bookableCount: 0,
+    });
+  });
+
+  (state.data.serviceCatalog || []).forEach((service) => {
+    const groupKey = serviceKeyFrom(service.groupKey || '');
+    const label = String(service.groupLabel || '').trim();
+    if (!groupKey || !label) return;
+
+    const existing = groups.get(groupKey);
+    groups.set(groupKey, {
+      groupKey,
+      label,
+      displayOrder: Number.isFinite(Number(service.groupDisplayOrder))
+        ? Number(service.groupDisplayOrder)
+        : existing?.displayOrder ?? 999,
+      source: 'catalog',
+      persisted: true,
+      groupIconKey: service.groupIconKey || service.groupKey || groupKey,
+      categoryCount: (existing?.categoryCount || 0) + (service.serviceKey === groupKey ? 0 : 1),
+      bookableCount: (existing?.bookableCount || 0) + (service.subcategories || []).length,
+    });
+  });
+
+  return Array.from(groups.values()).sort((a, b) => {
+    const orderDelta = (a.displayOrder || 999) - (b.displayOrder || 999);
+    return orderDelta || a.label.localeCompare(b.label);
+  });
+}
+
+function renderServiceGroupList(groups) {
+  if (!groups.length) {
+    return '<p class="empty"><span>No groups</span>No top-level service groups have been created yet.</p>';
+  }
+
+  const workspace = state.serviceWorkspace || {};
+  const canUpdateGroups = canMutate('markets.update');
+
   return `
-    <section class="panel">
-      <div class="panel-header">
+    <div class="service-builder-list">
+      ${groups.map((group) => `
+        <article class="service-builder-item ${workspace.selectedGroupKey === group.groupKey ? 'selected' : ''}" tabindex="0" aria-label="${escapeHtml(group.label)} top-level group" onclick="selectTopLevelServiceGroup('${escapeHtml(group.groupKey)}')" onkeydown="handleServiceGroupCardKey(event, '${escapeHtml(group.groupKey)}')">
+          ${renderServiceGroupIcon(group)}
+          <span class="service-group-card-copy">
+            <strong>${escapeHtml(group.label)}</strong>
+            <small>Top-Level Group</small>
+            <em>${group.categoryCount ? `${group.categoryCount} ${group.categoryCount === 1 ? 'Category' : 'Categories'}` : 'No Categories Yet'}</em>
+          </span>
+          ${canUpdateGroups ? `
+            <span class="service-group-actions">
+              <button class="icon-button compact" type="button" aria-label="Actions for ${escapeHtml(group.label)}" onclick="toggleServiceGroupActions(event, '${escapeHtml(group.groupKey)}')">...</button>
+              ${workspace.actionMenuGroupKey === group.groupKey ? `
+                <span class="service-group-menu">
+                  <button type="button" onclick="startRenameTopLevelServiceGroup(event, '${escapeHtml(group.groupKey)}')">Rename</button>
+                  ${group.persisted
+                    ? `<button type="button" onclick="startDeleteTopLevelServiceGroup(event, '${escapeHtml(group.groupKey)}')">Delete</button>`
+                    : `<button class="disabled" type="button" aria-disabled="true" onclick="showServiceGroupDeleteUnavailable(event, '${escapeHtml(group.groupKey)}')">Delete unavailable</button>`}
+                </span>
+              ` : ''}
+            </span>
+          ` : ''}
+          <span class="service-group-card-arrow" aria-hidden="true">&gt;</span>
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
+function findServiceGroup(groupKey) {
+  return serviceGroupsFromCatalog().find((group) => group.groupKey === groupKey) || null;
+}
+
+function serviceCategoriesForGroup(groupKey) {
+  const categories = new Map();
+  let persistedCategoryCount = 0;
+
+  (state.data.serviceCatalog || []).forEach((service) => {
+    const serviceGroupKey = serviceKeyFrom(service.groupKey || '');
+    const serviceKey = serviceKeyFrom(service.serviceKey || '');
+    if (serviceGroupKey !== groupKey || !serviceKey || serviceKey === groupKey) return;
+
+    const label = String(service.label || '').trim();
+    persistedCategoryCount += 1;
+    const existing = categories.get(serviceKey);
+    categories.set(serviceKey, {
+      serviceKey,
+      label: label || existing?.label || serviceKey,
+      displayOrder: Number.isFinite(Number(service.displayOrder))
+        ? Number(service.displayOrder)
+        : existing?.displayOrder ?? 999,
+      persisted: true,
+      bookableCount: (service.subcategories || []).length,
+      status: service.status || 'DRAFT',
+      imageKey: service.imageKey || '',
+      imageUrl: service.imageUrl || '',
+    });
+  });
+
+  if (!persistedCategoryCount && groupKey === 'home_services') {
+    DEFAULT_HOME_SERVICE_CATEGORIES.forEach((category) => {
+      categories.set(category.serviceKey, {
+        serviceKey: category.serviceKey,
+        label: category.label,
+        displayOrder: category.displayOrder,
+        persisted: false,
+        bookableCount: 0,
+        status: 'DRAFT',
+        imageKey: category.serviceKey,
+        imageUrl: '',
+      });
+    });
+  }
+
+  return Array.from(categories.values()).sort((a, b) => {
+    return a.label.localeCompare(b.label);
+  });
+}
+
+function findServiceCategory(groupKey, serviceKey) {
+  return serviceCategoriesForGroup(groupKey).find((category) => category.serviceKey === serviceKey) || null;
+}
+
+function serviceCatalogRecord(serviceKey) {
+  const normalized = serviceKeyFrom(serviceKey);
+  return (state.data.serviceCatalog || []).find((service) => serviceKeyFrom(service.serviceKey || '') === normalized) || null;
+}
+
+async function ensureSelectedServiceCategoryPersisted() {
+  const groupKey = state.serviceWorkspace.selectedGroupKey;
+  const categoryKey = state.serviceWorkspace.selectedCategoryKey;
+  const group = findServiceGroup(groupKey);
+  const category = findServiceCategory(groupKey, categoryKey);
+  const existing = serviceCatalogRecord(categoryKey);
+
+  if (existing && category?.persisted) return existing;
+  if (!group || !category) throw new Error('Select a persisted Service Category before creating a bookable service.');
+  if (!canMutate('markets.update')) throw new Error('You do not have permission to save this service category.');
+
+  try {
+    await api('/admin/services', {
+      method: 'POST',
+      body: JSON.stringify({
+        serviceKey: category.serviceKey,
+        categoryKey: category.serviceKey,
+        groupKey: group.groupKey,
+        groupLabel: group.label,
+        groupStatus: 'DRAFT',
+        groupDisplayOrder: group.displayOrder || 0,
+        label: category.label,
+        description: '',
+        imageKey: category.serviceKey,
+        searchKeywords: [category.label],
+        synonyms: [],
+        requiresCapabilityApproval: true,
+        fixedPriceSupported: false,
+        subcategories: [],
+      }),
+    });
+  } catch (error) {
+    if (!/already exists|already uses|duplicate/i.test(error.message || '')) throw error;
+  }
+
+  await loadAllData();
+  state.activeView = 'services';
+  state.serviceWorkspace.selectedGroupKey = group.groupKey;
+  state.serviceWorkspace.selectedCategoryKey = category.serviceKey;
+
+  const persisted = serviceCatalogRecord(category.serviceKey);
+  if (!persisted) throw new Error(`${category.label} could not be saved before adding a bookable service.`);
+  return persisted;
+}
+
+function serviceBuilderCurrency() {
+  const activeMarket = (state.data.markets || [])
+    .map((market) => getMarketView(market))
+    .find((market) => market.status === 'ACTIVE' && market.currency);
+  const configuredMarket = (state.data.markets || [])
+    .map((market) => getMarketView(market))
+    .find((market) => market.currency);
+  const availableMarket = (state.data.marketMeta.availableMarkets || [])
+    .map((market) => getMarketView(market))
+    .find((market) => market.currency);
+  return activeMarket?.currency || configuredMarket?.currency || availableMarket?.currency || 'ZAR';
+}
+
+function decimalToMinor(value) {
+  const normalized = String(value || '').replace(/,/g, '').trim();
+  if (!normalized) return null;
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return NaN;
+  const [whole, fraction = ''] = normalized.split('.');
+  const minor = (Number(whole) * 100) + Number(fraction.padEnd(2, '0'));
+  return Number.isSafeInteger(minor) ? minor : NaN;
+}
+
+function minorToDecimal(minor) {
+  return typeof minor === 'number' && Number.isFinite(minor) ? (minor / 100).toFixed(2) : '';
+}
+
+function bookableServicesForCategory(serviceKey) {
+  const category = serviceCatalogRecord(serviceKey);
+  return (category?.subcategories || []).map((service, index) => ({
+    serviceKey: service.serviceKey || service.subcategoryKey || '',
+    subcategoryKey: service.subcategoryKey || service.serviceKey || '',
+    label: service.label || service.serviceKey || service.subcategoryKey || 'Unnamed Service',
+    description: service.description || '',
+    calloutFeeMinor: service.calloutFeeMinor ?? category.defaultCalloutFeeMinor,
+    status: service.publicationStatus || service.status || category.status || 'DRAFT',
+    inspectionRequired: service.inspectionRequired === true,
+    imageKey: service.imageKey || '',
+    imageUrl: service.imageUrl || '',
+    displayOrder: Number.isFinite(Number(service.displayOrder)) ? Number(service.displayOrder) : index,
+  })).sort((a, b) => {
+    const orderDelta = (a.displayOrder || 999) - (b.displayOrder || 999);
+    return orderDelta || a.label.localeCompare(b.label);
+  });
+}
+
+function findBookableService(categoryKey, bookableServiceKey) {
+  const normalized = serviceKeyFrom(bookableServiceKey);
+  const category = serviceCatalogRecord(categoryKey);
+  const service = (category?.subcategories || []).find((subcategory) =>
+    serviceKeyFrom(subcategory.serviceKey || subcategory.subcategoryKey || '') === normalized
+  );
+  return service || null;
+}
+
+function renderBookableServiceList(bookableServices) {
+  if (!bookableServices.length) {
+    return '<p class="empty"><span>No Bookable Services Yet</span>Create a bookable service to start building this category.</p>';
+  }
+
+  const currency = serviceBuilderCurrency();
+  const workspace = state.serviceWorkspace || {};
+  return `
+    <div class="service-builder-list">
+      ${bookableServices.map((service) => `
+        <article class="service-builder-item ${workspace.selectedBookableServiceKey === service.serviceKey ? 'selected' : ''}" tabindex="0" aria-label="${escapeHtml(service.label)} bookable service" onclick="openBookableServiceDrawer('edit', '${escapeHtml(service.serviceKey)}')" onkeydown="handleBookableServiceCardKey(event, '${escapeHtml(service.serviceKey)}')">
+          <span class="service-group-card-copy">
+            <strong>${escapeHtml(service.label)}</strong>
+            <small>${typeof service.calloutFeeMinor === 'number' ? `${moneyFromMinor(service.calloutFeeMinor, currency)} call-out` : 'Call-out fee not set'}</small>
+            <em>${escapeHtml(String(service.status || 'DRAFT').replace('_', ' '))}${service.inspectionRequired ? ' - Inspection required' : ''}</em>
+          </span>
+          <span class="service-group-card-arrow" aria-hidden="true">&gt;</span>
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderBookableServiceDrawer(category, bookableService) {
+  const workspace = state.serviceWorkspace || {};
+  if (!workspace.drawerOpen || !category) return '';
+  const isEdit = workspace.drawerMode === 'edit';
+  const canUpdate = canMutate('markets.update');
+  const currency = serviceBuilderCurrency();
+  const draft = workspace.bookableDraft || {};
+  const title = isEdit
+    ? canUpdate
+      ? `Edit ${bookableService?.label || 'Bookable Service'}`
+      : `${bookableService?.label || 'Bookable Service'} Details`
+    : 'Create Bookable Service';
+  const feeMinor = bookableService?.calloutFeeMinor ?? serviceCatalogRecord(category.serviceKey)?.defaultCalloutFeeMinor;
+  const serviceNameValue = draft.serviceName !== undefined ? draft.serviceName : bookableService?.label || '';
+  const descriptionValue = draft.description !== undefined ? draft.description : bookableService?.description || '';
+  const calloutFeeValue = draft.calloutFee !== undefined ? draft.calloutFee : minorToDecimal(feeMinor);
+  const inspectionRequiredValue = draft.inspectionRequired !== undefined ? draft.inspectionRequired : bookableService?.inspectionRequired === true;
+
+  return `
+    <div class="service-drawer-overlay" onclick="requestCloseBookableServiceDrawer('overlay')"></div>
+    <aside class="service-details-drawer" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+      <div class="service-drawer-header">
         <div>
-          <h2>Mobile App Controls</h2>
-          <span>These settings decide what customers can book and what technicians can receive.</span>
+          <small>Step 3</small>
+          <h3>${escapeHtml(title)}</h3>
+          <span>${escapeHtml(category.label || 'Service Category')}</span>
+        </div>
+        <button class="icon-button compact" type="button" aria-label="Close drawer" onclick="requestCloseBookableServiceDrawer()">x</button>
+      </div>
+      <form class="service-bookable-form drawer-form" data-bookable-drawer-form onsubmit="saveBookableService(event, 'DRAFT')">
+        <label>
+          Service Name
+          <input name="serviceName" value="${escapeHtml(serviceNameValue)}" placeholder="Fridge Repair" autocomplete="off" required ${canUpdate ? '' : 'disabled'} />
+        </label>
+        <label>
+          Description
+          <textarea name="description" rows="3" placeholder="Short customer-facing description" ${canUpdate ? '' : 'disabled'}>${escapeHtml(descriptionValue)}</textarea>
+        </label>
+        <label>
+          Default Call-out Fee
+          <span class="currency-input">
+            <em>${escapeHtml(currency)}</em>
+            <input name="calloutFee" value="${escapeHtml(calloutFeeValue)}" type="number" min="0" max="1000000" step="0.01" placeholder="350.00" inputmode="decimal" required ${canUpdate ? '' : 'disabled'} />
+          </span>
+        </label>
+        <label class="checkbox-line">
+          <input name="inspectionRequired" type="checkbox" ${inspectionRequiredValue ? 'checked' : ''} ${canUpdate ? '' : 'disabled'} />
+          Inspection Required
+        </label>
+        ${!canUpdate ? '<p class="setting-help">Read-only admins can view bookable service details but cannot change them.</p>' : ''}
+        ${isEdit && canUpdate ? '<p class="setting-help tight">Delete is allowed only when this bookable service has no bookings, provider capabilities, market references, promotions, waitlists, or operational history.</p>' : ''}
+        <div class="button-row">
+          ${canUpdate ? `<button class="primary-button compact" type="submit">${isEdit ? 'Update Draft' : 'Save Draft'}</button>` : ''}
+          <button class="ghost-button compact" type="button" onclick="requestCloseBookableServiceDrawer()">Cancel</button>
+          ${canUpdate ? `<button class="ghost-button compact" type="button" onclick="saveBookableService(event, 'PUBLISHED')">${isEdit ? 'Publish Changes' : 'Publish'}</button>` : ''}
+          ${isEdit && canUpdate ? `<button class="danger-button compact" type="button" onclick="deleteBookableService('${escapeHtml(category.serviceKey)}', '${escapeHtml(bookableService?.serviceKey || bookableService?.subcategoryKey || '')}', '${escapeHtml(bookableService?.label || 'Bookable Service')}')">Delete Bookable Service</button>` : ''}
+        </div>
+      </form>
+    </aside>
+  `;
+}
+
+function renderServiceCategoryList(group, categories) {
+  if (!categories.length) {
+    return '<p class="empty"><span>No categories</span>No service categories have been created for this group yet.</p>';
+  }
+
+  const workspace = state.serviceWorkspace || {};
+  const canUpdateCategories = canMutate('markets.update');
+
+  return `
+    <div class="service-builder-list">
+      ${categories.map((category) => `
+        <article class="service-builder-item ${workspace.selectedCategoryKey === category.serviceKey ? 'selected' : ''}" tabindex="0" aria-label="${escapeHtml(category.label)} service category" onclick="selectServiceCategory('${escapeHtml(category.serviceKey)}')" onkeydown="handleServiceCategoryCardKey(event, '${escapeHtml(category.serviceKey)}')">
+          <span class="service-category-thumb" aria-hidden="true">
+            ${category.imageUrl
+              ? `<img src="${escapeHtml(category.imageUrl)}" alt="" />`
+              : `<span>${escapeHtml((category.label || 'S').trim().slice(0, 1).toUpperCase())}</span>`}
+          </span>
+          <span class="service-group-card-copy">
+            <strong>${escapeHtml(category.label)}</strong>
+            <small>Service Category</small>
+            <em>${category.bookableCount ? `${category.bookableCount} ${category.bookableCount === 1 ? 'Service' : 'Services'}` : '0 Services'}</em>
+          </span>
+          ${canUpdateCategories ? `
+            <span class="service-group-actions">
+              <button class="icon-button compact" type="button" aria-label="Actions for ${escapeHtml(category.label)}" onclick="toggleServiceCategoryActions(event, '${escapeHtml(category.serviceKey)}')">...</button>
+              ${workspace.actionMenuCategoryKey === category.serviceKey ? `
+                <span class="service-group-menu">
+                  ${category.persisted
+                    ? `<button type="button" onclick="startRenameServiceCategory(event, '${escapeHtml(category.serviceKey)}')">Rename</button>
+                       <button type="button" onclick="startDeleteServiceCategory(event, '${escapeHtml(category.serviceKey)}')">Delete</button>`
+                    : `<button class="disabled" type="button" aria-disabled="true" onclick="showServiceCategoryPersistenceUnavailable(event, '${escapeHtml(category.serviceKey)}')">Not saved yet</button>`}
+                </span>
+              ` : ''}
+            </span>
+          ` : ''}
+          <span class="service-group-card-arrow" aria-hidden="true">&gt;</span>
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderCreateServiceCategoryForm(group) {
+  if (!group) return '';
+  const draft = state.serviceWorkspace.categoryDraft || {};
+  const imageUrlValue = draft.imageUrl || '';
+  const previewUrl = draft.selectedImageDataUri || imageUrlValue || '';
+  const previewName = draft.selectedImageName || (imageUrlValue ? 'Selected category image' : '');
+
+  return `
+    <form class="service-group-form service-category-form" data-service-category-form onsubmit="createServiceCategory(event, '${escapeHtml(group.groupKey)}')">
+      <label>
+        Category Name
+        <input name="categoryName" value="${escapeHtml(draft.categoryName || '')}" placeholder="Appliance Repair" autocomplete="off" required />
+      </label>
+      <div class="service-image-field">
+        <span>Category Image</span>
+        <input name="imageUrl" type="hidden" value="${escapeHtml(imageUrlValue)}" />
+        <input id="service-category-image-input" type="file" accept="image/jpeg,image/png,image/webp" onchange="handleServiceCategoryImageSelection(event)" />
+        <div class="service-image-picker">
+          ${previewUrl
+            ? `<img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(previewName || 'Selected category image')}" />`
+            : '<div class="service-image-placeholder">No image selected</div>'}
+          <div>
+            <strong>${escapeHtml(previewName || 'Category image')}</strong>
+            <p>${previewUrl ? 'This image will be used for the Service Category card.' : 'Choose a JPG, PNG, or WebP image up to 5 MB.'}</p>
+            <div class="button-row">
+              <button class="ghost-button compact" type="button" onclick="document.getElementById('service-category-image-input')?.click()">Select Image</button>
+              ${previewUrl ? '<button class="ghost-button compact" type="button" onclick="removeServiceCategoryImage()">Remove</button>' : ''}
+            </div>
+          </div>
         </div>
       </div>
-      <div class="role-grid">
-        <article class="mini-card">
-          <strong>Markets & Countries</strong>
-          <p>Enable or pause countries, currency, tax labels, support contacts, and payment providers.</p>
+      <div class="button-row">
+        <button class="primary-button compact" type="submit">Save</button>
+        <button class="ghost-button compact" type="button" onclick="cancelServiceCategoryManagement()">Cancel</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderRenameServiceCategoryForm(group, category) {
+  if (!group || !category) return '';
+  const draft = state.serviceWorkspace.categoryDraft || {};
+  const categoryRecord = serviceCatalogRecord(category.serviceKey) || {};
+  const imageUrlValue = draft.imageUrl !== undefined ? draft.imageUrl : categoryRecord.imageUrl || '';
+  const previewUrl = draft.selectedImageDataUri || imageUrlValue || '';
+  const previewName = draft.selectedImageName || (imageUrlValue ? 'Saved category image' : '');
+
+  return `
+    <form class="service-group-form service-category-form" data-service-category-form onsubmit="renameServiceCategory(event, '${escapeHtml(category.serviceKey)}')">
+      <label>
+        Category Name
+        <input name="categoryName" value="${escapeHtml(category.label)}" autocomplete="off" required />
+      </label>
+      <div class="service-image-field">
+        <span>Category Image</span>
+        <input name="imageUrl" type="hidden" value="${escapeHtml(imageUrlValue)}" />
+        <input id="service-category-image-input" type="file" accept="image/jpeg,image/png,image/webp" onchange="handleServiceCategoryImageSelection(event)" />
+        <div class="service-image-picker">
+          ${previewUrl
+            ? `<img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(previewName || 'Selected category image')}" />`
+            : '<div class="service-image-placeholder">No image selected</div>'}
+          <div>
+            <strong>${escapeHtml(previewName || 'Category image')}</strong>
+            <p>${previewUrl ? 'This image will be used for the Service Category card.' : 'Choose a JPG, PNG, or WebP image up to 5 MB.'}</p>
+            <div class="button-row">
+              <button class="ghost-button compact" type="button" onclick="document.getElementById('service-category-image-input')?.click()">Select Image</button>
+              ${previewUrl ? '<button class="ghost-button compact" type="button" onclick="removeServiceCategoryImage()">Remove</button>' : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="button-row">
+        <button class="primary-button compact" type="submit">Save</button>
+        <button class="ghost-button compact" type="button" onclick="cancelServiceCategoryManagement()">Cancel</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderDeleteServiceCategoryConfirmation(category) {
+  if (!category) return '';
+
+  return `
+    <div class="service-group-confirm">
+      <strong>Delete &quot;${escapeHtml(category.label)}&quot;?</strong>
+      <p>This action is permanent and is allowed only because the category is empty and unused.</p>
+      <div class="button-row">
+        <button class="ghost-button compact" type="button" onclick="cancelServiceCategoryManagement()">Cancel</button>
+        <button class="danger-button compact" type="button" onclick="deleteServiceCategory('${escapeHtml(category.serviceKey)}')">Delete Category</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderRenameServiceGroupForm(group) {
+  if (!group) return '';
+
+  return `
+    <form class="service-group-form" onsubmit="renameTopLevelServiceGroup(event, '${escapeHtml(group.groupKey)}')">
+      <p class="setting-help">The Top-Level Group icon updates automatically from the group name.</p>
+      <label>
+        Group Name
+        <input name="groupName" value="${escapeHtml(group.label)}" autocomplete="off" required />
+      </label>
+      <div class="button-row">
+        <button class="primary-button compact" type="submit">Save</button>
+        <button class="ghost-button compact" type="button" onclick="cancelServiceGroupManagement()">Cancel</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderDeleteServiceGroupConfirmation(group) {
+  if (!group) return '';
+
+  return `
+    <div class="service-group-confirm">
+      <strong>Delete &quot;${escapeHtml(group.label)}&quot;?</strong>
+      <p>This action is permanent and is allowed only because the group is empty and unused.</p>
+      <div class="button-row">
+        <button class="ghost-button compact" type="button" onclick="cancelServiceGroupManagement()">Cancel</button>
+        <button class="danger-button compact" type="button" onclick="deleteTopLevelServiceGroup('${escapeHtml(group.groupKey)}')">Delete Group</button>
+      </div>
+    </div>
+  `;
+}
+function renderCreateServiceGroupForm() {
+  return `
+    <form class="service-group-form" onsubmit="createTopLevelServiceGroup(event)">
+      <p class="setting-help">The Top-Level Group icon is generated automatically from the group name using the Padi icon style.</p>
+      <label>
+        Group Name
+        <input name="groupName" placeholder="Rental Services" autocomplete="off" required />
+      </label>
+      <div class="button-row">
+        <button class="primary-button compact" type="submit">Save</button>
+        <button class="ghost-button compact" type="button" onclick="cancelTopLevelServiceGroup()">Cancel</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderServiceManagementDrawer({ renameGroup, deleteGroup, selectedGroup, renameCategory, deleteCategory } = {}) {
+  const workspace = state.serviceWorkspace || {};
+  let title = '';
+  let eyebrow = 'Services';
+  let body = '';
+
+  if (workspace.showCreateGroup) {
+    title = 'Create Top-Level Group';
+    eyebrow = 'Step 1';
+    body = renderCreateServiceGroupForm();
+  } else if (workspace.renameGroupKey) {
+    title = `Rename ${renameGroup?.label || 'Top-Level Group'}`;
+    eyebrow = 'Step 1';
+    body = renderRenameServiceGroupForm(renameGroup);
+  } else if (workspace.deleteGroupKey) {
+    title = `Delete ${deleteGroup?.label || 'Top-Level Group'}`;
+    eyebrow = 'Step 1';
+    body = renderDeleteServiceGroupConfirmation(deleteGroup);
+  } else if (workspace.showCreateCategory && selectedGroup) {
+    title = 'Create Service Category';
+    eyebrow = selectedGroup.label || 'Step 2';
+    body = renderCreateServiceCategoryForm(selectedGroup);
+  } else if (workspace.renameCategoryKey) {
+    title = `Edit ${renameCategory?.label || 'Service Category'}`;
+    eyebrow = selectedGroup?.label || 'Step 2';
+    body = renderRenameServiceCategoryForm(selectedGroup, renameCategory);
+  } else if (workspace.deleteCategoryKey) {
+    title = `Delete ${deleteCategory?.label || 'Service Category'}`;
+    eyebrow = selectedGroup?.label || 'Step 2';
+    body = renderDeleteServiceCategoryConfirmation(deleteCategory);
+  }
+
+  if (!body) return '';
+
+  return `
+    <div class="service-drawer-overlay" onclick="cancelServiceManagementDrawer()"></div>
+    <aside class="service-details-drawer service-management-drawer" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+      <div class="service-drawer-header">
+        <div>
+          <small>${escapeHtml(eyebrow)}</small>
+          <h3>${escapeHtml(title)}</h3>
+          <span>Changes save through the Services catalogue.</span>
+        </div>
+        <button class="icon-button compact" type="button" aria-label="Close drawer" onclick="cancelServiceManagementDrawer()">x</button>
+      </div>
+      <div class="service-management-drawer-body">
+        ${body}
+      </div>
+    </aside>
+  `;
+}
+
+function renderServices() {
+  const canCreateGroups = canMutate('markets.update');
+  const groups = serviceGroupsFromCatalog();
+  const workspace = state.serviceWorkspace || {};
+  const selectedGroup = findServiceGroup(workspace.selectedGroupKey);
+  const categories = selectedGroup ? serviceCategoriesForGroup(selectedGroup.groupKey) : [];
+  const renameGroup = findServiceGroup(workspace.renameGroupKey);
+  const deleteGroup = findServiceGroup(workspace.deleteGroupKey);
+  const renameCategory = selectedGroup ? findServiceCategory(selectedGroup.groupKey, workspace.renameCategoryKey) : null;
+  const deleteCategory = selectedGroup ? findServiceCategory(selectedGroup.groupKey, workspace.deleteCategoryKey) : null;
+  const selectedCategory = selectedGroup ? findServiceCategory(selectedGroup.groupKey, workspace.selectedCategoryKey) : null;
+  const bookableServices = selectedCategory ? bookableServicesForCategory(selectedCategory.serviceKey) : [];
+  const selectedBookableService = selectedCategory ? findBookableService(selectedCategory.serviceKey, workspace.selectedBookableServiceKey) : null;
+
+  return `
+    <section class="services-page-shell">
+      <div class="service-builder-heading">
+        <h2>Services</h2>
+        <span>Build the service hierarchy from top-level groups to categories and bookable services.</span>
+      </div>
+      ${workspace.message ? `<div class="notice service-builder-notice">${escapeHtml(workspace.message)}</div>` : ''}
+      ${workspace.error ? `<div class="notice error service-builder-notice">${escapeHtml(workspace.error)}</div>` : ''}
+      <div class="services-builder-grid">
+        <article class="services-builder-card step-groups">
+          <div class="services-builder-card-header">
+            <div>
+              <small>Step 1</small>
+              <h3>Top-Level Groups</h3>
+            </div>
+            ${canCreateGroups && !workspace.showCreateGroup ? '<button class="primary-button compact" onclick="showTopLevelServiceGroupForm()">+ Create Top-Level Group</button>' : ''}
+          </div>
+          <div class="services-builder-actions">
+            ${!canCreateGroups ? '<p class="setting-help">Read-only admins can view groups but cannot create them.</p>' : ''}
+          </div>
+          <div class="services-builder-scroll">
+            ${renderServiceGroupList(groups)}
+          </div>
         </article>
-        <article class="mini-card">
-          <strong>Cities, Areas & Services</strong>
-          <p>Control which services are active, coming soon, paused, or disabled for each city and area.</p>
+
+        <article class="services-builder-card step-categories ${selectedGroup ? '' : 'disabled'}">
+          <div class="services-builder-card-header">
+            <div>
+              <small>Step 2</small>
+              <h3>Service Categories</h3>
+              ${selectedGroup ? `<span>${escapeHtml(selectedGroup.label)}</span>` : ''}
+            </div>
+            ${canCreateGroups && !workspace.showCreateCategory
+              ? `<button class="primary-button compact" ${selectedGroup ? 'onclick="showCreateServiceCategoryForm()"' : 'type="button" disabled'}>+ Create Service Category</button>`
+              : ''}
+          </div>
+          <div class="services-builder-actions">
+            ${selectedGroup && !canCreateGroups ? '<p class="setting-help">Read-only admins can view and select categories but cannot create or edit them.</p>' : ''}
+          </div>
+          <div class="services-builder-scroll">
+            ${selectedGroup ? renderServiceCategoryList(selectedGroup, categories) : '<p class="empty"><span>Service Categories</span>Select a Top-Level Group to view its categories.</p>'}
+          </div>
         </article>
-        <article class="mini-card">
-          <strong>Business Modules</strong>
-          <p>Managed Collection, Rental Property Listings, and future modules stay hidden while DISABLED, visible as COMING SOON, and bookable only when ACTIVE.</p>
-          <p>Keep marketplace modules on COMING SOON until their app screens, review workflow, and launch rules are ready.</p>
-        </article>
-        <article class="mini-card">
-          <strong>Call-out Fees</strong>
-          <p>The default fee here is used by app booking flows unless a more specific service price is added later.</p>
-        </article>
-        <article class="mini-card">
-          <strong>Technician Matching</strong>
-          <p>Service keys in this section must match technician capability/category keys for dispatch to work cleanly.</p>
+
+        <article class="services-builder-card step-bookables ${selectedCategory ? '' : 'disabled'}">
+          <div class="services-builder-card-header">
+            <div>
+              <small>Step 3</small>
+              <h3>Bookable Services</h3>
+              ${selectedCategory ? `<span>${escapeHtml(selectedCategory.label)}</span>` : ''}
+            </div>
+            ${canCreateGroups && !workspace.showCreateBookableService
+              ? `<button class="primary-button compact" ${selectedCategory ? 'onclick="openBookableServiceDrawer(\'create\')"' : 'type="button" disabled'}>+ Create Bookable Service</button>`
+              : ''}
+          </div>
+          <div class="services-builder-actions">
+            ${selectedCategory && !canCreateGroups ? '<p class="setting-help">Read-only admins can view bookable services but cannot create them.</p>' : ''}
+          </div>
+          <div class="services-builder-scroll bookables">
+            ${selectedCategory ? renderBookableServiceList(bookableServices) : '<p class="empty"><span>Bookable Services</span>Select a Service Category to view its services.</p>'}
+          </div>
         </article>
       </div>
     </section>
-    <div class="two-column settings-layout">
-      <section class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Configured Markets</h2>
-            <span>Only countries MyFixer is operating in or preparing to launch.</span>
-          </div>
-        </div>
-        <div class="settings-list">
-          ${state.data.markets.map(renderMarketForm).join('') || renderEmpty('No configured markets yet.')}
-        </div>
-      </section>
-      ${canUpdateMarkets ? `<section class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Add Market</h2>
-            <span>Add one country when MyFixer is ready to configure it.</span>
-          </div>
-        </div>
-        ${renderAddMarketForm()}
-      </section>` : ''}
-    </div>
+    ${renderServiceManagementDrawer({ renameGroup, deleteGroup, selectedGroup, renameCategory, deleteCategory })}
+    ${renderBookableServiceDrawer(selectedCategory, selectedBookableService)}
   `;
 }
 
-function renderAddMarketForm() {
-  const availableMarkets = state.data.marketMeta.availableMarkets || [];
-  const statuses = state.data.marketMeta.availableStatuses.length
-    ? state.data.marketMeta.availableStatuses
-    : ['COMING_SOON', 'ACTIVE', 'PAUSED', 'DISABLED'];
-
-  if (!availableMarkets.length) {
-    return `
-      ${renderEmpty('All preloaded launch countries have been added. Use Custom Country for a country that is not listed yet.')}
-      <form class="settings-form" onsubmit="saveMarket(event, '')">
-        <input name="countryCode" type="hidden" value="__CUSTOM__" />
-        <label>Country Code</label>
-        <input name="customCountryCode" required placeholder="CI, SN, BW" />
-        <label>Country Name</label>
-        <input name="countryName" required placeholder="Country name" />
-        <label>Status</label>
-        <select name="status">
-          ${statuses.map((status) => `<option value="${status}" ${status === 'COMING_SOON' ? 'selected' : ''}>${status}</option>`).join('')}
-        </select>
-        <div class="form-grid">
-          <div>
-            <label>Currency</label>
-            <input name="currency" required placeholder="USD" />
-          </div>
-          <div>
-            <label>Callout Fee</label>
-            <input name="defaultCalloutFee" type="number" min="0" step="0.01" value="0" />
-          </div>
-          <div>
-            <label>Commission %</label>
-            <input name="commissionPercent" type="number" min="0" max="100" step="0.01" value="15" />
-          </div>
-          <div>
-            <label>Support Phone</label>
-            <input name="supportPhone" />
-          </div>
-        </div>
-        ${renderCityServiceEditor([], state.data.marketMeta.defaultServiceCategories || [])}
-        ${renderProviderEditor([])}
-        <div class="form-grid">
-          <div>
-            <label>Support Email</label>
-            <input name="supportEmail" type="email" />
-          </div>
-          <div>
-            <label>WhatsApp</label>
-            <input name="supportWhatsapp" />
-          </div>
-          <div>
-            <label>Escalation Email</label>
-            <input name="supportEscalationEmail" type="email" />
-          </div>
-        </div>
-        <button class="primary-button" type="submit">Add Market</button>
-      </form>
-    `;
-  }
-
-  return `
-    <form class="settings-form" onsubmit="saveMarket(event, '')">
-      <p class="setting-help">Preloaded countries, including Zambia, are launch options from backend config. They are not client-bookable until saved here with ACTIVE country, city and service statuses.</p>
-      <label>Country</label>
-      <select name="countryCode" onchange="prefillMarketDefaults(this)">
-        <option value="">Choose country</option>
-        <option value="__CUSTOM__">Custom country not listed</option>
-        ${availableMarkets.map((market) => {
-          const marketView = getMarketView(market);
-          return `
-            <option
-              value="${marketView.countryCode}"
-              data-country-name="${escapeHtml(marketView.countryName)}"
-              data-currency="${marketView.currency}"
-              data-callout="${marketView.defaultCalloutFee}"
-              data-commission="${marketView.platformCommissionBps / 100}"
-              data-providers="${escapeHtml((marketView.paymentProviders || []).join(', '))}"
-            >${escapeHtml(marketView.countryName)} (${escapeHtml(marketView.countryCode)}) - setup option</option>
-          `;
-        }).join('')}
-      </select>
-      <div class="custom-country-fields" data-custom-country-fields hidden>
-        <label>Country Code</label>
-        <input name="customCountryCode" placeholder="CI, SN, BW" />
-        <label>Country Name</label>
-        <input name="countryName" placeholder="Country name" />
-      </div>
-      <label>Status</label>
-      <select name="status">
-        ${statuses.map((status) => `<option value="${status}" ${status === 'COMING_SOON' ? 'selected' : ''}>${status}</option>`).join('')}
-      </select>
-      <div class="form-grid">
-        <div>
-          <label>Currency</label>
-          <input name="currency" />
-        </div>
-        <div>
-          <label>Callout Fee</label>
-          <input name="defaultCalloutFee" type="number" min="0" step="0.01" />
-        </div>
-        <div>
-          <label>Commission %</label>
-          <input name="commissionPercent" type="number" min="0" max="100" step="0.01" />
-        </div>
-        <div>
-          <label>Support Phone</label>
-          <input name="supportPhone" />
-        </div>
-      </div>
-      ${renderCityServiceEditor([], state.data.marketMeta.defaultServiceCategories || [])}
-      ${renderProviderEditor([])}
-      <div class="form-grid">
-        <div>
-          <label>Support Email</label>
-          <input name="supportEmail" type="email" />
-        </div>
-        <div>
-          <label>WhatsApp</label>
-          <input name="supportWhatsapp" />
-        </div>
-        <div>
-          <label>Escalation Email</label>
-          <input name="supportEscalationEmail" type="email" />
-        </div>
-      </div>
-      <button class="primary-button" type="submit">Add Market</button>
-    </form>
-  `;
-}
-
-function prefillMarketDefaults(select) {
-  const option = select.selectedOptions[0];
-  const form = select.closest('form');
-  if (!option || !form) return;
-
-  const isCustom = option.value === '__CUSTOM__';
-  const customFields = form.querySelector('[data-custom-country-fields]');
-  if (customFields) customFields.hidden = !isCustom;
-  if (isCustom) {
-    form.elements.currency.value = '';
-    form.elements.defaultCalloutFee.value = '';
-    form.elements.commissionPercent.value = '15';
-    setProviderRows(form, []);
+function showTopLevelServiceGroupForm() {
+  if (!canMutate('markets.update')) {
+    state.serviceWorkspace.error = 'You do not have permission to create top-level groups.';
+    state.serviceWorkspace.message = '';
+    render();
     return;
   }
 
-  form.elements.countryName.value = option.dataset.countryName || '';
-  form.elements.currency.value = option.dataset.currency || '';
-  form.elements.defaultCalloutFee.value = option.dataset.callout || '';
-  form.elements.commissionPercent.value = option.dataset.commission || '';
-  setProviderRows(
-    form,
-    String(option.dataset.providers || '')
-      .split(',')
-      .map((provider, index) => ({
-        provider: provider.trim(),
-        status: index === 0 ? 'ACTIVE' : 'FALLBACK',
-        methods: '',
-        priority: index + 1,
-        payoutEnabled: false,
-        configReference: `${provider.trim()}_CONFIG_REF`,
-      }))
-      .filter((row) => row.provider)
-  );
+  state.serviceWorkspace.showCreateGroup = true;
+  state.serviceWorkspace.showCreateCategory = false;
+  state.serviceWorkspace.renameGroupKey = '';
+  state.serviceWorkspace.deleteGroupKey = '';
+  state.serviceWorkspace.renameCategoryKey = '';
+  state.serviceWorkspace.deleteCategoryKey = '';
+  state.serviceWorkspace.showCreateBookableService = false;
+  state.serviceWorkspace.selectedBookableServiceKey = '';
+  state.serviceWorkspace.drawerOpen = false;
+  state.serviceWorkspace.drawerMode = '';
+  state.serviceWorkspace.categoryDraft = {};
+  state.serviceWorkspace.bookableDraft = {};
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
 }
 
-function renderCityServiceEditor(rows = [], defaultServices = [], disabled = false) {
-  const normalizedRows = rows.length
-    ? rows
-    : [{ city: '', status: 'ACTIVE', services: normalizeServiceEntries(defaultServices) }];
+function cancelTopLevelServiceGroup() {
+  state.serviceWorkspace.showCreateGroup = false;
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
 
+function selectTopLevelServiceGroup(groupKey) {
+  state.serviceWorkspace.selectedGroupKey = groupKey;
+  state.serviceWorkspace.selectedCategoryKey = '';
+  state.serviceWorkspace.actionMenuGroupKey = '';
+  state.serviceWorkspace.actionMenuCategoryKey = '';
+  state.serviceWorkspace.showCreateGroup = false;
+  state.serviceWorkspace.showCreateCategory = false;
+  state.serviceWorkspace.renameGroupKey = '';
+  state.serviceWorkspace.deleteGroupKey = '';
+  state.serviceWorkspace.renameCategoryKey = '';
+  state.serviceWorkspace.deleteCategoryKey = '';
+  state.serviceWorkspace.showCreateBookableService = false;
+  state.serviceWorkspace.selectedBookableServiceKey = '';
+  state.serviceWorkspace.drawerOpen = false;
+  state.serviceWorkspace.drawerMode = '';
+  state.serviceWorkspace.categoryDraft = {};
+  state.serviceWorkspace.bookableDraft = {};
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function handleServiceGroupCardKey(event, groupKey) {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  selectTopLevelServiceGroup(groupKey);
+}
+
+function toggleServiceGroupActions(event, groupKey) {
+  event.stopPropagation();
+  state.serviceWorkspace.selectedGroupKey = groupKey;
+  state.serviceWorkspace.actionMenuGroupKey = state.serviceWorkspace.actionMenuGroupKey === groupKey ? '' : groupKey;
+  render();
+}
+
+function startRenameTopLevelServiceGroup(event, groupKey) {
+  event.stopPropagation();
+  const group = findServiceGroup(groupKey);
+  if (!group?.persisted) {
+    state.serviceWorkspace.error = 'This top-level group is shown as a fallback and is not persisted yet, so it cannot be renamed here.';
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.actionMenuGroupKey = '';
+    render();
+    return;
+  }
+
+  state.serviceWorkspace.selectedGroupKey = groupKey;
+  state.serviceWorkspace.renameGroupKey = groupKey;
+  state.serviceWorkspace.deleteGroupKey = '';
+  state.serviceWorkspace.showCreateGroup = false;
+  state.serviceWorkspace.actionMenuGroupKey = '';
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function startDeleteTopLevelServiceGroup(event, groupKey) {
+  event.stopPropagation();
+  const group = findServiceGroup(groupKey);
+  if (!group?.persisted) {
+    state.serviceWorkspace.error = 'This top-level group is shown as a fallback and is not persisted as an empty draft group, so it cannot be deleted.';
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.actionMenuGroupKey = '';
+    render();
+    return;
+  }
+
+  state.serviceWorkspace.selectedGroupKey = groupKey;
+  state.serviceWorkspace.deleteGroupKey = groupKey;
+  state.serviceWorkspace.renameGroupKey = '';
+  state.serviceWorkspace.showCreateGroup = false;
+  state.serviceWorkspace.actionMenuGroupKey = '';
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function showServiceGroupDeleteUnavailable(event, groupKey) {
+  event.stopPropagation();
+  const group = findServiceGroup(groupKey);
+  state.serviceWorkspace.selectedGroupKey = groupKey;
+  state.serviceWorkspace.actionMenuGroupKey = '';
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = `${group?.label || 'This group'} is shown from default service hierarchy metadata and has no standalone empty draft record to delete. Archive support will be handled in a later hierarchy step.`;
+  render();
+}
+
+function cancelServiceGroupManagement() {
+  state.serviceWorkspace.renameGroupKey = '';
+  state.serviceWorkspace.deleteGroupKey = '';
+  state.serviceWorkspace.actionMenuGroupKey = '';
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function showCreateServiceCategoryForm() {
+  if (!canMutate('markets.update')) {
+    state.serviceWorkspace.error = 'You do not have permission to create service categories.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  if (!state.serviceWorkspace.selectedGroupKey) {
+    state.serviceWorkspace.error = 'Select a Top-Level Group before creating a service category.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  state.serviceWorkspace.showCreateCategory = true;
+  state.serviceWorkspace.renameCategoryKey = '';
+  state.serviceWorkspace.deleteCategoryKey = '';
+  state.serviceWorkspace.actionMenuCategoryKey = '';
+  state.serviceWorkspace.showCreateBookableService = false;
+  state.serviceWorkspace.categoryDraft = {};
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function cancelServiceCategoryManagement() {
+  state.serviceWorkspace.showCreateCategory = false;
+  state.serviceWorkspace.renameCategoryKey = '';
+  state.serviceWorkspace.deleteCategoryKey = '';
+  state.serviceWorkspace.actionMenuCategoryKey = '';
+  state.serviceWorkspace.categoryDraft = {};
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function cancelServiceManagementDrawer() {
+  state.serviceWorkspace.showCreateGroup = false;
+  state.serviceWorkspace.renameGroupKey = '';
+  state.serviceWorkspace.deleteGroupKey = '';
+  state.serviceWorkspace.showCreateCategory = false;
+  state.serviceWorkspace.renameCategoryKey = '';
+  state.serviceWorkspace.deleteCategoryKey = '';
+  state.serviceWorkspace.actionMenuGroupKey = '';
+  state.serviceWorkspace.actionMenuCategoryKey = '';
+  state.serviceWorkspace.categoryDraft = {};
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function selectServiceCategory(serviceKey) {
+  state.serviceWorkspace.selectedCategoryKey = serviceKey;
+  state.serviceWorkspace.actionMenuCategoryKey = '';
+  state.serviceWorkspace.showCreateCategory = false;
+  state.serviceWorkspace.renameCategoryKey = '';
+  state.serviceWorkspace.deleteCategoryKey = '';
+  state.serviceWorkspace.showCreateBookableService = false;
+  state.serviceWorkspace.selectedBookableServiceKey = '';
+  state.serviceWorkspace.drawerOpen = false;
+  state.serviceWorkspace.drawerMode = '';
+  state.serviceWorkspace.categoryDraft = {};
+  state.serviceWorkspace.bookableDraft = {};
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+async function openBookableServiceDrawer(mode = 'create', bookableServiceKey = '') {
+  const creating = mode !== 'edit';
+  if (!canMutate('markets.update')) {
+    if (creating) {
+      state.serviceWorkspace.error = 'You do not have permission to create bookable services.';
+      state.serviceWorkspace.message = '';
+      render();
+      return;
+    }
+  }
+
+  if (!state.serviceWorkspace.selectedCategoryKey) {
+    state.serviceWorkspace.error = 'Select a Service Category before creating a bookable service.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  if (creating) {
+    try {
+      await ensureSelectedServiceCategoryPersisted();
+    } catch (error) {
+      state.serviceWorkspace.message = '';
+      state.serviceWorkspace.error = error.message || 'This category must be saved before adding bookable services.';
+      render();
+      return;
+    }
+  }
+
+  if (!creating && !findBookableService(state.serviceWorkspace.selectedCategoryKey, bookableServiceKey)) {
+    state.serviceWorkspace.error = 'Bookable service not found.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  state.serviceWorkspace.showCreateBookableService = true;
+  state.serviceWorkspace.drawerOpen = true;
+  state.serviceWorkspace.drawerMode = creating ? 'create' : 'edit';
+  state.serviceWorkspace.selectedBookableServiceKey = creating ? '' : serviceKeyFrom(bookableServiceKey);
+  state.serviceWorkspace.bookableDraft = {};
+  state.serviceWorkspace.showCreateCategory = false;
+  state.serviceWorkspace.renameCategoryKey = '';
+  state.serviceWorkspace.deleteCategoryKey = '';
+  state.serviceWorkspace.actionMenuCategoryKey = '';
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function isBookableDrawerDirty() {
+  const form = document.querySelector('[data-bookable-drawer-form]');
+  if (!form) return false;
+  return Array.from(form.elements || []).some((element) => {
+    if (!element.name || element.disabled) return false;
+    if (element.type === 'checkbox') return element.checked !== element.defaultChecked;
+    return String(element.value || '') !== String(element.defaultValue || '');
+  });
+}
+
+function requestCloseBookableServiceDrawer(source = '') {
+  if (source === 'overlay' && isBookableDrawerDirty() && !window.confirm('Discard unsaved bookable service changes?')) return;
+  if (source !== 'overlay' && isBookableDrawerDirty() && !window.confirm('Discard unsaved bookable service changes?')) return;
+  closeBookableServiceDrawer();
+}
+
+function closeBookableServiceDrawer() {
+  state.serviceWorkspace.showCreateBookableService = false;
+  state.serviceWorkspace.drawerOpen = false;
+  state.serviceWorkspace.drawerMode = '';
+  state.serviceWorkspace.selectedBookableServiceKey = '';
+  state.serviceWorkspace.bookableDraft = {};
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function captureBookableDraftFromForm() {
+  const form = document.querySelector('[data-bookable-drawer-form]');
+  const existingDraft = state.serviceWorkspace.bookableDraft || {};
+  if (!form) return existingDraft;
+  const data = new FormData(form);
+  return {
+    ...existingDraft,
+    serviceName: String(data.get('serviceName') || ''),
+    description: String(data.get('description') || ''),
+    calloutFee: String(data.get('calloutFee') || ''),
+    inspectionRequired: data.get('inspectionRequired') === 'on',
+  };
+}
+
+function captureServiceCategoryDraftFromForm() {
+  const form = document.querySelector('[data-service-category-form]');
+  const existingDraft = state.serviceWorkspace.categoryDraft || {};
+  if (!form) return existingDraft;
+  const data = new FormData(form);
+  return {
+    ...existingDraft,
+    categoryName: String(data.get('categoryName') || ''),
+    imageUrl: String(data.get('imageUrl') || ''),
+  };
+}
+
+function handleServiceCategoryImageSelection(event) {
+  const file = event.target?.files?.[0];
+  if (!file) return;
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    state.serviceWorkspace.categoryDraft = captureServiceCategoryDraftFromForm();
+    state.serviceWorkspace.error = 'Choose a JPG, PNG, or WebP image.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    state.serviceWorkspace.categoryDraft = captureServiceCategoryDraftFromForm();
+    state.serviceWorkspace.error = 'Category images must be 5 MB or smaller.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.serviceWorkspace.categoryDraft = {
+      ...captureServiceCategoryDraftFromForm(),
+      selectedImageDataUri: String(reader.result || ''),
+      selectedImageName: file.name,
+      selectedImageMimeType: file.type,
+      imageRemoved: false,
+    };
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.error = '';
+    render();
+  };
+  reader.onerror = () => {
+    state.serviceWorkspace.categoryDraft = captureServiceCategoryDraftFromForm();
+    state.serviceWorkspace.error = 'Unable to preview the selected image.';
+    state.serviceWorkspace.message = '';
+    render();
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeServiceCategoryImage() {
+  state.serviceWorkspace.categoryDraft = {
+    ...captureServiceCategoryDraftFromForm(),
+    imageUrl: '',
+    selectedImageDataUri: '',
+    selectedImageName: '',
+    selectedImageMimeType: '',
+    imageRemoved: true,
+  };
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+async function uploadPendingServiceCategoryImage(serviceKey, label) {
+  const draft = state.serviceWorkspace.categoryDraft || {};
+  if (!draft.selectedImageDataUri) return null;
+
+  const result = await api('/admin/services/images', {
+    method: 'POST',
+    body: JSON.stringify({
+      serviceKey,
+      label,
+      fileName: draft.selectedImageName || `${serviceKey}.jpg`,
+      mimeType: draft.selectedImageMimeType || '',
+      dataUri: draft.selectedImageDataUri,
+    }),
+  });
+
+  return result.image || null;
+}
+
+function handleBookableServiceCardKey(event, bookableServiceKey) {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  openBookableServiceDrawer('edit', bookableServiceKey);
+}
+
+async function saveBookableService(event, publicationStatus) {
+  event.preventDefault();
+
+  if (!canMutate('markets.update')) {
+    state.serviceWorkspace.error = 'You do not have permission to create bookable services.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  const formElement = event.currentTarget?.tagName === 'FORM'
+    ? event.currentTarget
+    : event.currentTarget?.closest?.('form');
+  if (!formElement) return;
+
+  const groupKey = state.serviceWorkspace.selectedGroupKey;
+  const categoryKey = state.serviceWorkspace.selectedCategoryKey;
+  let category = serviceCatalogRecord(categoryKey);
+  let visibleCategory = findServiceCategory(groupKey, categoryKey);
+  const editing = state.serviceWorkspace.drawerMode === 'edit';
+  const editingKey = serviceKeyFrom(state.serviceWorkspace.selectedBookableServiceKey);
+  const existingBookable = editing ? findBookableService(categoryKey, editingKey) : null;
+  const form = new FormData(formElement);
+  const serviceName = String(form.get('serviceName') || '').trim().replace(/\s+/g, ' ');
+  const serviceKey = editing
+    ? serviceKeyFrom(existingBookable?.serviceKey || existingBookable?.subcategoryKey || editingKey)
+    : serviceKeyFrom(serviceName);
+  const subcategoryKey = editing
+    ? serviceKeyFrom(existingBookable?.subcategoryKey || existingBookable?.serviceKey || editingKey)
+    : serviceKey;
+  const description = String(form.get('description') || '').trim();
+  const calloutFeeMinor = decimalToMinor(form.get('calloutFee'));
+  const inspectionRequired = form.get('inspectionRequired') === 'on';
+  let existingSubcategories = Array.isArray(category?.subcategories) ? category.subcategories : [];
+  const draftSnapshot = {
+    serviceName,
+    description,
+    calloutFee: String(form.get('calloutFee') || ''),
+    inspectionRequired,
+  };
+  const fail = (message) => {
+    state.serviceWorkspace.bookableDraft = draftSnapshot;
+    state.serviceWorkspace.error = message;
+    state.serviceWorkspace.message = '';
+    render();
+  };
+
+  if (!category || !visibleCategory?.persisted) {
+    try {
+      category = await ensureSelectedServiceCategoryPersisted();
+      visibleCategory = findServiceCategory(groupKey, categoryKey);
+      existingSubcategories = Array.isArray(category?.subcategories) ? category.subcategories : [];
+    } catch (error) {
+      fail(error.message || 'This category must be persisted before adding bookable services.');
+      return;
+    }
+  }
+
+  if (editing && !existingBookable) {
+    fail('Bookable service not found.');
+    return;
+  }
+
+  if (!serviceName) {
+    fail('Service name is required.');
+    return;
+  }
+
+  if (!serviceKey) {
+    fail('Service name must include letters or numbers.');
+    return;
+  }
+
+  if (!Number.isFinite(calloutFeeMinor) || calloutFeeMinor === null) {
+    fail('Default call-out fee must be a valid amount with no more than two decimal places.');
+    return;
+  }
+
+  if (calloutFeeMinor < 0 || calloutFeeMinor > 100000000) {
+    fail('Default call-out fee must be between 0.00 and 1,000,000.00.');
+    return;
+  }
+
+  const duplicate = existingSubcategories.some((service) => {
+    const existingName = String(service.label || '').trim().toLowerCase();
+    const existingKey = serviceKeyFrom(service.serviceKey || service.subcategoryKey || '');
+    const sameEditedService = editing && existingKey === editingKey;
+    return !sameEditedService && (existingName === serviceName.toLowerCase() || existingKey === serviceKey);
+  });
+  if (duplicate) {
+    fail('A bookable service with this name already exists in this category.');
+    return;
+  }
+
+  const nextSubcategory = {
+    ...(existingBookable || {}),
+    subcategoryKey,
+    serviceKey,
+    label: serviceName,
+    description,
+    status: existingBookable?.status || 'ACTIVE',
+    publicationStatus: publicationStatus === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT',
+    displayOrder: Number.isFinite(Number(existingBookable?.displayOrder))
+      ? Number(existingBookable.displayOrder)
+      : existingSubcategories.length * 10 + 10,
+    imageKey: existingBookable?.imageKey || serviceKey,
+    imageUrl: existingBookable?.imageUrl || '',
+    searchKeywords: [serviceName, visibleCategory.label].filter(Boolean),
+    synonyms: existingBookable?.synonyms || [],
+    inspectionRequired,
+    fixedPriceSupported: existingBookable?.fixedPriceSupported === true,
+    requiresCapabilityApproval: existingBookable?.requiresCapabilityApproval === undefined ? true : existingBookable.requiresCapabilityApproval !== false,
+    calloutFeeMinor,
+  };
+  const nextSubcategories = editing
+    ? existingSubcategories.map((service) =>
+        serviceKeyFrom(service.serviceKey || service.subcategoryKey || '') === editingKey ? nextSubcategory : service
+      )
+    : [...existingSubcategories, nextSubcategory];
+
+  try {
+    await api(`/admin/services/${encodeURIComponent(category.serviceKey)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...(publicationStatus === 'PUBLISHED' ? { status: 'PUBLISHED', groupStatus: 'PUBLISHED' } : {}),
+        subcategories: nextSubcategories,
+      }),
+    });
+
+    await loadAllData();
+    state.activeView = 'services';
+    state.serviceWorkspace.selectedGroupKey = groupKey;
+    state.serviceWorkspace.selectedCategoryKey = categoryKey;
+    state.serviceWorkspace.selectedBookableServiceKey = serviceKey;
+    state.serviceWorkspace.showCreateBookableService = false;
+    state.serviceWorkspace.drawerOpen = false;
+    state.serviceWorkspace.drawerMode = '';
+    state.serviceWorkspace.bookableDraft = {};
+    state.serviceWorkspace.message = publicationStatus === 'PUBLISHED'
+      ? `${serviceName} was published successfully. It can appear in the Client App when the full hierarchy is published and the customer is in an active Padi market.`
+      : `${serviceName} was ${editing ? 'updated as a draft' : 'saved as a draft'}.`;
+    state.serviceWorkspace.error = '';
+    render();
+  } catch (error) {
+    state.serviceWorkspace.bookableDraft = draftSnapshot;
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.error = error.message || 'Unable to save bookable service.';
+    render();
+  }
+}
+
+async function deleteBookableService(categoryKey, bookableServiceKey, label = 'Bookable Service') {
+  if (!canMutate('markets.update')) {
+    state.serviceWorkspace.error = 'You do not have permission to delete bookable services.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  const normalizedCategoryKey = serviceKeyFrom(categoryKey);
+  const normalizedBookableKey = serviceKeyFrom(bookableServiceKey);
+  const displayLabel = String(label || 'Bookable Service').trim();
+  if (!normalizedCategoryKey || !normalizedBookableKey) {
+    state.serviceWorkspace.error = 'Bookable service could not be identified for deletion.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  if (!window.confirm(`Delete ${displayLabel}? This is permanent and only allowed when the bookable service is unused.`)) return;
+
+  try {
+    await api(`/admin/services/${encodeURIComponent(normalizedCategoryKey)}/bookable/${encodeURIComponent(normalizedBookableKey)}`, {
+      method: 'DELETE',
+    });
+    await loadAllData();
+    state.activeView = 'services';
+    state.serviceWorkspace.selectedCategoryKey = normalizedCategoryKey;
+    state.serviceWorkspace.selectedBookableServiceKey = '';
+    state.serviceWorkspace.showCreateBookableService = false;
+    state.serviceWorkspace.drawerOpen = false;
+    state.serviceWorkspace.drawerMode = '';
+    state.serviceWorkspace.bookableDraft = {};
+    state.serviceWorkspace.message = `${displayLabel} was deleted.`;
+    state.serviceWorkspace.error = '';
+    render();
+  } catch (error) {
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.error = error.message || 'Unable to delete bookable service.';
+    render();
+  }
+}
+
+function handleServiceCategoryCardKey(event, serviceKey) {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  selectServiceCategory(serviceKey);
+}
+
+function toggleServiceCategoryActions(event, serviceKey) {
+  event.stopPropagation();
+  state.serviceWorkspace.selectedCategoryKey = serviceKey;
+  state.serviceWorkspace.actionMenuCategoryKey = state.serviceWorkspace.actionMenuCategoryKey === serviceKey ? '' : serviceKey;
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function startRenameServiceCategory(event, serviceKey) {
+  event.stopPropagation();
+  const groupKey = state.serviceWorkspace.selectedGroupKey;
+  const category = findServiceCategory(groupKey, serviceKey);
+  if (!category?.persisted) {
+    state.serviceWorkspace.error = 'This service category is shown from fallback metadata and is not persisted yet, so it cannot be renamed here.';
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.actionMenuCategoryKey = '';
+    render();
+    return;
+  }
+
+  state.serviceWorkspace.selectedCategoryKey = serviceKey;
+  state.serviceWorkspace.renameCategoryKey = serviceKey;
+  state.serviceWorkspace.deleteCategoryKey = '';
+  state.serviceWorkspace.showCreateCategory = false;
+  state.serviceWorkspace.actionMenuCategoryKey = '';
+  state.serviceWorkspace.categoryDraft = {};
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function startDeleteServiceCategory(event, serviceKey) {
+  event.stopPropagation();
+  const groupKey = state.serviceWorkspace.selectedGroupKey;
+  const category = findServiceCategory(groupKey, serviceKey);
+  if (!category?.persisted) {
+    state.serviceWorkspace.error = 'This service category is shown from fallback metadata and has no persisted draft record to delete.';
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.actionMenuCategoryKey = '';
+    render();
+    return;
+  }
+
+  state.serviceWorkspace.selectedCategoryKey = serviceKey;
+  state.serviceWorkspace.deleteCategoryKey = serviceKey;
+  state.serviceWorkspace.renameCategoryKey = '';
+  state.serviceWorkspace.showCreateCategory = false;
+  state.serviceWorkspace.actionMenuCategoryKey = '';
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = '';
+  render();
+}
+
+function showServiceCategoryPersistenceUnavailable(event, serviceKey) {
+  event.stopPropagation();
+  const groupKey = state.serviceWorkspace.selectedGroupKey;
+  const category = findServiceCategory(groupKey, serviceKey);
+  state.serviceWorkspace.selectedCategoryKey = serviceKey;
+  state.serviceWorkspace.actionMenuCategoryKey = '';
+  state.serviceWorkspace.message = '';
+  state.serviceWorkspace.error = `${category?.label || 'This category'} is a starter category and has not been saved as a catalogue record yet. Create a Bookable Service under it to save the category first.`;
+  render();
+}
+
+async function createServiceCategory(event, groupKey) {
+  event.preventDefault();
+
+  if (!canMutate('markets.update')) {
+    state.serviceWorkspace.error = 'You do not have permission to create service categories.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  const group = findServiceGroup(groupKey);
+  const form = new FormData(event.currentTarget);
+  const categoryName = String(form.get('categoryName') || '').trim().replace(/\s+/g, ' ');
+  const imageUrl = String(form.get('imageUrl') || '').trim();
+  const serviceKey = serviceKeyFrom(categoryName);
+  const categories = serviceCategoriesForGroup(groupKey);
+  const draftSnapshot = {
+    ...captureServiceCategoryDraftFromForm(),
+    categoryName,
+    imageUrl,
+  };
+  const fail = (message) => {
+    state.serviceWorkspace.categoryDraft = draftSnapshot;
+    state.serviceWorkspace.error = message;
+    state.serviceWorkspace.message = '';
+    render();
+  };
+
+  if (!group) {
+    fail('Select a top-level group before creating a category.');
+    return;
+  }
+
+  if (!categoryName) {
+    fail('Category name is required.');
+    return;
+  }
+
+  if (categories.some((category) => category.label.trim().toLowerCase() === categoryName.toLowerCase())) {
+    fail('A service category with this name already exists in this group.');
+    return;
+  }
+
+  if (!serviceKey) {
+    fail('Category name must include letters or numbers.');
+    return;
+  }
+
+  if ((state.data.serviceCatalog || []).some((service) => serviceKeyFrom(service.serviceKey) === serviceKey)) {
+    fail('A catalogue record already uses this generated category key. Choose a different category name.');
+    return;
+  }
+
+  if (imageUrl && !/^https:\/\/[^\s]+$/i.test(imageUrl)) {
+    fail('Image must be a valid HTTPS URL.');
+    return;
+  }
+
+  let uploadedImage = null;
+  try {
+    uploadedImage = await uploadPendingServiceCategoryImage(serviceKey, categoryName);
+  } catch (error) {
+    fail(error.message || 'Unable to upload category image.');
+    return;
+  }
+
+  const finalImageUrl = uploadedImage?.imageUrl || imageUrl;
+  const finalImageKey = uploadedImage?.imageKey || serviceKey;
+
+  try {
+    await api('/admin/services', {
+      method: 'POST',
+      body: JSON.stringify({
+        serviceKey,
+        categoryKey: serviceKey,
+        groupKey: group.groupKey,
+        groupLabel: group.label,
+        groupStatus: 'DRAFT',
+        groupDisplayOrder: group.displayOrder || 0,
+        label: categoryName,
+        description: '',
+        imageKey: finalImageKey,
+        imageUrl: finalImageUrl,
+        searchKeywords: [categoryName],
+        synonyms: [],
+        requiresCapabilityApproval: true,
+        fixedPriceSupported: false,
+        subcategories: [],
+      }),
+    });
+
+    await loadAllData();
+    state.activeView = 'services';
+    state.serviceWorkspace.selectedGroupKey = group.groupKey;
+    state.serviceWorkspace.selectedCategoryKey = serviceKey;
+    state.serviceWorkspace.showCreateCategory = false;
+    state.serviceWorkspace.categoryDraft = {};
+    state.serviceWorkspace.message = `${categoryName} was created.`;
+    state.serviceWorkspace.error = '';
+    render();
+  } catch (error) {
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.error = error.message || 'Unable to create service category.';
+    render();
+  }
+}
+
+async function renameServiceCategory(event, serviceKey) {
+  event.preventDefault();
+
+  if (!canMutate('markets.update')) {
+    state.serviceWorkspace.error = 'You do not have permission to rename service categories.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  const groupKey = state.serviceWorkspace.selectedGroupKey;
+  const form = new FormData(event.currentTarget);
+  const categoryName = String(form.get('categoryName') || '').trim().replace(/\s+/g, ' ');
+  const imageUrl = String(form.get('imageUrl') || '').trim();
+  const categories = serviceCategoriesForGroup(groupKey);
+  const categoryRecord = serviceCatalogRecord(serviceKey) || {};
+  const draftSnapshot = {
+    ...captureServiceCategoryDraftFromForm(),
+    categoryName,
+    imageUrl,
+  };
+  const fail = (message) => {
+    state.serviceWorkspace.categoryDraft = draftSnapshot;
+    state.serviceWorkspace.error = message;
+    state.serviceWorkspace.message = '';
+    render();
+  };
+
+  if (!categoryName) {
+    fail('Category name is required.');
+    return;
+  }
+
+  if (categories.some((category) => category.serviceKey !== serviceKey && category.label.trim().toLowerCase() === categoryName.toLowerCase())) {
+    fail('A service category with this name already exists in this group.');
+    return;
+  }
+
+  if (imageUrl && !/^https:\/\/[^\s]+$/i.test(imageUrl)) {
+    fail('Image must be a valid HTTPS URL.');
+    return;
+  }
+
+  let uploadedImage = null;
+  try {
+    uploadedImage = await uploadPendingServiceCategoryImage(serviceKey, categoryName);
+  } catch (error) {
+    fail(error.message || 'Unable to upload category image.');
+    return;
+  }
+
+  const imageRemoved = state.serviceWorkspace.categoryDraft?.imageRemoved === true;
+  const finalImageUrl = uploadedImage?.imageUrl || imageUrl || (imageRemoved ? '' : categoryRecord.imageUrl || '');
+  const finalImageKey = uploadedImage?.imageKey || (imageRemoved ? serviceKey : categoryRecord.imageKey || serviceKey);
+
+  try {
+    await api(`/admin/services/${encodeURIComponent(serviceKey)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        label: categoryName,
+        imageKey: finalImageKey,
+        imageUrl: finalImageUrl,
+      }),
+    });
+    await loadAllData();
+    state.activeView = 'services';
+    state.serviceWorkspace.selectedGroupKey = groupKey;
+    state.serviceWorkspace.selectedCategoryKey = serviceKey;
+    state.serviceWorkspace.renameCategoryKey = '';
+    state.serviceWorkspace.categoryDraft = {};
+    state.serviceWorkspace.message = `${categoryName} was renamed.`;
+    state.serviceWorkspace.error = '';
+    render();
+  } catch (error) {
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.error = error.message || 'Unable to rename service category.';
+    render();
+  }
+}
+
+async function deleteServiceCategory(serviceKey) {
+  if (!canMutate('markets.update')) {
+    state.serviceWorkspace.error = 'You do not have permission to delete service categories.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  const groupKey = state.serviceWorkspace.selectedGroupKey;
+
+  try {
+    const result = await api(`/admin/services/${encodeURIComponent(serviceKey)}`, {
+      method: 'DELETE',
+    });
+    await loadAllData();
+    state.activeView = 'services';
+    state.serviceWorkspace.selectedGroupKey = groupKey;
+    state.serviceWorkspace.selectedCategoryKey = '';
+    state.serviceWorkspace.deleteCategoryKey = '';
+    state.serviceWorkspace.message = result.message || 'Service category was deleted.';
+    state.serviceWorkspace.error = '';
+    render();
+  } catch (error) {
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.error = error.message || 'Unable to delete service category.';
+    render();
+  }
+}
+
+async function renameTopLevelServiceGroup(event, groupKey) {
+  event.preventDefault();
+
+  if (!canMutate('markets.update')) {
+    state.serviceWorkspace.error = 'You do not have permission to rename top-level groups.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  const form = new FormData(event.currentTarget);
+  const groupName = String(form.get('groupName') || '').trim().replace(/\s+/g, ' ');
+  const groups = serviceGroupsFromCatalog();
+
+  if (!groupName) {
+    state.serviceWorkspace.error = 'Group name is required.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  if (groups.some((group) => group.groupKey !== groupKey && group.label.trim().toLowerCase() === groupName.toLowerCase())) {
+    state.serviceWorkspace.error = 'A top-level group with this name already exists.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  try {
+    await api(`/admin/service-groups/${encodeURIComponent(groupKey)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ groupLabel: groupName }),
+    });
+    await loadAllData();
+    state.activeView = 'services';
+    state.serviceWorkspace.selectedGroupKey = groupKey;
+    state.serviceWorkspace.renameGroupKey = '';
+    state.serviceWorkspace.message = `${groupName} was renamed.`;
+    state.serviceWorkspace.error = '';
+    render();
+  } catch (error) {
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.error = error.message || 'Unable to rename top-level group.';
+    render();
+  }
+}
+
+async function deleteTopLevelServiceGroup(groupKey) {
+  if (!canMutate('markets.update')) {
+    state.serviceWorkspace.error = 'You do not have permission to delete top-level groups.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  try {
+    const result = await api(`/admin/service-groups/${encodeURIComponent(groupKey)}`, {
+      method: 'DELETE',
+    });
+    await loadAllData();
+    state.activeView = 'services';
+    state.serviceWorkspace.selectedGroupKey = '';
+    state.serviceWorkspace.deleteGroupKey = '';
+    state.serviceWorkspace.message = result.message || 'Top-level group was deleted.';
+    state.serviceWorkspace.error = '';
+    render();
+  } catch (error) {
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.error = error.message || 'Unable to delete top-level group.';
+    render();
+  }
+}
+
+async function createTopLevelServiceGroup(event) {
+  event.preventDefault();
+
+  if (!canMutate('markets.update')) {
+    state.serviceWorkspace.error = 'You do not have permission to create top-level groups.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  const form = new FormData(event.currentTarget);
+  const groupName = String(form.get('groupName') || '').trim().replace(/\s+/g, ' ');
+  const groupKey = serviceKeyFrom(groupName);
+  const groups = serviceGroupsFromCatalog();
+
+  if (!groupName) {
+    state.serviceWorkspace.error = 'Group name is required.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  if (groups.some((group) => group.label.trim().toLowerCase() === groupName.toLowerCase())) {
+    state.serviceWorkspace.error = 'A top-level group with this name already exists.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  if (!groupKey) {
+    state.serviceWorkspace.error = 'Group name must include letters or numbers.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  if ((state.data.serviceCatalog || []).some((service) => serviceKeyFrom(service.serviceKey) === groupKey)) {
+    state.serviceWorkspace.error = 'A catalogue record already uses this generated key. Choose a different group name.';
+    state.serviceWorkspace.message = '';
+    render();
+    return;
+  }
+
+  try {
+    await api('/admin/services', {
+      method: 'POST',
+      body: JSON.stringify({
+        serviceKey: groupKey,
+        categoryKey: groupKey,
+        groupKey,
+        groupLabel: groupName,
+        groupIconKey: serviceGroupIconKey(groupKey, groupName),
+        groupStatus: 'DRAFT',
+        groupDisplayOrder: Math.max(10, (groups.length + 1) * 10),
+        label: groupName,
+        description: '',
+        imageKey: groupKey,
+        searchKeywords: [groupName],
+        synonyms: [],
+        requiresCapabilityApproval: false,
+        fixedPriceSupported: false,
+        subcategories: [],
+      }),
+    });
+
+    await loadAllData();
+    state.activeView = 'services';
+    state.serviceWorkspace.showCreateGroup = false;
+    state.serviceWorkspace.message = `${groupName} was created.`;
+    state.serviceWorkspace.error = '';
+    render();
+  } catch (error) {
+    state.serviceWorkspace.message = '';
+    state.serviceWorkspace.error = error.message || 'Unable to create top-level group.';
+    render();
+  }
+}
+
+function normalizeMarketCountryCode(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function normalizeMarketCurrency(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function isValidIanaTimezone(value) {
+  const timezone = String(value || '').trim();
+  if (!timezone) return false;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function marketLocaleForCountry(countryCode, existingMarket = null) {
+  const existingView = existingMarket ? getMarketView(existingMarket) : null;
+  if (existingView?.locale) return existingView.locale;
+  const country = findCountryMetadata(countryCode);
+  if (country?.locale) return country.locale;
+  const template = (state.data.marketMeta.availableMarkets || [])
+    .map(getMarketView)
+    .find((market) => market.countryCode === countryCode);
+  if (template?.locale) return template.locale;
+  return `en-${countryCode}`;
+}
+
+function getMarketCountryCards() {
+  return (state.data.markets || [])
+    .map((market) => ({ source: market, view: getMarketView(market) }))
+    .filter(({ view }) => view.countryCode)
+    .sort((a, b) => (a.view.countryName || a.view.countryCode).localeCompare(b.view.countryName || b.view.countryCode));
+}
+
+function normalizeMarketCityName(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function marketCityKey(value) {
+  return normalizeMarketCityName(value).toLowerCase();
+}
+
+function getMarketCities(market = null) {
+  if (!market) return [];
+  const view = getMarketView(market);
+  const byKey = new Map();
+  (view.supportedCities || []).forEach((city) => {
+    const name = normalizeMarketCityName(city);
+    if (name) byKey.set(marketCityKey(name), { name, countryName: view.countryName || view.countryCode });
+  });
+  (view.cityServiceAvailability || []).forEach((row) => {
+    const name = normalizeMarketCityName(row?.city);
+    if (name && !byKey.has(marketCityKey(name))) byKey.set(marketCityKey(name), { name, countryName: view.countryName || view.countryCode });
+  });
+  return Array.from(byKey.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function normalizeMarketAreaName(value) {
+  return normalizeMarketCityName(value);
+}
+
+function marketAreaKey(value) {
+  return marketCityKey(value);
+}
+
+function getMarketAreas(market = null, cityName = '') {
+  if (!market || !cityName) return [];
+  const view = getMarketView(market);
+  const cityRow = (view.cityServiceAvailability || []).find((row) => marketCityKey(row?.city) === marketCityKey(cityName));
+  return (cityRow?.areas || [])
+    .map((area) => ({ name: normalizeMarketAreaName(area?.name), cityName: normalizeMarketCityName(cityRow.city), countryName: view.countryName || view.countryCode }))
+    .filter((area) => area.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function renderMarketCountryForm(mode = 'create', market = null) {
+  const isEdit = mode === 'edit';
+  const marketView = market ? getMarketView(market) : {};
+  const countryCode = normalizeMarketCountryCode(marketView.countryCode);
+  const selectedCountry = isEdit ? findCountryMetadata(countryCode || marketView.countryName) : null;
+  const countryName = isEdit ? marketView.countryName || selectedCountry?.name || '' : '';
+  const currency = isEdit ? marketView.currency || selectedCountry?.currency || '' : '';
+  const timezone = timezoneOptionsForCountry(selectedCountry, isEdit ? marketView.timezone || selectedCountry?.timezones?.[0] || '' : '');
   return `
-    <details class="nested-settings" open>
-      <summary>Cities & Services</summary>
-      <p class="setting-help">Add cities and choose exactly which services are available in each city. COMING_SOON shows a non-bookable client card; ACTIVE requires super admin or service activation permission.</p>
-      <div class="status-legend">
-        <span class="status good">ACTIVE: bookable</span>
-        <span class="status warn">COMING SOON: visible, not clickable</span>
-        <span class="status warn">PAUSED: temporarily unavailable</span>
-        <span class="status bad">DISABLED: hidden</span>
+    <form class="market-country-form drawer-form" onsubmit="saveMarketCountry(event, '${isEdit ? 'edit' : 'create'}', '${escapeHtml(countryCode)}')">
+      <div>
+        <strong>${isEdit ? `Edit ${escapeHtml(marketView.countryName || countryCode)}` : 'Create Country'}</strong>
+        <p>Only core country identity is configured in this step.</p>
       </div>
-      ${renderServiceDefinitionDatalist()}
-      <div data-city-service-list>
-        ${normalizedRows.map((row) => renderCityServiceRow(row, disabled)).join('')}
+      <label>
+        Country
+        <input name="countryName" required list="market-country-options" value="${escapeHtml(countryName)}" placeholder="Search countries" ${isEdit ? 'readonly' : ''} oninput="syncMarketCountrySelection(this)" onchange="syncMarketCountrySelection(this)" />
+      </label>
+      <datalist id="market-country-options">
+        ${countryMetadataList().map((country) => `<option value="${escapeHtml(country.name)}">${escapeHtml(`${country.name} (${country.code})`)}</option>`).join('')}
+      </datalist>
+      <label>
+        Country Code
+        <input name="countryCode" required readonly maxlength="2" value="${escapeHtml(countryCode || selectedCountry?.code || '')}" placeholder="UG" data-country-code />
+      </label>
+      <label>
+        Currency
+        <input name="currency" required readonly maxlength="3" value="${escapeHtml(currency)}" placeholder="UGX" data-country-currency />
+      </label>
+      <label>
+        Time Zone
+        <select name="timezone" required data-country-timezone>
+          ${timezone.options.length
+            ? timezone.options.map((option) => `<option value="${escapeHtml(option)}" ${option === timezone.selected ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')
+            : '<option value="">Select a country first</option>'}
+        </select>
+      </label>
+      <div class="form-actions">
+        <button class="primary-button compact" type="submit">Save</button>
+        <button class="ghost-button compact" type="button" onclick="cancelMarketCountryForm()">Cancel</button>
       </div>
-      ${disabled ? '' : '<button class="ghost-button compact" type="button" onclick="addCityServiceRow(this)">Add another city</button>'}
-    </details>
-  `;
-}
-
-function renderCityServiceRow(row, disabled = false) {
-  const disabledAttr = disabled ? 'disabled' : '';
-  const services = normalizeServiceEntries(row.services, state.data.marketMeta.serviceDefinitions || []);
-  const legacyServices = Array.isArray(row.services) && row.services.every((service) => typeof service === 'string')
-    ? row.services.join(', ')
-    : '';
-  const areas = Array.isArray(row.areas) ? row.areas : [];
-  const cityName = row.city || 'this city';
-  const serviceCounts = countStatuses(services);
-  const areaCounts = countStatuses(areas);
-  return `
-    <div class="city-service-card" data-city-service-row>
-      <div class="city-service-header">
-        <div>
-          <span class="eyebrow">City configuration</span>
-          <strong>${escapeHtml(cityName)}</strong>
-          <div class="status-chip-row">
-            <span class="status ${statusClass(row.status || 'ACTIVE')}">${escapeHtml(row.status || 'ACTIVE')}</span>
-            ${statusSummaryPills(serviceCounts)}
-            ${areas.length ? statusSummaryPills(areaCounts) : '<span class="status info">No areas</span>'}
-          </div>
-        </div>
-        ${disabled ? '' : '<button class="danger-button compact" type="button" onclick="removeNestedRow(this)">Remove city</button>'}
-      </div>
-      <div class="city-row-grid">
-        <label>City
-          <input data-city placeholder="Johannesburg" value="${escapeHtml(row.city || '')}" ${disabledAttr} />
-        </label>
-        <label>City status
-          <select data-city-status ${disabledAttr}>
-            ${['ACTIVE', 'COMING_SOON', 'PAUSED', 'DISABLED'].map((status) => `<option value="${status}" ${status === row.status ? 'selected' : ''}>${status}</option>`).join('')}
-          </select>
-        </label>
-        <label>Legacy services CSV
-          <input data-city-services placeholder="Optional legacy fallback only" value="${escapeHtml(legacyServices)}" ${disabledAttr} />
-        </label>
-      </div>
-      <div class="nested-section">
-        <div class="nested-section-header">
-          <strong>Services in ${escapeHtml(cityName)}</strong>
-          ${disabled ? '' : `<button class="ghost-button compact" type="button" onclick="addServiceEntryRow(this)">Add service to ${escapeHtml(cityName)}</button>`}
-        </div>
-        <div class="service-entry-head">
-          <span>Key</span><span>Display name</span><span>Status</span><span></span>
-        </div>
-        <div class="nested-sublist" data-service-entry-list>
-          ${services.map((service) => renderServiceEntryRow(service, disabled)).join('') || renderServiceEntryRow({ serviceKey: '', label: '', status: 'ACTIVE' }, disabled)}
-        </div>
-      </div>
-      <div class="nested-section">
-        <div class="nested-section-header">
-          <strong>Areas in ${escapeHtml(cityName)}</strong>
-          ${disabled ? '' : `<button class="ghost-button compact" type="button" onclick="addAreaEntryRow(this)">Add area to ${escapeHtml(cityName)}</button>`}
-        </div>
-        <div class="area-entry-head">
-          <span>Area</span><span>Status</span><span>Area-level service overrides</span><span></span>
-        </div>
-        <div class="nested-sublist" data-area-entry-list>
-          ${areas.map((area) => renderAreaEntryRow(area, disabled)).join('') || '<p class="setting-help tight">No area overrides. The city service statuses apply everywhere in this city.</p>'}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function renderServiceEntryRow(service, disabled = false) {
-  const disabledAttr = disabled ? 'disabled' : '';
-  const serviceKey = serviceKeyFrom(service.serviceKey || service.label || '');
-  const label = service.label || labelFromServiceKey(serviceKey);
-  return `
-    <div class="nested-row service-entry-row" data-service-entry-row>
-      <input data-service-key list="service-key-options" placeholder="service_key" value="${escapeHtml(serviceKey)}" ${disabledAttr} />
-      <input data-service-label placeholder="Display label" value="${escapeHtml(label)}" ${disabledAttr} />
-      <select data-service-status ${disabledAttr}>
-        ${['ACTIVE', 'COMING_SOON', 'PAUSED', 'DISABLED'].map((status) => `<option value="${status}" ${status === service.status ? 'selected' : ''}>${status}</option>`).join('')}
-      </select>
-      ${disabled ? '' : '<button class="danger-button compact" type="button" onclick="removeNestedRow(this)">Remove</button>'}
-    </div>
-  `;
-}
-
-function renderServiceDefinitionDatalist() {
-  const definitions = normalizeServiceEntries(state.data.marketMeta.serviceDefinitions || []);
-  return `
-    <datalist id="service-key-options">
-      ${definitions.map((service) => `<option value="${escapeHtml(service.serviceKey)}">${escapeHtml(service.label)}</option>`).join('')}
-    </datalist>
-  `;
-}
-
-function renderAreaEntryRow(area, disabled = false) {
-  const disabledAttr = disabled ? 'disabled' : '';
-  return `
-    <div class="nested-row area-entry-row" data-area-entry-row>
-      <input data-area-name placeholder="Area / Neighbourhood" value="${escapeHtml(area.name || '')}" ${disabledAttr} />
-      <select data-area-status ${disabledAttr}>
-        ${['ACTIVE', 'COMING_SOON', 'PAUSED', 'DISABLED'].map((status) => `<option value="${status}" ${status === area.status ? 'selected' : ''}>${status}</option>`).join('')}
-      </select>
-      <input data-area-services placeholder="appliance_repair:ACTIVE, cleaning:COMING_SOON" value="${escapeHtml(formatServiceList(area.services || []))}" ${disabledAttr} />
-      ${disabled ? '' : '<button class="danger-button compact" type="button" onclick="removeNestedRow(this)">Remove</button>'}
-    </div>
-  `;
-}
-
-function renderProviderEditor(rows = [], disabled = false) {
-  const normalizedRows = rows.length
-    ? rows
-    : [{ provider: '', status: 'DISABLED', methods: '', priority: 1, payoutEnabled: false, configReference: '' }];
-
-  return `
-    <details class="nested-settings" open>
-      <summary>Payment Providers</summary>
-      <p class="setting-help">Configure collection/payout providers without storing raw secret keys in the portal.</p>
-      <div data-provider-list>
-        ${normalizedRows.map((row) => renderProviderRow(row, disabled)).join('')}
-      </div>
-      ${disabled ? '' : '<button class="ghost-button compact" type="button" onclick="addProviderRow(this)">Add Provider</button>'}
-    </details>
-  `;
-}
-
-function renderProviderRow(row, disabled = false) {
-  const methods = Array.isArray(row.methods) ? row.methods.join(', ') : row.methods || '';
-  const disabledAttr = disabled ? 'disabled' : '';
-  return `
-    <div class="nested-row provider-row" data-provider-row>
-      <input data-provider placeholder="PAYSTACK" value="${escapeHtml(row.provider || '')}" ${disabledAttr} />
-      <select data-provider-status ${disabledAttr}>
-        ${['ACTIVE', 'FALLBACK', 'TESTING', 'DISABLED'].map((status) => `<option value="${status}" ${status === row.status ? 'selected' : ''}>${status}</option>`).join('')}
-      </select>
-      <input data-provider-methods placeholder="card, bank, mobile_money" value="${escapeHtml(methods)}" ${disabledAttr} />
-      <input data-provider-priority type="number" min="1" value="${row.priority || 1}" ${disabledAttr} />
-      <label class="inline-check"><input data-provider-payout type="checkbox" ${row.payoutEnabled ? 'checked' : ''} ${disabledAttr} /> Payout</label>
-      <input data-provider-config placeholder="PAYSTACK_CONFIG_REF" value="${escapeHtml(row.configReference || '')}" ${disabledAttr} />
-      ${disabled ? '' : '<button class="danger-button compact" type="button" onclick="removeNestedRow(this)">Remove</button>'}
-    </div>
-  `;
-}
-
-function addCityServiceRow(button) {
-  const list = button.closest('.nested-settings')?.querySelector('[data-city-service-list]');
-  if (!list) return;
-  list.insertAdjacentHTML('beforeend', renderCityServiceRow({ city: '', status: 'ACTIVE', services: [] }));
-}
-
-function addServiceEntryRow(button) {
-  const list = button.closest('[data-city-service-row]')?.querySelector('[data-service-entry-list]');
-  if (!list) return;
-  list.insertAdjacentHTML('beforeend', renderServiceEntryRow({ serviceKey: '', label: '', status: 'ACTIVE' }));
-}
-
-function addAreaEntryRow(button) {
-  const list = button.closest('[data-city-service-row]')?.querySelector('[data-area-entry-list]');
-  if (!list) return;
-  list.insertAdjacentHTML('beforeend', renderAreaEntryRow({ name: '', status: 'ACTIVE', services: [] }));
-}
-
-function addProviderRow(button) {
-  const list = button.closest('.nested-settings')?.querySelector('[data-provider-list]');
-  if (!list) return;
-  const priority = list.querySelectorAll('[data-provider-row]').length + 1;
-  list.insertAdjacentHTML('beforeend', renderProviderRow({ provider: '', status: 'DISABLED', methods: '', priority, payoutEnabled: false, configReference: '' }));
-}
-
-function removeNestedRow(button) {
-  button.closest('.nested-row, .city-service-card')?.remove();
-}
-
-function setProviderRows(form, rows) {
-  const list = form.querySelector('[data-provider-list]');
-  if (!list) return;
-  list.innerHTML = rows.length
-    ? rows.map(renderProviderRow).join('')
-    : renderProviderRow({ provider: '', status: 'DISABLED', methods: '', priority: 1, payoutEnabled: false, configReference: '' });
-}
-
-function renderMarketForm(market) {
-  const marketView = getMarketView(market);
-  const canUpdateMarkets = canMutate('markets.update');
-  const disabled = canUpdateMarkets ? '' : 'disabled';
-  const statuses = state.data.marketMeta.availableStatuses.length
-    ? state.data.marketMeta.availableStatuses
-    : ['COMING_SOON', 'ACTIVE', 'PAUSED', 'DISABLED'];
-  const commissionPercent = (marketView.platformCommissionBps / 100).toFixed(2);
-
-  return `
-    <form class="market-card" onsubmit="saveMarket(event, '${marketView.countryCode}')">
-      <input name="countryName" type="hidden" value="${escapeHtml(marketView.countryName)}" />
-      <input name="taxLabel" type="hidden" value="${escapeHtml(marketView.taxLabel)}" />
-      <input name="supportWhatsapp" type="hidden" value="${escapeHtml(marketView.supportWhatsapp)}" />
-      <input name="supportEscalationEmail" type="hidden" value="${escapeHtml(marketView.supportEscalationEmail)}" />
-      <div class="market-card-header">
-        <div>
-          <strong>${escapeHtml(marketView.countryName)} (${escapeHtml(marketView.countryCode)})</strong>
-          <span>${escapeHtml(marketView.currency)} - ${marketView.hasCustomSettings ? 'custom settings' : 'default config'}${marketView.status === 'DISABLED' ? ' - not visible to clients' : ''}</span>
-        </div>
-        <span class="status ${statusClass(marketView.status)}">${escapeHtml(marketView.status || (marketView.enabled ? 'ACTIVE' : 'DISABLED'))}</span>
-      </div>
-      ${marketStatusSummary(marketView)}
-      <div class="form-grid">
-        <div>
-          <label>Status</label>
-          <select name="status" ${disabled}>
-            ${statuses.map((status) => `<option value="${status}" ${status === marketView.status ? 'selected' : ''}>${status}</option>`).join('')}
-          </select>
-        </div>
-        <div>
-          <label>Currency</label>
-          <input name="currency" value="${escapeHtml(marketView.currency)}" ${disabled} />
-        </div>
-        <div>
-          <label>Callout Fee</label>
-          <input name="defaultCalloutFee" type="number" min="0" step="0.01" value="${marketView.defaultCalloutFee}" ${disabled} />
-        </div>
-        <div>
-          <label>Commission %</label>
-          <input name="commissionPercent" type="number" min="0" max="100" step="0.01" value="${commissionPercent}" ${disabled} />
-        </div>
-      </div>
-      ${renderCityServiceEditor(marketView.cityServiceAvailability || [], marketView.serviceCategories || state.data.marketMeta.defaultServiceCategories || [], !canUpdateMarkets)}
-      ${renderProviderEditor(marketView.providerSettings || [], !canUpdateMarkets)}
-      <div class="form-grid">
-        <div>
-          <label>Support Email</label>
-          <input name="supportEmail" value="${escapeHtml(marketView.supportEmail)}" ${disabled} />
-        </div>
-        <div>
-          <label>Support Phone</label>
-          <input name="supportPhone" value="${escapeHtml(marketView.supportPhone)}" ${disabled} />
-        </div>
-      </div>
-      ${canUpdateMarkets ? '<button class="primary-button compact" type="submit">Save Market</button>' : '<span class="status info">Read only</span>'}
     </form>
   `;
+}
+
+function renderMarketCountryDeleteConfirmation(market) {
+  if (!market) return '';
+  const marketView = getMarketView(market);
+  return `
+    <div class="market-country-confirm">
+      <strong>Delete ${escapeHtml(marketView.countryName || marketView.countryCode)}?</strong>
+      <p>This is permanent and is allowed only for an unused draft country. The backend will block deletion if cities, services, bookings, payments, promotions, or operational history exist.</p>
+      <div class="form-actions">
+        <button class="danger-button compact" type="button" onclick="deleteMarketCountry('${escapeHtml(marketView.countryCode)}')">Delete Country</button>
+        <button class="ghost-button compact" type="button" onclick="cancelMarketCountryForm()">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderMarketCountryCard(market, selectedCountryCode, canUpdateMarkets) {
+  const marketView = getMarketView(market);
+  const isSelected = marketView.countryCode === selectedCountryCode;
+  const actionMenuOpen = state.marketWorkflow.actionMenuCountryCode === marketView.countryCode;
+  return `
+    <article class="market-country-card ${isSelected ? 'selected' : ''}" role="button" tabindex="0" onclick="selectMarketCountry('${escapeHtml(marketView.countryCode)}')" onkeydown="handleMarketCountryCardKey(event, '${escapeHtml(marketView.countryCode)}')">
+      <div class="market-country-card-copy">
+        <strong>${escapeHtml(marketView.countryName || marketView.countryCode)}</strong>
+        <small>Country</small>
+        <em>${escapeHtml(marketView.currency || '-')}</em>
+        ${marketView.timezone ? `<span>${escapeHtml(marketView.timezone)}</span>` : ''}
+      </div>
+      <div class="market-country-card-meta">
+        <span class="status ${statusClass(marketView.status)}">${escapeHtml(String(marketView.status || 'DRAFT').replace('_', ' '))}</span>
+        <span class="market-country-arrow">›</span>
+      </div>
+      ${canUpdateMarkets ? `
+        <div class="market-country-actions" onclick="event.stopPropagation()">
+          <button class="icon-button" type="button" aria-label="Country actions" onclick="toggleMarketCountryActions('${escapeHtml(marketView.countryCode)}')">...</button>
+          ${actionMenuOpen ? `
+            <div class="market-country-menu">
+              <button type="button" onclick="startEditMarketCountry('${escapeHtml(marketView.countryCode)}')">Edit</button>
+              <button type="button" onclick="startDeleteMarketCountry('${escapeHtml(marketView.countryCode)}')">Delete</button>
+            </div>
+          ` : ''}
+        </div>
+      ` : ''}
+    </article>
+  `;
+}
+
+function renderMarketCityForm(mode = 'create', market = null, city = '') {
+  const marketView = getMarketView(market || {});
+  const isEdit = mode === 'edit';
+  const cityName = isEdit ? city : '';
+  return `
+    <form class="market-city-form drawer-form" onsubmit="saveMarketCity(event, '${isEdit ? 'edit' : 'create'}', '${escapeHtml(marketView.countryCode || '')}', '${escapeHtml(cityName)}')">
+      <div>
+        <strong>${isEdit ? `Rename ${escapeHtml(cityName)}` : 'Create City'}</strong>
+        <p>Country: ${escapeHtml(marketView.countryName || marketView.countryCode || 'Selected country')}</p>
+      </div>
+      <label>
+        City Name
+        <input name="cityName" required value="${escapeHtml(cityName)}" placeholder="Kampala" />
+      </label>
+      <div class="form-actions">
+        <button class="primary-button compact" type="submit">Save</button>
+        <button class="ghost-button compact" type="button" onclick="cancelMarketCityForm()">Cancel</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderMarketCityDeleteConfirmation(market, cityName) {
+  const marketView = getMarketView(market || {});
+  if (!cityName) return '';
+  return `
+    <div class="market-city-confirm">
+      <strong>Delete ${escapeHtml(cityName)}?</strong>
+      <p>This is permanent and only allowed when the backend confirms the city has no service availability, areas, bookings, technicians, promotions, or operational history.</p>
+      <div class="form-actions">
+        <button class="danger-button compact" type="button" onclick="deleteMarketCity('${escapeHtml(marketView.countryCode)}', '${escapeHtml(cityName)}')">Delete City</button>
+        <button class="ghost-button compact" type="button" onclick="cancelMarketCityForm()">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderMarketCityCard(city, selectedCityName, canUpdateMarkets) {
+  const isSelected = marketCityKey(city.name) === marketCityKey(selectedCityName);
+  const actionMenuOpen = marketCityKey(state.marketWorkflow.actionMenuCityName) === marketCityKey(city.name);
+  return `
+    <article class="market-city-card ${isSelected ? 'selected' : ''} ${actionMenuOpen ? 'menu-open' : ''}" role="button" tabindex="0" onclick="selectMarketCity('${escapeHtml(city.name)}')" onkeydown="handleMarketCityCardKey(event, '${escapeHtml(city.name)}')">
+      <div class="market-city-card-copy">
+        <strong>${escapeHtml(city.name)}</strong>
+        <small>City</small>
+        <em>${escapeHtml(city.countryName)}</em>
+      </div>
+      <span class="market-country-arrow">›</span>
+      ${canUpdateMarkets ? `
+        <div class="market-city-actions" onclick="event.stopPropagation()">
+          <button class="icon-button" type="button" aria-label="City actions" onclick="toggleMarketCityActions('${escapeHtml(city.name)}', this)">...</button>
+          ${actionMenuOpen ? `
+            <div class="market-city-menu ${state.marketWorkflow.actionMenuCityDirection === 'up' ? 'menu-up' : 'menu-down'}">
+              <button type="button" onclick="startEditMarketCity('${escapeHtml(city.name)}')">Rename</button>
+              <button type="button" onclick="startDeleteMarketCity('${escapeHtml(city.name)}')">Delete</button>
+            </div>
+          ` : ''}
+        </div>
+      ` : ''}
+    </article>
+  `;
+}
+
+function renderMarketCitiesCard(selectedMarket, canUpdateMarkets) {
+  const marketView = selectedMarket ? getMarketView(selectedMarket) : {};
+  const cities = getMarketCities(selectedMarket);
+  const selectedCity = cities.find((city) => marketCityKey(city.name) === marketCityKey(state.marketWorkflow.selectedCityName));
+
+  return `
+    <div class="market-step-card market-step-card-cities">
+      <div class="market-step-header">
+        <div>
+          <small>Market Step 2</small>
+          <h3>Cities</h3>
+          <span>${selectedMarket ? `Selected Country: ${escapeHtml(marketView.countryName || marketView.countryCode)}` : 'Select a Country to view its Cities.'}</span>
+        </div>
+        ${canUpdateMarkets ? `<button class="primary-button compact" type="button" onclick="showCreateMarketCityForm()" ${selectedMarket ? '' : 'disabled'}>+ Create City</button>` : ''}
+      </div>
+      ${!selectedMarket ? renderEmpty('Select a Country to view its Cities.') : ''}
+      ${selectedMarket && !canUpdateMarkets ? '<p class="setting-help">Read-only admins can view and select cities but cannot create or edit them.</p>' : ''}
+      ${selectedMarket ? `
+        <div class="market-city-scroll">
+          ${cities.length
+            ? `<div class="market-city-grid">${cities.map((city) => renderMarketCityCard(city, state.marketWorkflow.selectedCityName, canUpdateMarkets)).join('')}</div>`
+            : renderEmpty(`No Cities have been added to ${marketView.countryName || marketView.countryCode} yet.`)}
+        </div>
+      ` : ''}
+      ${selectedCity ? `<div class="market-step-note inline"><strong>${escapeHtml(selectedCity.name)} selected</strong><p>This city can operate with GPS-based dispatch. Areas remain optional labels.</p></div>` : ''}
+    </div>
+  `;
+}
+
+function renderMarketAreaForm(mode = 'create', market = null, cityName = '', areaName = '') {
+  const marketView = getMarketView(market || {});
+  const isEdit = mode === 'edit';
+  return `
+    <form class="market-area-form drawer-form" onsubmit="saveMarketArea(event, '${isEdit ? 'edit' : 'create'}', '${escapeHtml(marketView.countryCode || '')}', '${escapeHtml(cityName)}', '${escapeHtml(areaName)}')">
+      <div>
+        <strong>${isEdit ? `Rename ${escapeHtml(areaName)}` : 'Create Area'}</strong>
+        <p>Country: ${escapeHtml(marketView.countryName || marketView.countryCode || 'Selected country')}</p>
+        <p>City: ${escapeHtml(cityName || 'Selected city')}</p>
+      </div>
+      <label>
+        Area Name
+        <input name="areaName" required value="${escapeHtml(isEdit ? areaName : '')}" placeholder="Kololo" />
+      </label>
+      <div class="form-actions">
+        <button class="primary-button compact" type="submit">Save</button>
+        <button class="ghost-button compact" type="button" onclick="cancelMarketAreaForm()">Cancel</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderMarketAreaDeleteConfirmation(market, cityName, areaName) {
+  const marketView = getMarketView(market || {});
+  if (!areaName) return '';
+  return `
+    <div class="market-area-confirm">
+      <strong>Delete ${escapeHtml(areaName)}?</strong>
+      <p>This action cannot be undone.</p>
+      <p>The Area can only be deleted if it is not currently being used by any services, technicians, bookings, promotions or other operational records.</p>
+      <div class="form-actions">
+        <button class="danger-button compact" type="button" onclick="deleteMarketArea('${escapeHtml(marketView.countryCode)}', '${escapeHtml(cityName)}', '${escapeHtml(areaName)}')">Delete Area</button>
+        <button class="ghost-button compact" type="button" onclick="cancelMarketAreaForm()">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderMarketAreaCard(area, selectedAreaName, canUpdateMarkets) {
+  const isSelected = marketAreaKey(area.name) === marketAreaKey(selectedAreaName);
+  const actionMenuOpen = marketAreaKey(state.marketWorkflow.actionMenuAreaName) === marketAreaKey(area.name);
+  return `
+    <article class="market-area-card ${isSelected ? 'selected' : ''} ${actionMenuOpen ? 'menu-open' : ''}" role="button" tabindex="0" onclick="selectMarketArea('${escapeHtml(area.name)}')" onkeydown="handleMarketAreaCardKey(event, '${escapeHtml(area.name)}')">
+      <div class="market-area-card-copy">
+        <strong>${escapeHtml(area.name)}</strong>
+        <small>Area</small>
+        <em>${escapeHtml(area.cityName)}, ${escapeHtml(area.countryName)}</em>
+      </div>
+      <span class="market-country-arrow">›</span>
+      ${canUpdateMarkets ? `
+        <div class="market-area-actions" onclick="event.stopPropagation()">
+          <button class="icon-button" type="button" aria-label="Area actions" onclick="toggleMarketAreaActions('${escapeHtml(area.name)}', this)">...</button>
+          ${actionMenuOpen ? `
+            <div class="market-area-menu ${state.marketWorkflow.actionMenuAreaDirection === 'up' ? 'menu-up' : 'menu-down'}">
+              <button type="button" onclick="startEditMarketArea('${escapeHtml(area.name)}')">Rename</button>
+              <button type="button" onclick="startDeleteMarketArea('${escapeHtml(area.name)}')">Delete</button>
+            </div>
+          ` : ''}
+        </div>
+      ` : ''}
+    </article>
+  `;
+}
+
+function renderMarketAreasCard(selectedMarket, canUpdateMarkets) {
+  const marketView = selectedMarket ? getMarketView(selectedMarket) : {};
+  const cityName = state.marketWorkflow.selectedCityName;
+  const areas = getMarketAreas(selectedMarket, cityName);
+  const selectedArea = areas.find((area) => marketAreaKey(area.name) === marketAreaKey(state.marketWorkflow.selectedAreaName));
+
+  return `
+    <div class="market-step-card market-step-card-areas">
+      <div class="market-step-header">
+        <div>
+          <small>Market Step 3</small>
+          <h3>Areas</h3>
+          <span>${selectedMarket && cityName ? `Optional Areas for ${escapeHtml(cityName)}` : selectedMarket ? 'Select a City to view optional Areas.' : 'Select a Country and City to view optional Areas.'}</span>
+        </div>
+        ${canUpdateMarkets ? `<button class="primary-button compact" type="button" onclick="showCreateMarketAreaForm()" ${selectedMarket && cityName ? '' : 'disabled'}>+ Create Area</button>` : ''}
+      </div>
+      ${!selectedMarket ? renderEmpty('Select a Country and City to view optional Areas.') : ''}
+      ${selectedMarket && !cityName ? renderEmpty('Select a City to view optional Areas.') : ''}
+      ${selectedMarket && cityName && !canUpdateMarkets ? '<p class="setting-help">Read-only admins can view and select areas but cannot create or edit them.</p>' : ''}
+      ${selectedMarket && cityName ? `
+        <div class="market-area-scroll">
+          ${areas.length
+            ? `<div class="market-area-grid">${areas.map((area) => renderMarketAreaCard(area, state.marketWorkflow.selectedAreaName, canUpdateMarkets)).join('')}</div>`
+            : renderEmpty(
+              'City-wide GPS dispatch remains available.',
+              'No Areas configured.',
+              'Areas can be added later for reporting, pricing, promotions and operational management.'
+            )}
+        </div>
+      ` : ''}
+      ${selectedArea ? `<div class="market-step-note inline"><strong>${escapeHtml(selectedArea.name)} selected</strong><p>Areas are optional administrative labels. They are not required for service availability or technician dispatch.</p></div>` : ''}
+    </div>
+  `;
+}
+
+function renderMarketManagementDrawer(selectedMarket) {
+  const workflow = state.marketWorkflow;
+  const editingMarket = (state.data.markets || []).find((market) => getMarketView(market).countryCode === workflow.editingCountryCode) || null;
+  const deletingMarket = (state.data.markets || []).find((market) => getMarketView(market).countryCode === workflow.deleteCountryCode) || null;
+  const selectedCityName = workflow.selectedCityName;
+  let eyebrow = '';
+  let title = '';
+  let subtitle = '';
+  let content = '';
+
+  if (workflow.showCreateCountry) {
+    eyebrow = 'Market Step 1';
+    title = 'Create Country';
+    subtitle = 'Add the country identity Padi operates under.';
+    content = renderMarketCountryForm('create');
+  } else if (workflow.editingCountryCode) {
+    const view = getMarketView(editingMarket || {});
+    eyebrow = 'Market Step 1';
+    title = `Edit ${view.countryName || workflow.editingCountryCode}`;
+    subtitle = 'Update country identity details.';
+    content = renderMarketCountryForm('edit', editingMarket);
+  } else if (workflow.deleteCountryCode) {
+    const view = getMarketView(deletingMarket || {});
+    eyebrow = 'Market Step 1';
+    title = `Delete ${view.countryName || workflow.deleteCountryCode}`;
+    subtitle = 'The backend will only allow this when the country is unused.';
+    content = renderMarketCountryDeleteConfirmation(deletingMarket);
+  } else if (workflow.showCreateCity) {
+    const view = getMarketView(selectedMarket || {});
+    eyebrow = 'Market Step 2';
+    title = 'Create City';
+    subtitle = view.countryName ? `Add a city under ${view.countryName}.` : 'Add a city under the selected country.';
+    content = renderMarketCityForm('create', selectedMarket);
+  } else if (workflow.editingCityName) {
+    eyebrow = 'Market Step 2';
+    title = `Rename ${workflow.editingCityName}`;
+    subtitle = 'Keep the city under the selected country.';
+    content = renderMarketCityForm('edit', selectedMarket, workflow.editingCityName);
+  } else if (workflow.deleteCityName) {
+    eyebrow = 'Market Step 2';
+    title = `Delete ${workflow.deleteCityName}`;
+    subtitle = 'The backend will block deletion when operational data exists.';
+    content = renderMarketCityDeleteConfirmation(selectedMarket, workflow.deleteCityName);
+  } else if (workflow.showCreateArea) {
+    eyebrow = 'Market Step 3';
+    title = 'Create Area';
+    subtitle = selectedCityName ? `Add an optional area under ${selectedCityName}.` : 'Add an optional area under the selected city.';
+    content = renderMarketAreaForm('create', selectedMarket, selectedCityName);
+  } else if (workflow.editingAreaName) {
+    eyebrow = 'Market Step 3';
+    title = `Rename ${workflow.editingAreaName}`;
+    subtitle = selectedCityName ? `Optional area under ${selectedCityName}.` : 'Optional area under the selected city.';
+    content = renderMarketAreaForm('edit', selectedMarket, selectedCityName, workflow.editingAreaName);
+  } else if (workflow.deleteAreaName) {
+    eyebrow = 'Market Step 3';
+    title = `Delete ${workflow.deleteAreaName}`;
+    subtitle = 'The backend will only allow deletion when the area is unused.';
+    content = renderMarketAreaDeleteConfirmation(selectedMarket, selectedCityName, workflow.deleteAreaName);
+  }
+
+  if (!content) return '';
+
+  return `
+    <div class="service-drawer-overlay market-drawer-overlay" onclick="cancelMarketManagementDrawer()"></div>
+    <aside class="service-details-drawer market-details-drawer" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+      <div class="service-drawer-header">
+        <div>
+          <small>${escapeHtml(eyebrow)}</small>
+          <h3>${escapeHtml(title)}</h3>
+          <span>${escapeHtml(subtitle)}</span>
+        </div>
+        <button class="icon-button" type="button" aria-label="Close Market editor" onclick="cancelMarketManagementDrawer()">x</button>
+      </div>
+      ${content}
+    </aside>
+  `;
+}
+
+function renderSettings() {
+  const canUpdateMarkets = canMutate('markets.update');
+  const marketCards = getMarketCountryCards();
+  const selectedCountryCode = state.marketWorkflow.selectedCountryCode;
+  const selectedMarket = (state.data.markets || []).find((market) => getMarketView(market).countryCode === selectedCountryCode) || null;
+
+  return `
+    <section class="markets-page-shell">
+      <div class="markets-page-heading">
+        <h2>Markets</h2>
+        <span>Manage countries, cities, and optional areas for Padi operations.</span>
+      </div>
+      ${state.marketWorkflow.message ? `<div class="notice success">${escapeHtml(state.marketWorkflow.message)}</div>` : ''}
+      ${state.marketWorkflow.error ? `<div class="notice error">${escapeHtml(state.marketWorkflow.error)}</div>` : ''}
+      <div class="markets-builder-grid">
+        <div class="market-step-card">
+          <div class="market-step-header">
+            <div>
+              <small>Market Step 1</small>
+              <h3>Countries</h3>
+              <span>${marketCards.length} configured ${marketCards.length === 1 ? 'country' : 'countries'}</span>
+            </div>
+            ${canUpdateMarkets ? '<button class="primary-button compact" type="button" onclick="showCreateMarketCountryForm()">+ Create Country</button>' : ''}
+          </div>
+          ${!canUpdateMarkets ? '<p class="setting-help">Read-only admins can view and select countries but cannot create or edit them.</p>' : ''}
+          <div class="market-country-scroll">
+            ${marketCards.length
+              ? `<div class="market-country-grid">${marketCards.map(({ source }) => renderMarketCountryCard(source, selectedCountryCode, canUpdateMarkets)).join('')}</div>`
+              : renderEmpty('No countries have been configured yet.')}
+          </div>
+        </div>
+        ${renderMarketCitiesCard(selectedMarket, canUpdateMarkets)}
+        ${renderMarketAreasCard(selectedMarket, canUpdateMarkets)}
+      </div>
+      ${renderMarketManagementDrawer(selectedMarket)}
+    </section>
+  `;
+}
+
+function showCreateMarketCountryForm() {
+  if (!canMutate('markets.update')) return;
+  state.marketWorkflow.showCreateCountry = true;
+  state.marketWorkflow.editingCountryCode = '';
+  state.marketWorkflow.deleteCountryCode = '';
+  state.marketWorkflow.actionMenuCountryCode = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function cancelMarketManagementDrawer() {
+  const hasUnsavedForm = state.marketWorkflow.showCreateCountry ||
+    state.marketWorkflow.editingCountryCode ||
+    state.marketWorkflow.showCreateCity ||
+    state.marketWorkflow.editingCityName ||
+    state.marketWorkflow.showCreateArea ||
+    state.marketWorkflow.editingAreaName;
+  if (hasUnsavedForm && !window.confirm('Discard unsaved market changes?')) return;
+
+  state.marketWorkflow.showCreateCountry = false;
+  state.marketWorkflow.editingCountryCode = '';
+  state.marketWorkflow.deleteCountryCode = '';
+  state.marketWorkflow.actionMenuCountryCode = '';
+  state.marketWorkflow.showCreateCity = false;
+  state.marketWorkflow.editingCityName = '';
+  state.marketWorkflow.deleteCityName = '';
+  state.marketWorkflow.actionMenuCityName = '';
+  state.marketWorkflow.showCreateArea = false;
+  state.marketWorkflow.editingAreaName = '';
+  state.marketWorkflow.deleteAreaName = '';
+  state.marketWorkflow.actionMenuAreaName = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function cancelMarketCountryForm() {
+  const hasOpenForm = state.marketWorkflow.showCreateCountry || state.marketWorkflow.editingCountryCode;
+  if (hasOpenForm && !window.confirm('Discard unsaved country changes?')) return;
+  state.marketWorkflow.showCreateCountry = false;
+  state.marketWorkflow.editingCountryCode = '';
+  state.marketWorkflow.deleteCountryCode = '';
+  state.marketWorkflow.actionMenuCountryCode = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function selectMarketCountry(countryCode) {
+  const previousCountryCode = state.marketWorkflow.selectedCountryCode;
+  state.marketWorkflow.selectedCountryCode = countryCode;
+  if (previousCountryCode !== countryCode) {
+    state.marketWorkflow.selectedCityName = '';
+    state.marketWorkflow.showCreateCity = false;
+    state.marketWorkflow.editingCityName = '';
+    state.marketWorkflow.deleteCityName = '';
+    state.marketWorkflow.actionMenuCityName = '';
+    state.marketWorkflow.selectedAreaName = '';
+    state.marketWorkflow.showCreateArea = false;
+    state.marketWorkflow.editingAreaName = '';
+    state.marketWorkflow.deleteAreaName = '';
+    state.marketWorkflow.actionMenuAreaName = '';
+  }
+  state.marketWorkflow.actionMenuCountryCode = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function handleMarketCountryCardKey(event, countryCode) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    selectMarketCountry(countryCode);
+  }
+}
+
+function toggleMarketCountryActions(countryCode) {
+  state.marketWorkflow.actionMenuCountryCode = state.marketWorkflow.actionMenuCountryCode === countryCode ? '' : countryCode;
+  render();
+}
+
+function startEditMarketCountry(countryCode) {
+  if (!canMutate('markets.update')) return;
+  state.marketWorkflow.editingCountryCode = countryCode;
+  state.marketWorkflow.showCreateCountry = false;
+  state.marketWorkflow.deleteCountryCode = '';
+  state.marketWorkflow.actionMenuCountryCode = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function startDeleteMarketCountry(countryCode) {
+  if (!canMutate('markets.update')) return;
+  state.marketWorkflow.deleteCountryCode = countryCode;
+  state.marketWorkflow.showCreateCountry = false;
+  state.marketWorkflow.editingCountryCode = '';
+  state.marketWorkflow.actionMenuCountryCode = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function showCreateMarketCityForm() {
+  if (!canMutate('markets.update') || !state.marketWorkflow.selectedCountryCode) return;
+  state.marketWorkflow.showCreateCity = true;
+  state.marketWorkflow.editingCityName = '';
+  state.marketWorkflow.deleteCityName = '';
+  state.marketWorkflow.actionMenuCityName = '';
+  state.marketWorkflow.showCreateArea = false;
+  state.marketWorkflow.editingAreaName = '';
+  state.marketWorkflow.deleteAreaName = '';
+  state.marketWorkflow.actionMenuAreaName = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function cancelMarketCityForm() {
+  const hasOpenForm = state.marketWorkflow.showCreateCity || state.marketWorkflow.editingCityName;
+  if (hasOpenForm && !window.confirm('Discard unsaved city changes?')) return;
+  state.marketWorkflow.showCreateCity = false;
+  state.marketWorkflow.editingCityName = '';
+  state.marketWorkflow.deleteCityName = '';
+  state.marketWorkflow.actionMenuCityName = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+async function selectMarketCity(cityName) {
+  const previousCityName = state.marketWorkflow.selectedCityName;
+  state.marketWorkflow.selectedCityName = cityName;
+  if (marketCityKey(previousCityName) !== marketCityKey(cityName)) {
+    state.marketWorkflow.selectedAreaName = '';
+    state.marketWorkflow.showCreateArea = false;
+    state.marketWorkflow.editingAreaName = '';
+    state.marketWorkflow.deleteAreaName = '';
+    state.marketWorkflow.actionMenuAreaName = '';
+  }
+  state.marketWorkflow.actionMenuCityName = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function handleMarketCityCardKey(event, cityName) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    selectMarketCity(cityName);
+  }
+}
+
+function toggleMarketCityActions(cityName, button = null) {
+  const isOpen = marketCityKey(state.marketWorkflow.actionMenuCityName) === marketCityKey(cityName);
+  if (isOpen) {
+    state.marketWorkflow.actionMenuCityName = '';
+    render();
+    return;
+  }
+  let direction = 'down';
+  const scrollContainer = button?.closest?.('.market-city-scroll');
+  if (button && scrollContainer) {
+    const buttonRect = button.getBoundingClientRect();
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const estimatedMenuHeight = 92;
+    const spaceBelow = containerRect.bottom - buttonRect.bottom;
+    const spaceAbove = buttonRect.top - containerRect.top;
+    direction = spaceBelow >= estimatedMenuHeight || spaceBelow >= spaceAbove ? 'down' : 'up';
+  }
+  state.marketWorkflow.actionMenuCityDirection = direction;
+  state.marketWorkflow.actionMenuCityName = cityName;
+  render();
+}
+
+function startEditMarketCity(cityName) {
+  if (!canMutate('markets.update')) return;
+  state.marketWorkflow.editingCityName = cityName;
+  state.marketWorkflow.showCreateCity = false;
+  state.marketWorkflow.deleteCityName = '';
+  state.marketWorkflow.actionMenuCityName = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function startDeleteMarketCity(cityName) {
+  if (!canMutate('markets.update')) return;
+  state.marketWorkflow.deleteCityName = cityName;
+  state.marketWorkflow.showCreateCity = false;
+  state.marketWorkflow.editingCityName = '';
+  state.marketWorkflow.actionMenuCityName = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function validateMarketCityForm(form, mode, currentCityName = '') {
+  const cityName = normalizeMarketCityName(form.get('cityName'));
+  const selectedCountryCode = state.marketWorkflow.selectedCountryCode;
+  const selectedMarket = (state.data.markets || []).find((market) => getMarketView(market).countryCode === selectedCountryCode) || null;
+  if (!selectedMarket) return { error: 'Select a persisted Country before adding Cities.' };
+  if (!cityName) return { error: 'City name is required.' };
+  const duplicate = getMarketCities(selectedMarket).some((city) =>
+    marketCityKey(city.name) === marketCityKey(cityName) &&
+    (mode !== 'edit' || marketCityKey(city.name) !== marketCityKey(currentCityName))
+  );
+  if (duplicate) return { error: 'A city with this name already exists in this country.' };
+  return { cityName, countryCode: selectedCountryCode, selectedMarket };
+}
+
+async function saveMarketCity(event, mode = 'create', countryCode = '', currentCityName = '') {
+  event.preventDefault();
+  if (!canMutate('markets.update')) {
+    alert('You do not have permission to update markets.');
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const validation = validateMarketCityForm(form, mode, currentCityName);
+  if (validation.error) {
+    state.marketWorkflow.error = validation.error;
+    state.marketWorkflow.message = '';
+    render();
+    return;
+  }
+
+  try {
+    const encodedCity = encodeURIComponent(currentCityName);
+    await api(mode === 'edit'
+      ? `/admin/markets/${validation.countryCode}/cities/${encodedCity}`
+      : `/admin/markets/${validation.countryCode}/cities`, {
+      method: mode === 'edit' ? 'PATCH' : 'POST',
+      body: JSON.stringify({ cityName: validation.cityName }),
+    });
+    await loadAllData();
+    state.activeView = 'settings';
+    state.marketWorkflow.selectedCountryCode = validation.countryCode;
+    state.marketWorkflow.selectedCityName = validation.cityName;
+    state.marketWorkflow.selectedAreaName = '';
+    state.marketWorkflow.showCreateCity = false;
+    state.marketWorkflow.editingCityName = '';
+    state.marketWorkflow.deleteCityName = '';
+    state.marketWorkflow.actionMenuCityName = '';
+    state.marketWorkflow.showCreateArea = false;
+    state.marketWorkflow.editingAreaName = '';
+    state.marketWorkflow.deleteAreaName = '';
+    state.marketWorkflow.actionMenuAreaName = '';
+    state.marketWorkflow.message = `${validation.cityName} was saved.`;
+    state.marketWorkflow.error = '';
+    render();
+  } catch (error) {
+    state.marketWorkflow.message = '';
+    state.marketWorkflow.error = error.message || 'Unable to save city.';
+    render();
+  }
+}
+
+async function deleteMarketCity(countryCode, cityName) {
+  if (!canMutate('markets.update')) {
+    alert('You do not have permission to update markets.');
+    return;
+  }
+  if (!window.confirm(`Delete ${cityName}? This is permanent and only allowed when the city is unused.`)) return;
+  try {
+    await api(`/admin/markets/${countryCode}/cities/${encodeURIComponent(cityName)}`, { method: 'DELETE' });
+    await loadAllData();
+    state.marketWorkflow.selectedCountryCode = countryCode;
+    state.marketWorkflow.selectedCityName = marketCityKey(state.marketWorkflow.selectedCityName) === marketCityKey(cityName) ? '' : state.marketWorkflow.selectedCityName;
+    if (!state.marketWorkflow.selectedCityName) {
+      state.marketWorkflow.selectedAreaName = '';
+      state.marketWorkflow.showCreateArea = false;
+      state.marketWorkflow.editingAreaName = '';
+      state.marketWorkflow.deleteAreaName = '';
+      state.marketWorkflow.actionMenuAreaName = '';
+    }
+    state.marketWorkflow.deleteCityName = '';
+    state.marketWorkflow.actionMenuCityName = '';
+    state.marketWorkflow.message = `${cityName} was deleted.`;
+    state.marketWorkflow.error = '';
+    render();
+  } catch (error) {
+    state.marketWorkflow.message = '';
+    state.marketWorkflow.error = error.message || 'Unable to delete city.';
+    render();
+  }
+}
+
+function showCreateMarketAreaForm() {
+  if (!canMutate('markets.update') || !state.marketWorkflow.selectedCountryCode || !state.marketWorkflow.selectedCityName) return;
+  state.marketWorkflow.showCreateArea = true;
+  state.marketWorkflow.editingAreaName = '';
+  state.marketWorkflow.deleteAreaName = '';
+  state.marketWorkflow.actionMenuAreaName = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function cancelMarketAreaForm() {
+  const hasOpenForm = state.marketWorkflow.showCreateArea || state.marketWorkflow.editingAreaName;
+  if (hasOpenForm && !window.confirm('Discard unsaved area changes?')) return;
+  state.marketWorkflow.showCreateArea = false;
+  state.marketWorkflow.editingAreaName = '';
+  state.marketWorkflow.deleteAreaName = '';
+  state.marketWorkflow.actionMenuAreaName = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function selectMarketArea(areaName) {
+  state.marketWorkflow.selectedAreaName = areaName;
+  state.marketWorkflow.actionMenuAreaName = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function handleMarketAreaCardKey(event, areaName) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    selectMarketArea(areaName);
+  }
+}
+
+function toggleMarketAreaActions(areaName, button = null) {
+  const isOpen = marketAreaKey(state.marketWorkflow.actionMenuAreaName) === marketAreaKey(areaName);
+  if (isOpen) {
+    state.marketWorkflow.actionMenuAreaName = '';
+    render();
+    return;
+  }
+  let direction = 'down';
+  const scrollContainer = button?.closest?.('.market-area-scroll');
+  if (button && scrollContainer) {
+    const buttonRect = button.getBoundingClientRect();
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const estimatedMenuHeight = 92;
+    const spaceBelow = containerRect.bottom - buttonRect.bottom;
+    const spaceAbove = buttonRect.top - containerRect.top;
+    direction = spaceBelow >= estimatedMenuHeight || spaceBelow >= spaceAbove ? 'down' : 'up';
+  }
+  state.marketWorkflow.actionMenuAreaDirection = direction;
+  state.marketWorkflow.actionMenuAreaName = areaName;
+  render();
+}
+
+function startEditMarketArea(areaName) {
+  if (!canMutate('markets.update')) return;
+  state.marketWorkflow.editingAreaName = areaName;
+  state.marketWorkflow.showCreateArea = false;
+  state.marketWorkflow.deleteAreaName = '';
+  state.marketWorkflow.actionMenuAreaName = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function startDeleteMarketArea(areaName) {
+  if (!canMutate('markets.update')) return;
+  state.marketWorkflow.deleteAreaName = areaName;
+  state.marketWorkflow.showCreateArea = false;
+  state.marketWorkflow.editingAreaName = '';
+  state.marketWorkflow.actionMenuAreaName = '';
+  state.marketWorkflow.message = '';
+  state.marketWorkflow.error = '';
+  render();
+}
+
+function validateMarketAreaForm(form, mode, currentAreaName = '') {
+  const areaName = normalizeMarketAreaName(form.get('areaName'));
+  const selectedCountryCode = state.marketWorkflow.selectedCountryCode;
+  const selectedCityName = state.marketWorkflow.selectedCityName;
+  const selectedMarket = (state.data.markets || []).find((market) => getMarketView(market).countryCode === selectedCountryCode) || null;
+  if (!selectedMarket) return { error: 'Select a persisted Country before adding Areas.' };
+  if (!selectedCityName) return { error: 'Select a City before adding Areas.' };
+  if (!areaName) return { error: 'Area name is required.' };
+  const duplicate = getMarketAreas(selectedMarket, selectedCityName).some((area) =>
+    marketAreaKey(area.name) === marketAreaKey(areaName) &&
+    (mode !== 'edit' || marketAreaKey(area.name) !== marketAreaKey(currentAreaName))
+  );
+  if (duplicate) return { error: 'An area with this name already exists in this city.' };
+  return { areaName, countryCode: selectedCountryCode, cityName: selectedCityName, selectedMarket };
+}
+
+async function saveMarketArea(event, mode = 'create', countryCode = '', cityName = '', currentAreaName = '') {
+  event.preventDefault();
+  if (!canMutate('markets.update')) {
+    alert('You do not have permission to update markets.');
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const validation = validateMarketAreaForm(form, mode, currentAreaName);
+  if (validation.error) {
+    state.marketWorkflow.error = validation.error;
+    state.marketWorkflow.message = '';
+    render();
+    return;
+  }
+
+  try {
+    const encodedCity = encodeURIComponent(validation.cityName);
+    const encodedArea = encodeURIComponent(currentAreaName);
+    await api(mode === 'edit'
+      ? `/admin/markets/${validation.countryCode}/cities/${encodedCity}/areas/${encodedArea}`
+      : `/admin/markets/${validation.countryCode}/cities/${encodedCity}/areas`, {
+      method: mode === 'edit' ? 'PATCH' : 'POST',
+      body: JSON.stringify({ areaName: validation.areaName }),
+    });
+    await loadAllData();
+    state.activeView = 'settings';
+    state.marketWorkflow.selectedCountryCode = validation.countryCode;
+    state.marketWorkflow.selectedCityName = validation.cityName;
+    state.marketWorkflow.selectedAreaName = validation.areaName;
+    state.marketWorkflow.showCreateArea = false;
+    state.marketWorkflow.editingAreaName = '';
+    state.marketWorkflow.deleteAreaName = '';
+    state.marketWorkflow.actionMenuAreaName = '';
+    state.marketWorkflow.message = `${validation.areaName} was saved.`;
+    state.marketWorkflow.error = '';
+    render();
+  } catch (error) {
+    state.marketWorkflow.message = '';
+    state.marketWorkflow.error = error.message || 'Unable to save area.';
+    render();
+  }
+}
+
+async function deleteMarketArea(countryCode, cityName, areaName) {
+  if (!canMutate('markets.update')) {
+    alert('You do not have permission to update markets.');
+    return;
+  }
+  if (!window.confirm(`Delete ${areaName}? This is permanent and only allowed when the area is unused.`)) return;
+  try {
+    await api(`/admin/markets/${countryCode}/cities/${encodeURIComponent(cityName)}/areas/${encodeURIComponent(areaName)}`, { method: 'DELETE' });
+    await loadAllData();
+    state.marketWorkflow.selectedCountryCode = countryCode;
+    state.marketWorkflow.selectedCityName = cityName;
+    state.marketWorkflow.selectedAreaName = marketAreaKey(state.marketWorkflow.selectedAreaName) === marketAreaKey(areaName) ? '' : state.marketWorkflow.selectedAreaName;
+    state.marketWorkflow.deleteAreaName = '';
+    state.marketWorkflow.actionMenuAreaName = '';
+    state.marketWorkflow.message = `${areaName} was deleted.`;
+    state.marketWorkflow.error = '';
+    render();
+  } catch (error) {
+    state.marketWorkflow.message = '';
+    state.marketWorkflow.error = error.message || 'Unable to delete area.';
+    render();
+  }
+}
+
+function syncMarketCountrySelection(input) {
+  const form = input.closest('form');
+  if (!form) return;
+  const country = findCountryMetadata(input.value);
+  const codeInput = form.querySelector('[data-country-code]');
+  const currencyInput = form.querySelector('[data-country-currency]');
+  const timezoneSelect = form.querySelector('[data-country-timezone]');
+
+  if (!country) {
+    if (codeInput) codeInput.value = '';
+    if (currencyInput) currencyInput.value = '';
+    if (timezoneSelect) {
+      timezoneSelect.innerHTML = '';
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'Select a country first';
+      timezoneSelect.appendChild(option);
+    }
+    return;
+  }
+
+  input.value = country.name;
+  if (codeInput) codeInput.value = country.code;
+  if (currencyInput) currencyInput.value = country.currency;
+  if (timezoneSelect) {
+    timezoneSelect.innerHTML = '';
+    country.timezones.forEach((timezone, index) => {
+      const option = document.createElement('option');
+      option.value = timezone;
+      option.textContent = timezone;
+      option.selected = index === 0;
+      timezoneSelect.appendChild(option);
+    });
+  }
+}
+
+function validateMarketCountryForm(form, mode, currentCountryCode) {
+  const countryName = String(form.get('countryName') || '').trim();
+  const countryCode = normalizeMarketCountryCode(mode === 'edit' ? currentCountryCode : form.get('countryCode'));
+  const currency = normalizeMarketCurrency(form.get('currency'));
+  const country = mode === 'edit'
+    ? findCountryMetadata(currentCountryCode) || findCountryMetadata(countryName)
+    : findCountryMetadata(countryName);
+  const timezone = canonicalTimezoneForCountry(form.get('timezone'), countryCode);
+  const existingMarkets = (state.data.markets || []).map(getMarketView);
+
+  if (!country) return { error: 'Select a supported country from the list.' };
+  if (!countryName) return { error: 'Country name is required.' };
+  if (!/^[A-Z]{2}$/.test(countryCode)) return { error: 'Country code must be a two-letter uppercase code.' };
+  if (!/^[A-Z]{3}$/.test(currency)) return { error: 'Currency must be a three-letter uppercase code.' };
+  if (!isValidIanaTimezone(timezone)) return { error: 'Select a valid timezone from the available options.' };
+  if (!timezoneOptionsForCountry(country, timezone).options.includes(timezone)) {
+    return { error: 'Select a valid timezone from the available options.' };
+  }
+  if (mode !== 'edit' && country.code !== countryCode) return { error: 'Select a supported country from the list.' };
+
+  const duplicateName = existingMarkets.some((market) =>
+    market.countryCode !== currentCountryCode &&
+    String(market.countryName || '').trim().toLowerCase() === countryName.toLowerCase()
+  );
+  if (duplicateName) return { error: 'A country with this name already exists.' };
+
+  const duplicateCode = existingMarkets.some((market) => market.countryCode !== currentCountryCode && market.countryCode === countryCode);
+  if (duplicateCode) return { error: 'A country with this country code already exists.' };
+
+  return { countryName: mode === 'edit' ? countryName : country.name, countryCode, currency, timezone };
+}
+
+async function saveMarketCountry(event, mode = 'create', currentCountryCode = '') {
+  event.preventDefault();
+  if (!canMutate('markets.update')) {
+    alert('You do not have permission to update markets.');
+    return;
+  }
+
+  const form = new FormData(event.currentTarget);
+  const validation = validateMarketCountryForm(form, mode, normalizeMarketCountryCode(currentCountryCode));
+  if (validation.error) {
+    state.marketWorkflow.error = validation.error;
+    state.marketWorkflow.message = '';
+    render();
+    return;
+  }
+
+  const existingMarket = (state.data.markets || []).find((market) => getMarketView(market).countryCode === validation.countryCode) || null;
+  try {
+    await api(`/admin/markets/${validation.countryCode}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        identity: {
+          countryName: validation.countryName,
+          currency: validation.currency,
+          timezone: validation.timezone,
+          locale: marketLocaleForCountry(validation.countryCode, existingMarket),
+          status: mode === 'edit' ? getMarketView(existingMarket || {}).status || 'DRAFT' : 'DRAFT',
+        },
+      }),
+    });
+    await loadAllData();
+    state.activeView = 'settings';
+    state.marketWorkflow.selectedCountryCode = validation.countryCode;
+    state.marketWorkflow.showCreateCountry = false;
+    state.marketWorkflow.editingCountryCode = '';
+    state.marketWorkflow.deleteCountryCode = '';
+    state.marketWorkflow.actionMenuCountryCode = '';
+    state.marketWorkflow.message = `${validation.countryName} was saved.`;
+    state.marketWorkflow.error = '';
+    render();
+  } catch (error) {
+    state.marketWorkflow.message = '';
+    state.marketWorkflow.error = error.message || 'Unable to save country.';
+    render();
+  }
+}
+
+async function deleteMarketCountry(countryCode) {
+  if (!canMutate('markets.update')) {
+    alert('You do not have permission to update markets.');
+    return;
+  }
+  const market = (state.data.markets || []).find((item) => getMarketView(item).countryCode === countryCode);
+  const marketView = getMarketView(market || {});
+  if (!window.confirm(`Delete ${marketView.countryName || countryCode}? This is permanent and only allowed for an unused draft country.`)) return;
+
+  try {
+    await api(`/admin/markets/${countryCode}`, { method: 'DELETE' });
+    await loadAllData();
+    state.marketWorkflow.selectedCountryCode = state.marketWorkflow.selectedCountryCode === countryCode ? '' : state.marketWorkflow.selectedCountryCode;
+    state.marketWorkflow.deleteCountryCode = '';
+    state.marketWorkflow.actionMenuCountryCode = '';
+    state.marketWorkflow.message = `${marketView.countryName || countryCode} was deleted.`;
+    state.marketWorkflow.error = '';
+    render();
+  } catch (error) {
+    state.marketWorkflow.message = '';
+    state.marketWorkflow.error = error.message || 'Unable to delete country.';
+    render();
+  }
 }
 
 function renderAuditLogs() {
@@ -3193,8 +6528,8 @@ function renderGenericTable(rows, headers, mapRow) {
   `;
 }
 
-function renderEmpty(message) {
-  return `<p class="empty"><span>No data</span>${escapeHtml(message)}</p>`;
+function renderEmpty(message, title = 'No data', helper = '') {
+  return `<p class="empty"><span>${escapeHtml(title)}</span>${escapeHtml(message)}${helper ? `<small>${escapeHtml(helper)}</small>` : ''}</p>`;
 }
 
 function mediaById(media = []) {
@@ -3321,6 +6656,9 @@ function render() {
     return;
   }
   renderShell();
+  if (state.activeView === 'promotions') {
+    document.querySelectorAll('form[data-promotion-form]').forEach(updatePromotionFormVisibility);
+  }
 }
 
 window.login = login;
@@ -3349,19 +6687,86 @@ window.resetNotificationFilters = resetNotificationFilters;
 window.processDueNotifications = processDueNotifications;
 window.retryNotification = retryNotification;
 window.cancelNotification = cancelNotification;
+window.sendClientNotification = sendClientNotification;
 window.createSubscriptionPlan = createSubscriptionPlan;
 window.generateSubscriptionInvoices = generateSubscriptionInvoices;
 window.createPromotion = createPromotion;
 window.updatePromotion = updatePromotion;
-window.saveMarket = saveMarket;
+window.updatePromotionFormVisibility = updatePromotionFormVisibility;
+window.setPromotionWorkspaceTab = setPromotionWorkspaceTab;
+window.setPromotionStatusTab = setPromotionStatusTab;
+window.setPromotionFilter = setPromotionFilter;
+window.clearPromotionFilters = clearPromotionFilters;
+window.setPromotionDraftField = setPromotionDraftField;
+window.startCreatePromotion = startCreatePromotion;
+window.setPromotionWizardStep = setPromotionWizardStep;
+window.savePromotionDraft = savePromotionDraft;
+window.duplicatePromotion = duplicatePromotion;
+window.runPromotionLifecycle = runPromotionLifecycle;
+window.openPromotionDetails = openPromotionDetails;
 window.createAdminUser = createAdminUser;
 window.updateAdminUser = updateAdminUser;
-window.prefillMarketDefaults = prefillMarketDefaults;
-window.addCityServiceRow = addCityServiceRow;
-window.addServiceEntryRow = addServiceEntryRow;
-window.addAreaEntryRow = addAreaEntryRow;
-window.addProviderRow = addProviderRow;
-window.removeNestedRow = removeNestedRow;
+window.showTopLevelServiceGroupForm = showTopLevelServiceGroupForm;
+window.cancelTopLevelServiceGroup = cancelTopLevelServiceGroup;
+window.createTopLevelServiceGroup = createTopLevelServiceGroup;
+window.selectTopLevelServiceGroup = selectTopLevelServiceGroup;
+window.handleServiceGroupCardKey = handleServiceGroupCardKey;
+window.toggleServiceGroupActions = toggleServiceGroupActions;
+window.startRenameTopLevelServiceGroup = startRenameTopLevelServiceGroup;
+window.startDeleteTopLevelServiceGroup = startDeleteTopLevelServiceGroup;
+window.showServiceGroupDeleteUnavailable = showServiceGroupDeleteUnavailable;
+window.cancelServiceGroupManagement = cancelServiceGroupManagement;
+window.renameTopLevelServiceGroup = renameTopLevelServiceGroup;
+window.deleteTopLevelServiceGroup = deleteTopLevelServiceGroup;
+window.showCreateServiceCategoryForm = showCreateServiceCategoryForm;
+window.cancelServiceCategoryManagement = cancelServiceCategoryManagement;
+window.selectServiceCategory = selectServiceCategory;
+window.handleServiceCategoryCardKey = handleServiceCategoryCardKey;
+window.toggleServiceCategoryActions = toggleServiceCategoryActions;
+window.startRenameServiceCategory = startRenameServiceCategory;
+window.startDeleteServiceCategory = startDeleteServiceCategory;
+window.showServiceCategoryPersistenceUnavailable = showServiceCategoryPersistenceUnavailable;
+window.cancelServiceManagementDrawer = cancelServiceManagementDrawer;
+window.handleServiceCategoryImageSelection = handleServiceCategoryImageSelection;
+window.removeServiceCategoryImage = removeServiceCategoryImage;
+window.createServiceCategory = createServiceCategory;
+window.renameServiceCategory = renameServiceCategory;
+window.deleteServiceCategory = deleteServiceCategory;
+window.openBookableServiceDrawer = openBookableServiceDrawer;
+window.requestCloseBookableServiceDrawer = requestCloseBookableServiceDrawer;
+window.closeBookableServiceDrawer = closeBookableServiceDrawer;
+window.handleBookableServiceCardKey = handleBookableServiceCardKey;
+window.saveBookableService = saveBookableService;
+window.deleteBookableService = deleteBookableService;
+window.showCreateMarketCountryForm = showCreateMarketCountryForm;
+window.cancelMarketManagementDrawer = cancelMarketManagementDrawer;
+window.cancelMarketCountryForm = cancelMarketCountryForm;
+window.selectMarketCountry = selectMarketCountry;
+window.handleMarketCountryCardKey = handleMarketCountryCardKey;
+window.toggleMarketCountryActions = toggleMarketCountryActions;
+window.startEditMarketCountry = startEditMarketCountry;
+window.startDeleteMarketCountry = startDeleteMarketCountry;
+window.showCreateMarketCityForm = showCreateMarketCityForm;
+window.cancelMarketCityForm = cancelMarketCityForm;
+window.selectMarketCity = selectMarketCity;
+window.handleMarketCityCardKey = handleMarketCityCardKey;
+window.toggleMarketCityActions = toggleMarketCityActions;
+window.startEditMarketCity = startEditMarketCity;
+window.startDeleteMarketCity = startDeleteMarketCity;
+window.saveMarketCity = saveMarketCity;
+window.deleteMarketCity = deleteMarketCity;
+window.showCreateMarketAreaForm = showCreateMarketAreaForm;
+window.cancelMarketAreaForm = cancelMarketAreaForm;
+window.selectMarketArea = selectMarketArea;
+window.handleMarketAreaCardKey = handleMarketAreaCardKey;
+window.toggleMarketAreaActions = toggleMarketAreaActions;
+window.startEditMarketArea = startEditMarketArea;
+window.startDeleteMarketArea = startDeleteMarketArea;
+window.saveMarketArea = saveMarketArea;
+window.deleteMarketArea = deleteMarketArea;
+window.syncMarketCountrySelection = syncMarketCountrySelection;
+window.saveMarketCountry = saveMarketCountry;
+window.deleteMarketCountry = deleteMarketCountry;
 window.state = state;
 window.render = render;
 
@@ -3381,3 +6786,4 @@ if (state.token && state.user?.mustChangePassword) {
 } else {
   render();
 }
+

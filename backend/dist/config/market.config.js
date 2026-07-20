@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.fromMinorUnits = exports.toMinorUnits = exports.getCurrencyMinorUnitFactor = exports.getMarketByCurrency = exports.getMarketByCountry = exports.isCurrencyCode = exports.normalizeCountryCode = exports.MARKET_CONFIG = exports.CurrencyCode = exports.CountryCode = void 0;
+exports.fromMinorUnits = exports.toMinorUnits = exports.getCurrencyMinorUnitFactor = exports.getCurrencyMinorUnit = exports.getMarketByCurrency = exports.getMarketByCountry = exports.isCurrencyCode = exports.normalizeCountryCode = exports.normalizeIsoCurrencyCode = exports.normalizeIsoCountryCode = exports.MARKET_CONFIG = exports.CurrencyCode = exports.CountryCode = void 0;
 var CountryCode;
 (function (CountryCode) {
     CountryCode["ZA"] = "ZA";
@@ -34,7 +34,6 @@ exports.MARKET_CONFIG = {
         paymentProviders: ['PAYSTACK', 'YOCO', 'OZOW'],
         taxLabel: 'VAT',
         platformCommissionBps: 1500,
-        enabled: true,
     },
     [CountryCode.GH]: {
         countryCode: CountryCode.GH,
@@ -45,7 +44,6 @@ exports.MARKET_CONFIG = {
         paymentProviders: ['PAYSTACK', 'FLUTTERWAVE', 'MTN_MOMO'],
         taxLabel: 'VAT',
         platformCommissionBps: 1500,
-        enabled: true,
     },
     [CountryCode.NG]: {
         countryCode: CountryCode.NG,
@@ -56,7 +54,6 @@ exports.MARKET_CONFIG = {
         paymentProviders: ['PAYSTACK', 'FLUTTERWAVE'],
         taxLabel: 'VAT',
         platformCommissionBps: 1500,
-        enabled: true,
     },
     [CountryCode.KE]: {
         countryCode: CountryCode.KE,
@@ -67,7 +64,6 @@ exports.MARKET_CONFIG = {
         paymentProviders: ['MPESA', 'FLUTTERWAVE'],
         taxLabel: 'VAT',
         platformCommissionBps: 1500,
-        enabled: true,
     },
     [CountryCode.UG]: {
         countryCode: CountryCode.UG,
@@ -78,7 +74,6 @@ exports.MARKET_CONFIG = {
         paymentProviders: ['FLUTTERWAVE', 'MTN_MOMO', 'AIRTEL_MONEY'],
         taxLabel: 'VAT',
         platformCommissionBps: 1500,
-        enabled: false,
     },
     [CountryCode.TZ]: {
         countryCode: CountryCode.TZ,
@@ -89,7 +84,6 @@ exports.MARKET_CONFIG = {
         paymentProviders: ['FLUTTERWAVE', 'AIRTEL_MONEY'],
         taxLabel: 'VAT',
         platformCommissionBps: 1500,
-        enabled: false,
     },
     [CountryCode.RW]: {
         countryCode: CountryCode.RW,
@@ -100,7 +94,6 @@ exports.MARKET_CONFIG = {
         paymentProviders: ['FLUTTERWAVE', 'MTN_MOMO'],
         taxLabel: 'VAT',
         platformCommissionBps: 1500,
-        enabled: false,
     },
     [CountryCode.ZM]: {
         countryCode: CountryCode.ZM,
@@ -111,47 +104,82 @@ exports.MARKET_CONFIG = {
         paymentProviders: ['FLUTTERWAVE', 'MTN_MOMO', 'AIRTEL_MONEY'],
         taxLabel: 'VAT',
         platformCommissionBps: 1500,
-        enabled: false,
     },
 };
 const COUNTRY_ALIASES = {
-    SOUTH_AFRICA: CountryCode.ZA,
-    'SOUTH AFRICA': CountryCode.ZA,
     ZA: CountryCode.ZA,
-    GHANA: CountryCode.GH,
     GH: CountryCode.GH,
-    NIGERIA: CountryCode.NG,
     NG: CountryCode.NG,
-    KENYA: CountryCode.KE,
     KE: CountryCode.KE,
-    UGANDA: CountryCode.UG,
     UG: CountryCode.UG,
-    TANZANIA: CountryCode.TZ,
     TZ: CountryCode.TZ,
-    RWANDA: CountryCode.RW,
     RW: CountryCode.RW,
-    ZAMBIA: CountryCode.ZM,
     ZM: CountryCode.ZM,
 };
-const ZERO_DECIMAL_CURRENCIES = new Set([
-    CurrencyCode.UGX,
-    CurrencyCode.TZS,
-    CurrencyCode.RWF,
-]);
-const normalizeCountryCode = (value) => {
-    if (typeof value !== 'string')
-        return CountryCode.ZA;
-    const key = value.trim().toUpperCase().replace(/-/g, '_');
-    return COUNTRY_ALIASES[key] ?? CountryCode.ZA;
+const CURRENCY_MINOR_UNITS = {
+    BHD: 3,
+    JOD: 3,
+    KWD: 3,
+    OMR: 3,
+    TND: 3,
+    CLP: 0,
+    DJF: 0,
+    GNF: 0,
+    JPY: 0,
+    KMF: 0,
+    KRW: 0,
+    MGA: 0,
+    PYG: 0,
+    RWF: 0,
+    UGX: 0,
+    VND: 0,
+    VUV: 0,
+    XAF: 0,
+    XOF: 0,
+    XPF: 0,
+    TZS: 0,
 };
-exports.normalizeCountryCode = normalizeCountryCode;
-const isCurrencyCode = (value) => typeof value === 'string' && Object.values(CurrencyCode).includes(value);
+const normalizeIsoCountryCode = (value) => {
+    if (typeof value !== 'string')
+        throw new Error('Invalid ISO country code.');
+    const raw = value.trim();
+    const aliasKey = raw.toUpperCase().replace(/-/g, '_');
+    const normalized = COUNTRY_ALIASES[aliasKey] || raw.toUpperCase();
+    if (!/^[A-Z]{2}$/.test(normalized))
+        throw new Error('Invalid ISO country code.');
+    return normalized;
+};
+exports.normalizeIsoCountryCode = normalizeIsoCountryCode;
+const normalizeIsoCurrencyCode = (value) => {
+    if (typeof value !== 'string')
+        throw new Error('Invalid currency code.');
+    const normalized = value.trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(normalized))
+        throw new Error('Invalid currency code.');
+    return normalized;
+};
+exports.normalizeIsoCurrencyCode = normalizeIsoCurrencyCode;
+exports.normalizeCountryCode = exports.normalizeIsoCountryCode;
+const isCurrencyCode = (value) => {
+    try {
+        (0, exports.normalizeIsoCurrencyCode)(value);
+        return true;
+    }
+    catch {
+        return false;
+    }
+};
 exports.isCurrencyCode = isCurrencyCode;
-const getMarketByCountry = (countryCode) => exports.MARKET_CONFIG[countryCode] ?? exports.MARKET_CONFIG[CountryCode.ZA];
+const getMarketByCountry = (countryCode) => exports.MARKET_CONFIG[countryCode] ?? null;
 exports.getMarketByCountry = getMarketByCountry;
 const getMarketByCurrency = (currency) => Object.values(exports.MARKET_CONFIG).find((market) => market.currency === currency) ?? null;
 exports.getMarketByCurrency = getMarketByCurrency;
-const getCurrencyMinorUnitFactor = (currency) => ZERO_DECIMAL_CURRENCIES.has(currency) ? 1 : 100;
+const getCurrencyMinorUnit = (currency) => {
+    const normalized = (0, exports.normalizeIsoCurrencyCode)(currency);
+    return CURRENCY_MINOR_UNITS[normalized] ?? 2;
+};
+exports.getCurrencyMinorUnit = getCurrencyMinorUnit;
+const getCurrencyMinorUnitFactor = (currency) => 10 ** (0, exports.getCurrencyMinorUnit)(currency);
 exports.getCurrencyMinorUnitFactor = getCurrencyMinorUnitFactor;
 const toMinorUnits = (amount, currency) => Math.round(amount * (0, exports.getCurrencyMinorUnitFactor)(currency));
 exports.toMinorUnits = toMinorUnits;

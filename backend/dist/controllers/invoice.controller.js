@@ -39,6 +39,13 @@ const downloadInvoicePDF = async (req, res) => {
             res.status(404).json({ success: false, message: 'Invoice not found.' });
             return;
         }
+        const priceBreakdown = invoice.metadata?.priceBreakdown;
+        const promotion = invoice.metadata?.promotion;
+        const discountMinor = typeof priceBreakdown?.discountMinor === 'number'
+            ? priceBreakdown.discountMinor
+            : typeof promotion?.discountMinor === 'number'
+                ? promotion.discountMinor
+                : 0;
         res.status(200).json({
             success: true,
             meta: {
@@ -46,7 +53,8 @@ const downloadInvoicePDF = async (req, res) => {
                 invoice_number: invoice.invoiceNumber,
                 date: invoice.createdAt,
                 country_code: invoice.countryCode,
-                currency: invoice.currency
+                currency: invoice.currency,
+                promotion: promotion || null,
             },
             breakdown: {
                 base_diagnostic_callout: (0, market_config_1.fromMinorUnits)(invoice.baseAmountMinor, invoice.currency),
@@ -55,8 +63,15 @@ const downloadInvoicePDF = async (req, res) => {
                 additional_labor_minor: invoice.additionalLaborMinor,
                 parts_and_materials: (0, market_config_1.fromMinorUnits)(invoice.partsAmountMinor, invoice.currency),
                 parts_and_materials_minor: invoice.partsAmountMinor,
+                promo_discount: (0, market_config_1.fromMinorUnits)(discountMinor, invoice.currency),
+                promo_discount_minor: discountMinor,
+                service_fee_minor: typeof priceBreakdown?.clientServiceFeeMinor === 'number' ? priceBreakdown.clientServiceFeeMinor : 0,
+                tax_minor: typeof priceBreakdown?.taxMinor === 'number' ? priceBreakdown.taxMinor : 0,
+                platform_commission_minor: invoice.platformCommissionAmountMinor,
+                technician_net_minor: invoice.technicianNetAmountMinor,
                 total_due: (0, market_config_1.fromMinorUnits)(invoice.totalAmountMinor, invoice.currency),
-                total_due_minor: invoice.totalAmountMinor
+                total_due_minor: invoice.totalAmountMinor,
+                price_breakdown: priceBreakdown || null,
             }
         });
     }

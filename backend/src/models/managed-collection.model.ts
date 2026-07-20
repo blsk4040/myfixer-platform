@@ -54,7 +54,7 @@ export interface IManagedCollectionProfileDocument extends Document {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
-  countryCode: CountryCode | string;
+  countryCode: string;
   city: string;
   area: string;
   fullAddress: string;

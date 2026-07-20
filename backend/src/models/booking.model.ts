@@ -141,7 +141,7 @@ export interface IBookingPaymentSecurity {
   provider?: string;
   reference?: string;
   amountMinor?: number;
-  currency?: CurrencyCode;
+  currency?: string;
   verifiedAt?: Date | null;
 }
 
@@ -160,7 +160,7 @@ export interface IBookingCompletion {
   partsUsed?: IBookingCompletionPart[];
   evidenceMediaIds?: mongoose.Types.ObjectId[];
   finalAmountMinor?: number;
-  currency?: CurrencyCode;
+  currency?: string;
   customerConfirmedBy?: mongoose.Types.ObjectId | null;
   customerConfirmedAt?: Date | null;
   issueReportedBy?: mongoose.Types.ObjectId | null;
@@ -196,8 +196,8 @@ export interface IBooking extends Document {
   serviceRecipient?: IServiceRecipient;
 
   priceMinor: number;
-  countryCode: CountryCode;
-  currency: CurrencyCode;
+  countryCode: string;
+  currency: string;
   pricingMode: PricingMode;
   paymentStatus: BookingPaymentStatus;
   paymentSecurity?: IBookingPaymentSecurity;
@@ -525,7 +525,8 @@ const BookingPaymentSecuritySchema = new Schema<IBookingPaymentSecurity>(
     provider: { type: String, default: '', trim: true },
     reference: { type: String, default: '', trim: true, index: true },
     amountMinor: { type: Number, min: 0, default: 0 },
-    currency: { type: String, enum: Object.values(CurrencyCode), default: undefined },
+    currency: { type: String, uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, default: undefined },
     verifiedAt: { type: Date, default: null },
   },
   { _id: false }
@@ -555,7 +556,8 @@ const BookingCompletionSchema = new Schema<IBookingCompletion>(
     partsUsed: { type: [BookingCompletionPartSchema], default: [] },
     evidenceMediaIds: { type: [Schema.Types.ObjectId], ref: 'JobMedia', default: [] },
     finalAmountMinor: { type: Number, min: 0, default: 0 },
-    currency: { type: String, enum: Object.values(CurrencyCode), default: undefined },
+    currency: { type: String, uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, default: undefined },
     customerConfirmedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     customerConfirmedAt: { type: Date, default: null },
     issueReportedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
@@ -678,15 +680,17 @@ const BookingSchema = new Schema<IBooking>(
 
     countryCode: {
       type: String,
-      enum: Object.values(CountryCode),
-      default: CountryCode.ZA,
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
+      required: true,
       index: true,
     },
 
     currency: {
       type: String,
-      enum: Object.values(CurrencyCode),
-      default: CurrencyCode.ZAR,
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
+      required: true,
       index: true,
     },
 

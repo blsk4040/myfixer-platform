@@ -30,7 +30,7 @@ export interface IManagedCollectionJobDocument extends Document {
   customerId: mongoose.Types.ObjectId;
   customerName: string;
   customerEmail: string;
-  countryCode: CountryCode | string;
+  countryCode: string;
   city: string;
   area: string;
   fullAddress: string;

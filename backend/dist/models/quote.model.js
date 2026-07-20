@@ -36,7 +36,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.JobQuote = exports.QuoteLineItemType = exports.QuoteStatus = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
-const market_config_1 = require("../config/market.config");
 var QuoteStatus;
 (function (QuoteStatus) {
     QuoteStatus["NOT_REQUIRED"] = "NOT_REQUIRED";
@@ -127,13 +126,15 @@ const JobQuoteSchema = new mongoose_1.Schema({
     },
     countryCode: {
         type: String,
-        enum: Object.values(market_config_1.CountryCode),
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
         required: true,
         index: true,
     },
     currency: {
         type: String,
-        enum: Object.values(market_config_1.CurrencyCode),
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
         required: true,
         index: true,
     },

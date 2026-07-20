@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -22,6 +22,7 @@ export function CompleteClientProfileScreen({ route, navigation }: any): React.J
   const googleProfile = route?.params?.googleProfile || {};
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [consent, setConsent] = useState(false);
+  const [activeMarketCodes, setActiveMarketCodes] = useState<string[]>([]);
   const [form, setForm] = useState({
     name: googleProfile.name || '',
     phone: '',
@@ -41,6 +42,23 @@ export function CompleteClientProfileScreen({ route, navigation }: any): React.J
     setForm((current) => ({ ...current, [field]: value }));
   };
 
+  useEffect(() => {
+    let isCurrent = true;
+    apiService.getPublicMarkets()
+      .then((result) => {
+        if (!isCurrent) return;
+        const marketCodes = (result.markets || []).map((market) => market.countryCode).filter(Boolean);
+        setActiveMarketCodes(marketCodes);
+        if (marketCodes.length && !marketCodes.includes(form.countryCode.trim().toUpperCase())) {
+          updateField('countryCode', marketCodes[0]);
+        }
+      })
+      .catch(() => setActiveMarketCodes([]));
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
   const handleSubmit = async () => {
     if (!idToken) {
       Alert.alert('Google sign-in expired', 'Please sign in with Google again.');
@@ -50,6 +68,11 @@ export function CompleteClientProfileScreen({ route, navigation }: any): React.J
 
     if (!form.name.trim() || !form.phone.trim() || !form.countryCode.trim() || !form.city.trim() || !form.area.trim() || !serviceAddress.trim() || !consent) {
       Alert.alert('Profile incomplete', 'Please complete all required fields and accept the consent.');
+      return;
+    }
+
+    if (!activeMarketCodes.includes(form.countryCode.trim().toUpperCase())) {
+      Alert.alert('Market Unavailable', 'Client registration is not available in this market right now.');
       return;
     }
 

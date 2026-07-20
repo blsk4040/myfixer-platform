@@ -69,6 +69,7 @@ export function JobsScreen(): React.JSX.Element {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.headerContainer}>
         <Text style={styles.headerTitle}>Jobs</Text>
+        <Text style={styles.headerSubtitle}>Incoming requests, active work, scheduled visits, and completed jobs.</Text>
         {!isConnected && (
           <View style={styles.offlineBanner}>
             <Text style={styles.offlineBannerText}>Offline mode: job updates will save and sync later</Text>
@@ -104,7 +105,7 @@ export function JobsScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#090D14',
+    backgroundColor: '#0B0B0D',
   },
   headerContainer: {
     paddingHorizontal: 20,
@@ -112,13 +113,20 @@ const styles = StyleSheet.create({
     paddingBottom: 15,
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#F7F7F5',
+  },
+  headerSubtitle: {
+    color: '#A7A7AD',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 18,
+    marginTop: 4,
   },
   offlineBanner: {
-    backgroundColor: '#EF444420',
-    borderColor: '#EF444440',
+    backgroundColor: 'rgba(255, 93, 93, 0.12)',
+    borderColor: 'rgba(255, 93, 93, 0.35)',
     borderWidth: 1,
     borderRadius: 6,
     paddingVertical: 4,
@@ -126,19 +134,19 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   offlineBannerText: {
-    color: '#EF4444',
+    color: '#FF5D5D',
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
   },
   segmentedControlWrapper: {
     flexDirection: 'row',
-    backgroundColor: '#111827',
+    backgroundColor: '#17171A',
     marginHorizontal: 20,
     borderRadius: 12,
     padding: 4,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: '#303036',
   },
   tabButton: {
     flex: 1,
@@ -147,7 +155,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   activeTabButton: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#222226',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -157,10 +165,10 @@ const styles = StyleSheet.create({
   tabLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#64748B',
+    color: '#74747C',
   },
   activeTabLabel: {
-    color: '#00FF87',
+    color: '#B8FF3D',
   },
   contentBodyContainer: {
     flex: 1,

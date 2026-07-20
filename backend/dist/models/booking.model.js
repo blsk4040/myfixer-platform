@@ -36,7 +36,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Booking = exports.CompletionStatus = exports.BookingPaymentStatus = exports.WorkAuthorizationStatus = exports.InspectionStatus = exports.PricingMode = exports.BookingRecipientType = exports.BookingDispatchStatus = exports.BookingCancellationBy = exports.BookingStatus = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
-const market_config_1 = require("../config/market.config");
 var BookingStatus;
 (function (BookingStatus) {
     BookingStatus["PENDING"] = "PENDING";
@@ -353,7 +352,8 @@ const BookingPaymentSecuritySchema = new mongoose_1.Schema({
     provider: { type: String, default: '', trim: true },
     reference: { type: String, default: '', trim: true, index: true },
     amountMinor: { type: Number, min: 0, default: 0 },
-    currency: { type: String, enum: Object.values(market_config_1.CurrencyCode), default: undefined },
+    currency: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, default: undefined },
     verifiedAt: { type: Date, default: null },
 }, { _id: false });
 const BookingCompletionPartSchema = new mongoose_1.Schema({
@@ -375,7 +375,8 @@ const BookingCompletionSchema = new mongoose_1.Schema({
     partsUsed: { type: [BookingCompletionPartSchema], default: [] },
     evidenceMediaIds: { type: [mongoose_1.Schema.Types.ObjectId], ref: 'JobMedia', default: [] },
     finalAmountMinor: { type: Number, min: 0, default: 0 },
-    currency: { type: String, enum: Object.values(market_config_1.CurrencyCode), default: undefined },
+    currency: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, default: undefined },
     customerConfirmedBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', default: null },
     customerConfirmedAt: { type: Date, default: null },
     issueReportedBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', default: null },
@@ -480,14 +481,16 @@ const BookingSchema = new mongoose_1.Schema({
     },
     countryCode: {
         type: String,
-        enum: Object.values(market_config_1.CountryCode),
-        default: market_config_1.CountryCode.ZA,
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
+        required: true,
         index: true,
     },
     currency: {
         type: String,
-        enum: Object.values(market_config_1.CurrencyCode),
-        default: market_config_1.CurrencyCode.ZAR,
+        uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
+        required: true,
         index: true,
     },
     pricingMode: {

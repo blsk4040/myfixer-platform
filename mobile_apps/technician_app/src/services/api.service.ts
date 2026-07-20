@@ -1,6 +1,7 @@
 import authService, { AuthSession } from './auth.service';
 import { AssignedBookingDetails, JobStatus } from '../store/useJobStore';
 import { assertConfiguredUrl, getApiBaseUrl } from '../config/runtime.config';
+import { AppliedPromotionSnapshot, PriceBreakdown } from '../utils/financialDisplay';
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -37,6 +38,9 @@ export interface JobQuote {
   lineItems: QuoteLineItemInput[];
   totalAmount: number;
   totalAmountMinor: number;
+  priceBreakdown?: PriceBreakdown | null;
+  promotion?: AppliedPromotionSnapshot | null;
+  promotions?: AppliedPromotionSnapshot[];
   technicianNotes?: string;
 }
 
@@ -97,6 +101,26 @@ export interface BookingChatMessage {
   createdAt: string;
 }
 
+export interface NotificationRecord {
+  _id: string;
+  channel: 'IN_APP' | 'EMAIL' | 'PUSH' | 'SMS' | 'WHATSAPP';
+  type: string;
+  title: string;
+  message: string;
+  status: string;
+  scheduledAt: string;
+  sentAt?: string | null;
+  readAt?: string | null;
+  archivedAt?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface NotificationInboxResponse {
+  success: boolean;
+  notifications: NotificationRecord[];
+  unreadCount: number;
+}
+
 export interface WalletBalanceResponse {
   success: boolean;
   country_code?: string;
@@ -148,6 +172,12 @@ export interface ProviderSettlementRecord {
   createdAt?: string;
   updatedAt?: string;
   holdReason?: string;
+  metadata?: {
+    priceBreakdown?: PriceBreakdown | null;
+    promotion?: AppliedPromotionSnapshot | null;
+    promotions?: AppliedPromotionSnapshot[];
+    [key: string]: unknown;
+  };
 }
 
 export interface ProviderPayoutMethodRecord {
@@ -186,9 +216,58 @@ export interface RegisterTechnicianPayload {
 export interface ServiceAvailabilityItem {
   serviceKey: string;
   label: string;
+  description?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  calloutFeeMinor?: number;
+  subcategories?: Array<{
+    subcategoryKey: string;
+    label: string;
+    description?: string;
+    status: 'ACTIVE' | 'COMING_SOON' | 'PAUSED' | 'DISABLED' | 'ARCHIVED';
+    imageKey?: string;
+    imageUrl?: string;
+    calloutFeeMinor?: number;
+  }>;
   status: 'ACTIVE' | 'COMING_SOON' | 'PAUSED' | 'DISABLED';
   canBook: boolean;
   message: string;
+}
+
+export interface MarketAvailabilityBookableService {
+  serviceKey: string;
+  label: string;
+  description?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  calloutFeeMinor?: number;
+  publicationStatus?: string;
+  status?: string;
+  canBook?: boolean;
+}
+
+export interface MarketAvailabilityCategory {
+  categoryKey: string;
+  serviceKey?: string;
+  label: string;
+  description?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  status?: string;
+  publicationStatus?: string;
+  services?: MarketAvailabilityBookableService[];
+  bookableServices?: MarketAvailabilityBookableService[];
+}
+
+export interface MarketAvailabilityGroup {
+  groupKey: string;
+  label: string;
+  groupLabel?: string;
+  imageKey?: string;
+  imageUrl?: string;
+  status?: string;
+  publicationStatus?: string;
+  categories?: MarketAvailabilityCategory[];
 }
 
 export interface MarketAvailabilityResponse {
@@ -200,7 +279,17 @@ export interface MarketAvailabilityResponse {
     city: string;
     area: string;
     services: ServiceAvailabilityItem[];
+    groups?: MarketAvailabilityGroup[];
   };
+}
+
+export interface PublicMarket {
+  countryCode: string;
+  countryName: string;
+  currency: string;
+  locale?: string;
+  timezone?: string;
+  status?: string;
 }
 
 export interface GoogleAuthResponse {
@@ -292,6 +381,10 @@ class ApiService {
     if (params.area) query.set('area', params.area);
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return this.request<MarketAvailabilityResponse>(`/markets/${encodeURIComponent(params.countryCode)}/availability${suffix}`);
+  }
+
+  getPublicMarkets(): Promise<{ markets: PublicMarket[] }> {
+    return this.request('/markets');
   }
 
   uploadTechnicianProfilePhoto(payload: {
@@ -512,6 +605,20 @@ class ApiService {
 
   getMySettlements(): Promise<{ success: boolean; settlements: ProviderSettlementRecord[] }> {
     return this.request('/technicians/me/settlements');
+  }
+
+  getNotifications(): Promise<NotificationInboxResponse> {
+    return this.request<NotificationInboxResponse>('/notifications');
+  }
+
+  updateNotification(id: string, action: 'MARK_READ' | 'MARK_UNREAD' | 'ARCHIVE'): Promise<{
+    success: boolean;
+    notification: NotificationRecord;
+  }> {
+    return this.request(`/notifications/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action }),
+    });
   }
 
   private async getErrorMessage(response: Response): Promise<string> {

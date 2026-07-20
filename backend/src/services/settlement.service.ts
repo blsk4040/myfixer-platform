@@ -12,13 +12,14 @@ import ProviderSettlement, { IProviderSettlement, ProviderSettlementStatus } fro
 import PayoutTransaction, { IPayoutTransaction, PayoutTransactionStatus } from '../models/payout-transaction.model';
 import ProviderPayoutMethod, { ProviderPayoutMethodStatus } from '../models/provider-payout-method.model';
 import JobMedia, { JobMediaPurpose } from '../models/job-media.model';
-import { getMarketByCountry } from '../config/market.config';
+import { Invoice } from '../models/billing.model';
 import { getCountryPaymentFeatureFlags } from '../config/payment-capabilities.config';
 import { transitionBookingStatus } from './booking-workflow.service';
 import { PaystackService } from './paystack.service';
 import { logAuditEvent } from './audit.service';
 import { createNotifications } from './notification.service';
 import { NotificationChannel } from '../models/notification.model';
+import { assertActiveMarket, assertMarketAllowsNewPayout } from './market-finance-guard.service';
 
 export class SettlementError extends Error {
   constructor(message: string, public readonly code: string, public readonly statusCode = 400) {
@@ -192,12 +193,26 @@ export const submitProviderCompletion = async (
 };
 
 const createSettlementFromBooking = async (booking: IBooking, payment: any, status: ProviderSettlementStatus) => {
-  const market = getMarketByCountry(booking.countryCode);
-  const grossAmountMinor = payment.amountMinor;
-  const commissionBps = market.platformCommissionBps;
-  const commissionAmountMinor = Math.round((grossAmountMinor * commissionBps) / 10000);
+  const market = await assertActiveMarket(booking.countryCode);
+  const invoice = await Invoice.findOne({ bookingId: booking._id }).lean();
+  const invoiceBreakdown = invoice?.metadata?.priceBreakdown && typeof invoice.metadata.priceBreakdown === 'object'
+    ? invoice.metadata.priceBreakdown as Record<string, any>
+    : null;
+  const bookingBreakdown = booking.metadata?.priceBreakdown && typeof booking.metadata.priceBreakdown === 'object'
+    ? booking.metadata.priceBreakdown as Record<string, any>
+    : null;
+  const priceBreakdown = invoiceBreakdown || bookingBreakdown || null;
+  const grossAmountMinor = typeof priceBreakdown?.technicianGrossMinor === 'number'
+    ? Math.max(0, Math.round(priceBreakdown.technicianGrossMinor))
+    : payment.amountMinor;
+  const commissionBps = market.pricing.platformCommissionBps;
+  const commissionAmountMinor = typeof priceBreakdown?.platformCommissionMinor === 'number'
+    ? Math.max(0, Math.round(priceBreakdown.platformCommissionMinor))
+    : Math.round((grossAmountMinor * commissionBps) / 10000);
   const processingFeeMinor = 0;
-  const netAmountMinor = Math.max(grossAmountMinor - commissionAmountMinor - processingFeeMinor, 0);
+  const netAmountMinor = typeof priceBreakdown?.technicianNetMinor === 'number'
+    ? Math.max(0, Math.round(priceBreakdown.technicianNetMinor))
+    : Math.max(grossAmountMinor - commissionAmountMinor - processingFeeMinor, 0);
   const settlement = await ProviderSettlement.findOneAndUpdate(
     { bookingId: booking._id },
     {
@@ -219,6 +234,9 @@ const createSettlementFromBooking = async (booking: IBooking, payment: any, stat
         metadata: {
           paymentReference: maskReference(payment.reference),
           feePolicy: 'market.platformCommissionBps',
+          priceBreakdown: priceBreakdown || null,
+          promotion: invoice?.metadata?.promotion || booking.metadata?.promotion || null,
+          promotions: invoice?.metadata?.promotions || booking.metadata?.promotions || [],
         },
       },
       $set: { status },
@@ -336,10 +354,7 @@ const generatePayoutReference = (settlementId: string): string =>
 
 const initiatePayoutForSettlement = async (settlement: IProviderSettlement, actor: Actor | undefined, req?: Request) => {
   if (!transferEnabled()) throw new SettlementError('Paystack transfers are disabled.', 'PAYOUTS_DISABLED', 409);
-  const flags = getCountryPaymentFeatureFlags(settlement.countryCode);
-  if (!flags.providerPayoutsEnabled) {
-    throw new SettlementError('Provider payouts are not enabled for this country.', 'COUNTRY_PAYOUTS_DISABLED', 409);
-  }
+  await assertMarketAllowsNewPayout(settlement.countryCode, settlement.currency, PaymentProvider.PAYSTACK);
   const method = await ProviderPayoutMethod.findOne({
     technicianId: settlement.technicianId,
     countryCode: settlement.countryCode,

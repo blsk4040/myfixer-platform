@@ -20,6 +20,14 @@ const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
   [AdminRole.FINANCE_ADMIN]: [
     AdminPermission.OVERVIEW_READ,
     AdminPermission.FINANCE_READ,
+    AdminPermission.PROMOTIONS_READ,
+    AdminPermission.PROMOTIONS_CREATE,
+    AdminPermission.PROMOTIONS_UPDATE,
+    AdminPermission.PROMOTIONS_ACTIVATE,
+    AdminPermission.PROMOTIONS_PAUSE,
+    AdminPermission.PROMOTIONS_ARCHIVE,
+    AdminPermission.PROMOTIONS_PERFORMANCE_READ,
+    AdminPermission.PROMOTIONS_REDEMPTIONS_READ,
     AdminPermission.SETTINGS_READ,
   ],
   [AdminRole.SUPPORT_AGENT]: [
@@ -44,6 +52,7 @@ const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
     AdminPermission.BOOKINGS_READ,
     AdminPermission.TECHNICIANS_READ,
     AdminPermission.FINANCE_READ,
+    AdminPermission.PROMOTIONS_READ,
     AdminPermission.MARKETS_READ,
     AdminPermission.ADMINS_READ,
     AdminPermission.SETTINGS_READ,

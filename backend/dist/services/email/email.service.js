@@ -7,6 +7,14 @@ const invoiceTemplate_1 = require("./templates/invoiceTemplate");
 const collectionNotificationTemplate_1 = require("./templates/collectionNotificationTemplate");
 const resendApiKey = process.env.RESEND_API_KEY;
 const resend = resendApiKey ? new resend_1.Resend(resendApiKey) : null;
+const padiWordmarkHtml = `
+  <span style="display:inline-flex;align-items:flex-end;color:#111827;font-size:28px;line-height:1;font-weight:900;letter-spacing:0;">
+    <span>Pad</span><span style="display:inline-flex;width:13px;height:29px;margin-left:1px;padding-bottom:2px;align-items:center;justify-content:flex-end;flex-direction:column;">
+      <span style="display:block;width:6px;height:6px;margin-bottom:4px;border-radius:999px;background:#B8FF3D;"></span>
+      <span style="display:block;width:5px;height:15px;border-radius:999px;background:#111827;"></span>
+    </span>
+  </span>
+`;
 class EmailService {
     static async sendNotificationEmail(args) {
         try {
@@ -99,10 +107,11 @@ class EmailService {
             const { data, error } = await resend.emails.send({
                 from: process.env.RESEND_FROM_EMAIL,
                 to: args.recipientEmail,
-                subject: 'Verify your MyFixer email',
+                subject: 'Verify your Padi email',
                 html: `
+          <p>${padiWordmarkHtml}</p>
           <p>Hello ${args.name || 'there'},</p>
-          <p>Please verify your email address to finish setting up your MyFixer account.</p>
+          <p>Please verify your email address to finish setting up your Padi account.</p>
           <p><a href="${args.verificationUrl}">Verify email</a></p>
           <p>If you did not create this account, you can ignore this email.</p>
         `,
@@ -142,6 +151,12 @@ class EmailService {
                 baseAmount: args.baseAmount,
                 additionalLabor: args.additionalLabor,
                 partsAmount: args.partsAmount,
+                discountAmount: args.discountAmount,
+                promoCode: args.promoCode,
+                promotionLabel: args.promotionLabel,
+                clientServiceFee: args.clientServiceFee,
+                taxAmount: args.taxAmount,
+                subtotalAmount: args.subtotalAmount,
                 totalAmount: args.totalAmount,
                 currency: args.currency,
             });

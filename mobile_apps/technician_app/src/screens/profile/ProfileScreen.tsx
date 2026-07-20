@@ -9,6 +9,24 @@ import { useJobStore } from '../../store/useJobStore';
 import authService from '../../services/auth.service';
 import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
 
+const Colors = {
+  background: '#0B0B0D',
+  surface: '#17171A',
+  surfaceRaised: '#222226',
+  border: '#303036',
+  primary: '#B8FF3D',
+  text: '#F7F7F5',
+  textMuted: '#B9B9BF',
+  textSubtle: '#74747C',
+  danger: '#FF5D5D',
+};
+
+const Radius = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+};
+
 interface ProfileScreenProps {
   setIsAuthenticated: (auth: boolean) => void;
 }
@@ -98,29 +116,33 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
           </View>
         </TouchableOpacity>
 
-        <View style={[styles.dutyCard, { borderColor: isOnDuty ? '#00FF87' : '#EF4444' }]}>
+        <View style={[styles.dutyCard, { borderColor: isOnDuty ? Colors.primary : Colors.danger }]}>
           <View style={{ flex: 1 }}>
             <Text style={styles.dutyLabel}>AVAILABILITY</Text>
-            <Text style={[styles.dutyStatusText, { color: isOnDuty ? '#00FF87' : '#EF4444' }]}>
+            <Text style={[styles.dutyStatusText, { color: isOnDuty ? Colors.primary : Colors.danger }]}>
               {isOnDuty ? 'Live and receiving jobs' : 'Off duty'}
             </Text>
           </View>
           <Switch
             value={isOnDuty}
             onValueChange={handleToggleDuty}
-            trackColor={{ false: '#1E293B', true: '#00FF8730' }}
-            thumbColor={isOnDuty ? '#00FF87' : '#64748B'}
+            trackColor={{ false: Colors.surfaceRaised, true: '#B8FF3D30' }}
+            thumbColor={isOnDuty ? Colors.primary : Colors.textSubtle}
           />
         </View>
 
         <View style={styles.performanceMetricsGrid}>
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>RATING</Text>
-            <Text style={styles.metricValue}>{currentRating}</Text>
+            <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              {currentRating}
+            </Text>
           </View>
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>COMPLETED</Text>
-            <Text style={styles.metricValue}>{totalCompletedCount} jobs</Text>
+            <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              {totalCompletedCount} jobs
+            </Text>
           </View>
         </View>
 
@@ -163,31 +185,31 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
+  container: { flex: 1, backgroundColor: Colors.background },
   scrollContainer: { padding: 20, paddingBottom: 80 },
   avatarRow: { flexDirection: 'row', alignItems: 'center', gap: 15, marginBottom: 20 },
-  avatarPlaceholder: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#00FF87', position: 'relative', overflow: 'hidden' },
+  avatarPlaceholder: { width: 60, height: 60, borderRadius: 30, backgroundColor: Colors.surfaceRaised, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: Colors.primary, position: 'relative', overflow: 'hidden' },
   avatarImage: { width: '100%', height: '100%' },
-  avatarText: { color: '#00FF87', fontSize: 20, fontWeight: '700' },
-  avatarEditBadge: { position: 'absolute', bottom: -2, right: -2, backgroundColor: '#00FF87', width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
-  avatarEditBadgeText: { color: '#090D14', fontSize: 12, fontWeight: '900', lineHeight: 14 },
-  techName: { color: '#FFFFFF', fontSize: 20, fontWeight: '700' },
-  techMeta: { color: '#64748B', fontSize: 13 },
-  photoStatus: { color: '#00FF87', fontSize: 12, fontWeight: '800', marginTop: 3 },
-  dutyCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 20 },
-  dutyLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  avatarText: { color: Colors.primary, fontSize: 20, fontWeight: '700' },
+  avatarEditBadge: { position: 'absolute', bottom: -2, right: -2, backgroundColor: Colors.primary, width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
+  avatarEditBadgeText: { color: Colors.background, fontSize: 12, fontWeight: '900', lineHeight: 14 },
+  techName: { color: Colors.text, fontSize: 20, fontWeight: '700' },
+  techMeta: { color: Colors.textSubtle, fontSize: 13 },
+  photoStatus: { color: Colors.primary, fontSize: 12, fontWeight: '800', marginTop: 3 },
+  dutyCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, padding: 16, borderRadius: Radius.md, borderWidth: 1, marginBottom: 20 },
+  dutyLabel: { color: Colors.textSubtle, fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   dutyStatusText: { fontSize: 14, fontWeight: '700', marginTop: 4 },
   performanceMetricsGrid: { flexDirection: 'row', gap: 12, marginBottom: 25 },
-  metricCard: { flex: 1, backgroundColor: '#111827', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#1E293B' },
-  metricLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
-  metricValue: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', marginTop: 4 },
-  sectionTitle: { color: '#FFFFFF', fontSize: 13, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 12, marginTop: 5 },
+  metricCard: { flex: 1, minWidth: 0, backgroundColor: Colors.surface, padding: 14, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border },
+  metricLabel: { color: Colors.textSubtle, fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  metricValue: { color: Colors.text, fontSize: 16, fontWeight: '700', marginTop: 4 },
+  sectionTitle: { color: Colors.text, fontSize: 13, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 12, marginTop: 5 },
   badgeWrapper: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 25 },
-  badge: { backgroundColor: '#111827', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#1E293B' },
-  badgeText: { color: '#F8FAFC', fontSize: 12, fontWeight: '600' },
-  menuGroup: { backgroundColor: '#111827', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden', marginBottom: 30 },
-  menuItem: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#1E293B', backgroundColor: '#111827' },
-  menuItemText: { color: '#E2E8F0', fontSize: 14, fontWeight: '500' },
-  logoutButton: { backgroundColor: '#EF444415', paddingVertical: 15, alignItems: 'center', borderRadius: 12, borderWidth: 1, borderColor: '#EF444430', marginBottom: 20 },
-  logoutText: { color: '#EF4444', fontWeight: '700', fontSize: 14 },
+  badge: { backgroundColor: Colors.surface, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: Colors.border },
+  badgeText: { color: Colors.text, fontSize: 12, fontWeight: '600' },
+  menuGroup: { backgroundColor: Colors.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden', marginBottom: 30 },
+  menuItem: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border, backgroundColor: Colors.surface },
+  menuItemText: { color: Colors.textMuted, fontSize: 14, fontWeight: '500' },
+  logoutButton: { backgroundColor: '#FF5D5D18', paddingVertical: 15, alignItems: 'center', borderRadius: Radius.md, borderWidth: 1, borderColor: '#FF5D5D44', marginBottom: 20 },
+  logoutText: { color: Colors.danger, fontWeight: '700', fontSize: 14 },
 });

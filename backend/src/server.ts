@@ -3,6 +3,7 @@ import dns from 'dns';
 import { promises as dnsPromises } from 'dns';
 
 dns.setDefaultResultOrder('ipv4first');
+dns.setServers(['8.8.8.8', '1.1.1.1']);
 dnsPromises.setServers(['8.8.8.8', '1.1.1.1']);
 
 import dotenv from 'dotenv';

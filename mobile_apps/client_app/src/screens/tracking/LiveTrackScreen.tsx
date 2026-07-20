@@ -16,7 +16,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { initiateNativeCall } from '../../utils/communications';
 import socketService from '../../services/socket.service';
 import apiService, { JobQuote } from '../../services/api.service';
+import {
+  PriceBreakdown,
+  formatMinorMoney,
+  normalizePriceBreakdown,
+  promotionDiscountMinor,
+  promotionLabel,
+  promotionSnapshots,
+} from '../../utils/financialDisplay';
 import { getProviderRoleForService } from '../../utils/providerRole';
+import { Colors, Radius, Spacing } from '../../theme';
 
 interface TechnicianLocation {
   latitude: number;
@@ -74,7 +83,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
     const handleQuote = (quote: JobQuote) => setPendingQuote(quote);
     const handlePaymentSecured = () => {
       setPaymentStatus('SECURED');
-      Alert.alert('Payment confirmed', 'MyFixer verified the payment with Paystack. The provider can now begin work.');
+      Alert.alert('Payment confirmed', 'Paddy verified the payment with Paystack. The provider can now begin work.');
       setPendingQuote(null);
     };
     const handlePaymentFailed = () => setPaymentStatus('FAILED');
@@ -157,7 +166,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
         });
         setPaymentStatus(initialized.payment.status);
         await Linking.openURL(initialized.payment.authorizationUrl);
-        Alert.alert('Paystack checkout opened', 'Payment is confirmed only after MyFixer verifies it with Paystack.');
+        Alert.alert('Paystack checkout opened', 'Payment is confirmed only after Paddy verifies it with Paystack.');
       } else {
         await apiService.rejectJobQuote(pendingQuote.id, 'Client rejected the quote in the app.');
         Alert.alert('Quote Rejected', `The ${resolvedProviderRole.singular} has been notified.`);
@@ -190,7 +199,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
       setIsCompletionActionLoading(true);
       await apiService.confirmCompletion(trackingId, `completion-confirm:${trackingId}`);
       setCompletionPending(false);
-      Alert.alert('Completion confirmed', 'Thanks. The provider earning is now eligible for MyFixer review and admin-approved payout.');
+      Alert.alert('Completion confirmed', 'Thanks. The provider earning is now eligible for Paddy review and admin-approved payout.');
     } catch (error: any) {
       Alert.alert('Completion Error', error.message || 'Could not confirm completion.');
     } finally {
@@ -204,7 +213,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
       setIsCompletionActionLoading(true);
       await apiService.reportCompletionIssue(trackingId, 'Customer reported an issue from the tracking screen.');
       setCompletionPending(false);
-      Alert.alert('Issue reported', 'MyFixer has been notified. Provider payout will remain on hold while this is reviewed.');
+      Alert.alert('Issue reported', 'Paddy has been notified. Provider payout will remain on hold while this is reviewed.');
     } catch (error: any) {
       Alert.alert('Issue Error', error.message || 'Could not report this issue.');
     } finally {
@@ -215,11 +224,33 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
   const paymentStatusLabel = typeof paymentStatus === 'string' && paymentStatus.trim()
     ? paymentStatus.replace(/_/g, ' ')
     : 'PENDING';
+  const quoteBreakdown = normalizePriceBreakdown(pendingQuote);
+  const quotePromotions = promotionSnapshots(pendingQuote, quoteBreakdown);
+  const quoteBreakdownRows = (breakdown: PriceBreakdown | null) => {
+    if (!breakdown) return [];
+    const currency = breakdown.currency || pendingQuote?.currency || '';
+    return [
+      ['Call-out Fee', breakdown.calloutFeeMinor],
+      ['Labour', breakdown.labourMinor ?? breakdown.laborMinor],
+      ['Parts', breakdown.partsMinor],
+      ['Additional Services', breakdown.additionalServicesMinor],
+      ['Surcharges', breakdown.surchargeMinor],
+      ...quotePromotions.map((promotion) => [promotionLabel(promotion), -promotionDiscountMinor(promotion)] as [string, number]),
+      ['Other Discount', breakdown.otherDiscountMinor ? -breakdown.otherDiscountMinor : 0],
+      ['Subtotal', breakdown.subtotalMinor],
+      ['Client Service Fee', breakdown.clientServiceFeeMinor],
+      ['Tax', breakdown.taxMinor],
+      ['Total', breakdown.totalMinor],
+    ].filter(([, amount], index, list) => {
+      const label = list[index][0];
+      return ['Subtotal', 'Tax', 'Total'].includes(String(label)) || Number(amount || 0) !== 0;
+    }).map(([label, amount]) => ({ label: String(label), amountMinor: Number(amount || 0), currency }));
+  };
 
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#00FF87" />
+        <ActivityIndicator size="large" color={Colors.primary} />
         <Text style={styles.loadingText}>Connecting to live tracking...</Text>
       </View>
     );
@@ -311,24 +342,40 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
           <View style={styles.quoteModalContent}>
             <Text style={styles.quoteTitle}>Approve Work Order {pendingQuote?.version ? `v${pendingQuote.version}` : ''}</Text>
             <Text style={styles.quoteSubtitle}>Review the {resolvedProviderRole.singular}'s quote before work continues.</Text>
-            <Text style={styles.quoteWarning}>Only pay through MyFixer. Payments made outside the app may not qualify for refunds, dispute support, invoices or service guarantees.</Text>
+            <Text style={styles.quoteWarning}>Only pay through Paddy. Payments made outside the app may not qualify for refunds, dispute support, invoices or service guarantees.</Text>
             <Text style={styles.paymentStatusText}>Payment status: {paymentStatusLabel}</Text>
 
             <View style={styles.quoteLineList}>
-              {pendingQuote?.lineItems.map((item, index) => (
+              {quoteBreakdown ? quoteBreakdownRows(quoteBreakdown).map((item, index) => (
+                <View key={`${item.label}-${index}`} style={styles.quoteLine}>
+                  <Text style={item.amountMinor < 0 ? styles.quoteDiscountLabel : styles.quoteLineLabel}>{item.label}</Text>
+                  <Text
+                    style={item.amountMinor < 0 ? styles.quoteDiscountAmount : styles.quoteLineAmount}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
+                    {item.amountMinor < 0 ? '-' : ''}{formatMinorMoney(item.currency, Math.abs(item.amountMinor))}
+                  </Text>
+                </View>
+              )) : pendingQuote?.lineItems.map((item, index) => (
                 <View key={`${item.label}-${index}`} style={styles.quoteLine}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.quoteLineLabel}>{item.label}</Text>
                     <Text style={styles.quoteLineMeta}>{item.type} x {item.quantity}</Text>
                   </View>
-                  <Text style={styles.quoteLineAmount}>{pendingQuote.currency} {item.totalAmount.toFixed(2)}</Text>
+                  <Text style={styles.quoteLineAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                    {formatMinorMoney(pendingQuote.currency, item.totalAmountMinor || Math.round(item.totalAmount * 100))}
+                  </Text>
                 </View>
               ))}
             </View>
 
             <View style={styles.quoteTotalRow}>
               <Text style={styles.quoteTotalLabel}>Total</Text>
-              <Text style={styles.quoteTotalAmount}>{pendingQuote?.currency} {pendingQuote?.totalAmount.toFixed(2)}</Text>
+                <Text style={styles.quoteTotalAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
+                  {formatMinorMoney(pendingQuote?.currency || '', quoteBreakdown?.totalMinor ?? pendingQuote?.totalAmountMinor ?? 0)}
+                </Text>
             </View>
 
             {pendingQuote?.technicianNotes ? <Text style={styles.quoteNotes}>{pendingQuote.technicianNotes}</Text> : null}
@@ -352,58 +399,60 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
-  loadingContainer: { flex: 1, backgroundColor: '#090D14', justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: '#64748B', fontSize: 14, marginTop: 12, fontWeight: '600' },
-  mapViewport: { height: '45%', backgroundColor: '#111827', marginHorizontal: 16, marginTop: 10, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: '#1E293B' },
+  container: { flex: 1, backgroundColor: Colors.background },
+  loadingContainer: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { color: Colors.textSubtle, fontSize: 14, marginTop: 12, fontWeight: '600' },
+  mapViewport: { height: '45%', backgroundColor: Colors.surface, marginHorizontal: 16, marginTop: 10, borderRadius: Radius.xl, overflow: 'hidden', borderWidth: 1, borderColor: Colors.border },
   mapGridLinesSim: { flex: 1, justifyContent: 'center', alignItems: 'center', position: 'relative' },
   techMarkerPulse: { alignItems: 'center', position: 'absolute' },
-  markerIcon: { color: '#00FF87', fontSize: 52, lineHeight: 52 },
-  markerBadgeText: { color: '#00FF87', fontSize: 11, fontWeight: '700', backgroundColor: '#090D14', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#1E293B', marginTop: 4, overflow: 'hidden' },
-  searchingText: { color: '#475569', fontSize: 13, fontWeight: '500' },
-  hudWrapper: { flex: 1, backgroundColor: '#111827', margin: 16, marginTop: 8, borderRadius: 20, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden' },
+  markerIcon: { color: Colors.primary, fontSize: 52, lineHeight: 52 },
+  markerBadgeText: { color: Colors.primary, fontSize: 11, fontWeight: '700', backgroundColor: Colors.background, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: Colors.border, marginTop: 4, overflow: 'hidden' },
+  searchingText: { color: Colors.textSubtle, fontSize: 13, fontWeight: '600' },
+  hudWrapper: { flex: 1, backgroundColor: Colors.surface, margin: 16, marginTop: 8, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden' },
   hudScrollBody: { padding: 20, paddingBottom: 40 },
-  identityContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1E293B', paddingBottom: 16, marginBottom: 16 },
-  techAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#1E293B', marginRight: 12 },
+  identityContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: Colors.border, paddingBottom: 16, marginBottom: 16 },
+  techAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surfaceRaised, marginRight: 12 },
   metaLeft: { flex: 1, paddingRight: 12 },
-  techNameText: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
-  techMetaText: { color: '#00FF87', fontSize: 12, fontWeight: '600', marginTop: 4 },
-  etaBadgeSmall: { backgroundColor: '#00FF8710', borderWidth: 1, borderColor: '#00FF87', borderRadius: 10, minWidth: 96, minHeight: 52, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8 },
-  etaCalculatingText: { color: '#00FF87', fontSize: 11, fontWeight: '800', textAlign: 'center' },
+  techNameText: { color: Colors.text, fontSize: 18, fontWeight: '900' },
+  techMetaText: { color: Colors.primary, fontSize: 12, fontWeight: '700', marginTop: 4 },
+  etaBadgeSmall: { backgroundColor: 'rgba(184, 255, 61, 0.10)', borderWidth: 1, borderColor: Colors.primary, borderRadius: 10, minWidth: 96, minHeight: 52, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8 },
+  etaCalculatingText: { color: Colors.primary, fontSize: 11, fontWeight: '900', textAlign: 'center' },
   metricGrid: { flexDirection: 'row', gap: 12, marginBottom: 12 },
-  gridItem: { flex: 1, backgroundColor: '#090D14', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#1E293B' },
-  metricLabel: { color: '#64748B', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
-  metricValueText: { color: '#E2E8F0', fontSize: 13, fontWeight: '600', marginTop: 4 },
+  gridItem: { flex: 1, backgroundColor: Colors.background, padding: 12, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border },
+  metricLabel: { color: Colors.textSubtle, fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  metricValueText: { color: Colors.text, fontSize: 13, fontWeight: '700', marginTop: 4 },
   actionRow: { flexDirection: 'row', gap: 12, marginTop: 12 },
   actionButton: { flex: 1, padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
-  callButton: { backgroundColor: '#1E293B', borderColor: '#334155' },
-  chatButton: { backgroundColor: '#090D14', borderColor: '#1E293B' },
-  actionButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  completionCard: { backgroundColor: '#090D14', borderWidth: 1, borderColor: '#334155', borderRadius: 12, padding: 14, marginTop: 14 },
-  completionTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
-  completionText: { color: '#CBD5E1', fontSize: 12, lineHeight: 18, marginTop: 6 },
+  callButton: { backgroundColor: Colors.surfaceRaised, borderColor: Colors.borderStrong },
+  chatButton: { backgroundColor: Colors.background, borderColor: Colors.border },
+  actionButtonText: { color: Colors.text, fontSize: 14, fontWeight: '800' },
+  completionCard: { backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.borderStrong, borderRadius: Radius.md, padding: 14, marginTop: 14 },
+  completionTitle: { color: Colors.text, fontSize: 15, fontWeight: '900' },
+  completionText: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 6 },
   completionActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  issueButton: { flex: 1, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#F59E0B', borderRadius: 12, height: 46, alignItems: 'center', justifyContent: 'center' },
-  confirmButton: { flex: 1.5, backgroundColor: '#00FF87', borderRadius: 12, height: 46, alignItems: 'center', justifyContent: 'center' },
-  quoteModalOverlay: { flex: 1, backgroundColor: '#000000AA', justifyContent: 'flex-end' },
-  quoteModalContent: { backgroundColor: '#111827', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderWidth: 1, borderColor: '#1E293B' },
-  quoteTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
-  quoteSubtitle: { color: '#64748B', fontSize: 12, marginTop: 4, marginBottom: 16 },
-  quoteWarning: { color: '#FBBF24', fontSize: 12, lineHeight: 18, marginBottom: 14 },
-  paymentStatusText: { color: '#CBD5E1', fontSize: 12, fontWeight: '700', marginBottom: 12 },
+  issueButton: { flex: 1, backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.amber, borderRadius: Radius.md, height: 46, alignItems: 'center', justifyContent: 'center' },
+  confirmButton: { flex: 1.5, backgroundColor: Colors.primary, borderRadius: Radius.md, height: 46, alignItems: 'center', justifyContent: 'center' },
+  quoteModalOverlay: { flex: 1, backgroundColor: Colors.overlay, justifyContent: 'flex-end' },
+  quoteModalContent: { backgroundColor: Colors.surface, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, padding: Spacing.xxl, borderWidth: 1, borderColor: Colors.border },
+  quoteTitle: { color: Colors.text, fontSize: 18, fontWeight: '900' },
+  quoteSubtitle: { color: Colors.textSubtle, fontSize: 12, marginTop: 4, marginBottom: 16 },
+  quoteWarning: { color: Colors.amber, fontSize: 12, lineHeight: 18, marginBottom: 14 },
+  paymentStatusText: { color: Colors.textMuted, fontSize: 12, fontWeight: '800', marginBottom: 12 },
   quoteLineList: { gap: 10 },
-  quoteLine: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1E293B', paddingBottom: 10 },
-  quoteLineLabel: { color: '#E2E8F0', fontSize: 14, fontWeight: '700' },
-  quoteLineMeta: { color: '#64748B', fontSize: 11, marginTop: 2 },
-  quoteLineAmount: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  quoteTotalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#334155' },
-  quoteTotalLabel: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
-  quoteTotalAmount: { color: '#00FF87', fontSize: 18, fontWeight: '900' },
-  quoteNotes: { color: '#94A3B8', fontSize: 12, marginTop: 12, lineHeight: 18 },
+  quoteLine: { flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1, borderBottomColor: Colors.border, paddingBottom: 10 },
+  quoteLineLabel: { flex: 1, color: Colors.text, fontSize: 14, fontWeight: '700' },
+  quoteLineMeta: { color: Colors.textSubtle, fontSize: 11, marginTop: 2 },
+  quoteLineAmount: { flexShrink: 1, maxWidth: 145, color: Colors.text, fontSize: 13, fontWeight: '700', textAlign: 'right' },
+  quoteDiscountLabel: { flex: 1, color: Colors.primary, fontSize: 14, fontWeight: '800' },
+  quoteDiscountAmount: { flexShrink: 1, maxWidth: 145, color: Colors.primary, fontSize: 13, fontWeight: '800', textAlign: 'right' },
+  quoteTotalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: Colors.borderStrong },
+  quoteTotalLabel: { flex: 1, color: Colors.text, fontSize: 16, fontWeight: '900' },
+  quoteTotalAmount: { flexShrink: 1, maxWidth: 170, color: Colors.primary, fontSize: 18, fontWeight: '900', textAlign: 'right' },
+  quoteNotes: { color: Colors.textMuted, fontSize: 12, marginTop: 12, lineHeight: 18 },
   quoteActions: { flexDirection: 'row', gap: 12, marginTop: 20 },
-  quoteRejectButton: { flex: 1, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', borderRadius: 12, height: 48, alignItems: 'center', justifyContent: 'center' },
-  quoteClarifyButton: { flex: 1, backgroundColor: '#111827', borderWidth: 1, borderColor: '#F59E0B', borderRadius: 12, height: 48, alignItems: 'center', justifyContent: 'center' },
-  quoteApproveButton: { flex: 2, backgroundColor: '#00FF87', borderRadius: 12, height: 48, alignItems: 'center', justifyContent: 'center' },
-  quoteRejectText: { color: '#94A3B8', fontSize: 14, fontWeight: '700' },
-  quoteApproveText: { color: '#090D14', fontSize: 14, fontWeight: '800' },
+  quoteRejectButton: { flex: 1, backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.borderStrong, borderRadius: Radius.md, height: 48, alignItems: 'center', justifyContent: 'center' },
+  quoteClarifyButton: { flex: 1, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.amber, borderRadius: Radius.md, height: 48, alignItems: 'center', justifyContent: 'center' },
+  quoteApproveButton: { flex: 2, backgroundColor: Colors.primary, borderRadius: Radius.md, height: 48, alignItems: 'center', justifyContent: 'center' },
+  quoteRejectText: { color: Colors.textMuted, fontSize: 14, fontWeight: '800' },
+  quoteApproveText: { color: Colors.background, fontSize: 14, fontWeight: '900' },
 });

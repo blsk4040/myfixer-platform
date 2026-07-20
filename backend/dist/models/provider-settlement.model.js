@@ -35,7 +35,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProviderSettlementStatus = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
-const market_config_1 = require("../config/market.config");
 var ProviderSettlementStatus;
 (function (ProviderSettlementStatus) {
     ProviderSettlementStatus["PENDING_COMPLETION"] = "PENDING_COMPLETION";
@@ -58,8 +57,10 @@ const ProviderSettlementSchema = new mongoose_1.Schema({
     technicianId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     quoteId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'JobQuote', default: null, index: true },
     paymentTransactionId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'PaymentTransaction', default: null, index: true },
-    countryCode: { type: String, enum: Object.values(market_config_1.CountryCode), required: true, index: true },
-    currency: { type: String, enum: Object.values(market_config_1.CurrencyCode), required: true, index: true },
+    countryCode: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' }, required: true, index: true },
+    currency: { type: String, uppercase: true,
+        validate: { validator: (value) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' }, required: true, index: true },
     grossAmountMinor: { type: Number, required: true, min: 0 },
     commissionBps: { type: Number, required: true, min: 0, max: 10000 },
     commissionAmountMinor: { type: Number, required: true, min: 0 },

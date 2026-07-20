@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 const { spawnSync } = require('child_process');
-const { loadPlatformConfig } = require('./load-platform-config');
+const { loadLocalEnvFile, loadPlatformConfig } = require('./load-platform-config');
 
+loadLocalEnvFile({ override: false });
 loadPlatformConfig({ override: false });
 
 const [command, ...args] = process.argv.slice(2);

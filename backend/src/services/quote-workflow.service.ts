@@ -1,4 +1,4 @@
-import { CurrencyCode, toMinorUnits } from '../config/market.config';
+import { IsoCurrencyCode, toMinorUnits } from '../config/market.config';
 import { QuoteLineItemType, QuoteStatus } from '../models/quote.model';
 
 export interface QuoteLineItemInput {
@@ -54,7 +54,7 @@ const normalizeLineItemType = (type: unknown): QuoteLineItemType => {
   return normalized as QuoteLineItemType;
 };
 
-const normalizeMinorAmount = (item: QuoteLineItemInput, currency: CurrencyCode): number => {
+const normalizeMinorAmount = (item: QuoteLineItemInput, currency: IsoCurrencyCode): number => {
   if (Number.isInteger(item.unitAmountMinor)) {
     return Number(item.unitAmountMinor);
   }
@@ -67,7 +67,7 @@ const normalizeMinorAmount = (item: QuoteLineItemInput, currency: CurrencyCode):
 
 export const calculateQuoteTotals = (
   items: QuoteLineItemInput[],
-  currency: CurrencyCode
+  currency: IsoCurrencyCode
 ): QuoteTotals => {
   if (!Array.isArray(items) || items.length === 0) {
     throw new QuoteWorkflowError('At least one quote line item is required.', 'QUOTE_LINE_ITEMS_REQUIRED');

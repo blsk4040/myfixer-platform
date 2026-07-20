@@ -13,39 +13,32 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Google from 'expo-auth-session/providers/google';
-import * as WebBrowser from 'expo-web-browser';
 import apiService from '../../services/api.service';
 import authService from '../../services/auth.service';
 import { assertConfiguredUrl, getApiBaseUrl } from '../../config/runtime.config';
+import { isExpoGoRuntime } from '../../config/runtimeEnvironment';
+import { BRAND } from '../../config/brand';
 
-WebBrowser.maybeCompleteAuthSession();
+type GoogleSigninModule = typeof import('@react-native-google-signin/google-signin')['GoogleSignin'];
 
-const MARKET_OPTIONS = [
-  { countryCode: 'ZA', country: 'South Africa', currency: 'ZAR' },
-  { countryCode: 'GH', country: 'Ghana', currency: 'GHS' },
-  { countryCode: 'NG', country: 'Nigeria', currency: 'NGN' },
-  { countryCode: 'KE', country: 'Kenya', currency: 'KES' },
-];
+const loadGoogleSignin = async (): Promise<GoogleSigninModule | null> => {
+  if (isExpoGoRuntime) return null;
+  try {
+    const module = await import('@react-native-google-signin/google-signin');
+    return module.GoogleSignin;
+  } catch {
+    return null;
+  }
+};
 
 export function RegisterScreen({ navigation }: any): React.JSX.Element {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState<boolean>(false);
+  const [marketOptions, setMarketOptions] = useState<Array<{ countryCode: string; country: string; currency: string }>>([]);
+  const [marketsLoading, setMarketsLoading] = useState<boolean>(true);
 
-  // Check if credentials exist at runtime safely
-  const isGoogleConfigured = !!(
-    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID &&
-    process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID &&
-    process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID
-  );
-
-  const [googleRequest, googleResponse, promptGoogleSignIn] = Google.useIdTokenAuthRequest({
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '',
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '',
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '',
-    selectAccount: true,
-  });
+  const isGoogleConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -59,23 +52,45 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
     confirmPassword: '',
   });
 
-  // Watch for AuthSession responses cleanly in a side effect loop
   useEffect(() => {
-    if (googleResponse?.type === 'success') {
-      const idToken = googleResponse.params?.id_token || googleResponse.authentication?.idToken;
-      if (idToken) {
-        processGoogleAuthentication(idToken);
-      } else {
-        setIsGoogleLoading(false);
-        Alert.alert('Google Sign-In Failed', 'Google did not return an identity token.');
-      }
-    } else if (googleResponse?.type === 'error' || googleResponse?.type === 'cancel' || googleResponse?.type === 'dismiss') {
-      setIsGoogleLoading(false);
-      if (googleResponse.type === 'error') {
-        Alert.alert('Google Sign-In Failed', 'An error occurred during Google registration access.');
-      }
-    }
-  }, [googleResponse]);
+    let isMounted = true;
+    loadGoogleSignin().then((GoogleSignin) => {
+      if (!isMounted || !GoogleSignin) return;
+      GoogleSignin.configure({
+        webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+        offlineAccess: false,
+      });
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isCurrent = true;
+    setMarketsLoading(true);
+    apiService.getPublicMarkets()
+      .then((result) => {
+        if (!isCurrent) return;
+        const activeMarkets = (result.markets || []).map((market) => ({
+          countryCode: market.countryCode,
+          country: market.countryName || market.countryCode,
+          currency: market.currency,
+        }));
+        setMarketOptions(activeMarkets);
+        if (activeMarkets.length && !activeMarkets.some((market) => market.countryCode === formData.countryCode)) {
+          updateField('country', activeMarkets[0].country);
+          updateField('countryCode', activeMarkets[0].countryCode);
+        }
+      })
+      .catch(() => setMarketOptions([]))
+      .finally(() => {
+        if (isCurrent) setMarketsLoading(false);
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   const updateField = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -97,6 +112,10 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
   const validateStepTwo = () => {
     if (!formData.city.trim()) {
       Alert.alert('Location Required', 'Please specify your current city for service matching.');
+      return false;
+    }
+    if (!marketOptions.length || !marketOptions.some((market) => market.countryCode === formData.countryCode)) {
+      Alert.alert('Market Unavailable', `${BRAND.displayName} is not accepting new registrations in this market right now.`);
       return false;
     }
     return true;
@@ -158,19 +177,39 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
   };
 
   const handleGoogleSignIn = async () => {
-    if (!isGoogleConfigured || !googleRequest) {
+    if (!isGoogleConfigured) {
       Alert.alert(
         'Configuration Unavailable',
-        'Google application configurations are missing for this channel. Please review setup variables.'
+        'Google Web Client ID is missing.'
       );
       return;
     }
 
     setIsGoogleLoading(true);
     try {
-      await promptGoogleSignIn();
+      const GoogleSignin = await loadGoogleSignin();
+      if (!GoogleSignin) {
+        throw new Error('Google Sign-In native module is not available in this runtime. Rebuild and launch the Paddy dev app, not Expo Go.');
+      }
+
+      await GoogleSignin.hasPlayServices({
+        showPlayServicesUpdateDialog: true,
+      });
+
+      await GoogleSignin.signOut();
+      const userInfo = await GoogleSignin.signIn();
+      const idToken = userInfo.data?.idToken;
+
+      if (!idToken) {
+        throw new Error('Google did not return an ID token.');
+      }
+
+      await processGoogleAuthentication(idToken);
     } catch (error: any) {
       setIsGoogleLoading(false);
+      if (error?.code === 'SIGN_IN_CANCELLED' || error?.code === '12501') {
+        return;
+      }
       Alert.alert('Google Sign-In Failed', error.message || 'Unable to continue with Google right now.');
     }
   };
@@ -272,11 +311,11 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
               <TouchableOpacity
                 style={[
                   styles.googleButton, 
-                  (isLoading || isGoogleLoading || !googleRequest || !isGoogleConfigured) && styles.googleButtonDisabled
+                  (isLoading || isGoogleLoading || !isGoogleConfigured) && styles.googleButtonDisabled
                 ]}
                 activeOpacity={0.86}
                 onPress={handleGoogleSignIn}
-                disabled={isLoading || isGoogleLoading || !googleRequest || !isGoogleConfigured}
+                disabled={isLoading || isGoogleLoading || !isGoogleConfigured}
                 accessibilityRole="button"
                 accessibilityLabel="Continue with Google"
               >
@@ -298,7 +337,11 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
             <View style={styles.stepFormWrapper}>
               <Text style={styles.inputLabel}>COUNTRY</Text>
               <View style={styles.marketGrid}>
-                {MARKET_OPTIONS.map((market) => {
+                {marketsLoading && <ActivityIndicator color="#38BDF8" />}
+                {!marketsLoading && !marketOptions.length && (
+                  <Text style={styles.marketUnavailableText}>No active markets are available right now.</Text>
+                )}
+                {marketOptions.map((market) => {
                   const isSelected = formData.countryCode === market.countryCode;
                   return (
                     <TouchableOpacity
@@ -423,6 +466,7 @@ const styles = StyleSheet.create({
   marketText: { color: '#E2E8F0', fontSize: 13, fontWeight: '700' },
   marketTextActive: { color: '#00FF87' },
   marketCurrency: { color: '#64748B', fontSize: 11, marginTop: 4, fontWeight: '700' },
+  marketUnavailableText: { color: '#94A3B8', fontSize: 13, lineHeight: 18 },
   navigationRow: { flexDirection: 'row', gap: 12, alignItems: 'center', marginTop: 12 },
   primaryButton: { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 12 },
   primaryButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },

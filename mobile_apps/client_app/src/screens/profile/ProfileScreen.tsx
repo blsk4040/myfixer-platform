@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import authService from '../../services/auth.service';
 import apiService, { CustomerProfile } from '../../services/api.service';
+import { Colors, Radius } from '../../theme';
 
 interface ProfileOption {
   title: string;
@@ -76,7 +77,7 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
         navigation.navigate('Subscriptions');
         break;
       case 'Security':
-        Alert.alert('Security', 'Security settings are not available yet.');
+        navigation.navigate('Security');
         break;
       case 'Support':
         Alert.alert('Support', 'Support Centre is not available yet.');
@@ -108,7 +109,7 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator color="#00FF87" />
+        <ActivityIndicator color={Colors.primary} />
       </View>
     );
   }
@@ -127,11 +128,15 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
 
           <View style={styles.metricsRow}>
             <View style={styles.metricItem}>
-              <Text style={styles.metricValue}>{profile?.stats?.completedBookingCount ?? 0}</Text>
+              <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                {profile?.stats?.completedBookingCount ?? 0}
+              </Text>
               <Text style={styles.metricLabel}>Completed</Text>
             </View>
             <View style={styles.metricItem}>
-              <Text style={styles.metricValue}>{profile?.stats?.activeRequestCount ?? 0}</Text>
+              <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                {profile?.stats?.activeRequestCount ?? 0}
+              </Text>
               <Text style={styles.metricLabel}>Active</Text>
             </View>
           </View>
@@ -174,29 +179,29 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090D14' },
-  loadingContainer: { flex: 1, backgroundColor: '#090D14', alignItems: 'center', justifyContent: 'center' },
+  container: { flex: 1, backgroundColor: Colors.background },
+  loadingContainer: { flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center' },
   scrollContainer: { padding: 20, paddingBottom: 110 },
-  profileHeroCard: { backgroundColor: '#111827', borderRadius: 20, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: '#1E293B', marginBottom: 28 },
-  avatarMock: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#00FF8720', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#00FF87', marginBottom: 14 },
-  avatarText: { color: '#00FF87', fontSize: 24, fontWeight: '700' },
-  userName: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
-  userEmail: { color: '#64748B', fontSize: 13, marginTop: 4 },
+  profileHeroCard: { backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: Colors.border, marginBottom: 28 },
+  avatarMock: { width: 70, height: 70, borderRadius: 35, backgroundColor: 'rgba(184, 255, 61, 0.14)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: Colors.primary, marginBottom: 14 },
+  avatarText: { color: Colors.primary, fontSize: 24, fontWeight: '700' },
+  userName: { color: Colors.text, fontSize: 20, fontWeight: '800' },
+  userEmail: { color: Colors.textSubtle, fontSize: 13, marginTop: 4 },
   metricsRow: { flexDirection: 'row', marginTop: 18, justifyContent: 'space-around', width: '100%' },
-  metricItem: { alignItems: 'center' },
-  metricValue: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
-  metricLabel: { color: '#64748B', fontSize: 11 },
-  addressBox: { marginTop: 18, width: '100%', backgroundColor: '#090D14', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, padding: 12 },
-  addressLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
-  addressText: { color: '#E2E8F0', fontSize: 12, lineHeight: 18, marginTop: 4 },
-  sectionTitle: { color: '#64748B', fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 },
-  menuStack: { backgroundColor: '#111827', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden' },
-  menuRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#1E293B' },
+  metricItem: { flex: 1, alignItems: 'center', minWidth: 0 },
+  metricValue: { color: Colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  metricLabel: { color: Colors.textSubtle, fontSize: 11 },
+  addressBox: { marginTop: 18, width: '100%', backgroundColor: Colors.input, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, padding: 12 },
+  addressLabel: { color: Colors.textSubtle, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  addressText: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  sectionTitle: { color: Colors.textSubtle, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 },
+  menuStack: { backgroundColor: Colors.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden' },
+  menuRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
   menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 14, flex: 1 },
-  menuIcon: { color: '#00FF87', fontSize: 20 },
-  menuTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  menuSubtitle: { color: '#64748B', fontSize: 11, marginTop: 2, lineHeight: 14 },
-  chevron: { color: '#64748B', fontSize: 18, fontWeight: '600' },
-  signOutBtn: { padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 32, borderWidth: 1, borderColor: '#EF444430', backgroundColor: '#EF444405' },
-  signOutText: { color: '#EF4444', fontSize: 14, fontWeight: '700' },
+  menuIcon: { color: Colors.primary, fontSize: 20 },
+  menuTitle: { color: Colors.text, fontSize: 14, fontWeight: '700' },
+  menuSubtitle: { color: Colors.textSubtle, fontSize: 11, marginTop: 2, lineHeight: 14 },
+  chevron: { color: Colors.textSubtle, fontSize: 18, fontWeight: '600' },
+  signOutBtn: { padding: 16, borderRadius: Radius.md, alignItems: 'center', marginTop: 32, borderWidth: 1, borderColor: Colors.borderStrong, backgroundColor: Colors.surfaceRaised },
+  signOutText: { color: Colors.text, fontSize: 14, fontWeight: '700' },
 });

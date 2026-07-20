@@ -35,8 +35,8 @@ export interface IInvoice extends Document {
   customerId: Schema.Types.ObjectId;
   technicianId: Schema.Types.ObjectId;
 
-  countryCode: CountryCode;
-  currency: CurrencyCode;
+  countryCode: string;
+  currency: string;
 
   baseAmountMinor: number;
   additionalLaborMinor: number;
@@ -95,15 +95,17 @@ const InvoiceSchema = new Schema<IInvoice>(
 
     countryCode: {
       type: String,
-      enum: Object.values(CountryCode),
-      default: CountryCode.ZA,
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
+      required: true,
       index: true,
     },
 
     currency: {
       type: String,
-      enum: Object.values(CurrencyCode),
-      default: CurrencyCode.ZAR,
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
+      required: true,
       index: true,
     },
 
@@ -232,8 +234,8 @@ InvoiceSchema.index({ customerId: 1, createdAt: -1 });
 export interface IWallet extends Document {
   technicianId: Schema.Types.ObjectId;
 
-  countryCode: CountryCode;
-  currency: CurrencyCode;
+  countryCode: string;
+  currency: string;
 
   availableBalanceMinor: number;
   pendingBalanceMinor: number;
@@ -258,15 +260,17 @@ const WalletSchema = new Schema<IWallet>(
 
     countryCode: {
       type: String,
-      enum: Object.values(CountryCode),
-      default: CountryCode.ZA,
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
+      required: true,
       index: true,
     },
 
     currency: {
       type: String,
-      enum: Object.values(CurrencyCode),
-      default: CurrencyCode.ZAR,
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
+      required: true,
       index: true,
     },
 
@@ -329,8 +333,8 @@ export interface IWalletTransaction extends Document {
   customerId?: Schema.Types.ObjectId;
   technicianId?: Schema.Types.ObjectId;
 
-  countryCode: CountryCode;
-  currency: CurrencyCode;
+  countryCode: string;
+  currency: string;
 
   amountMinor: number;
 
@@ -384,14 +388,16 @@ const WalletTransactionSchema = new Schema<IWalletTransaction>(
 
     countryCode: {
       type: String,
-      enum: Object.values(CountryCode),
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{2}$/.test(value), message: 'Invalid ISO country code.' },
       required: true,
       index: true,
     },
 
     currency: {
       type: String,
-      enum: Object.values(CurrencyCode),
+      uppercase: true,
+      validate: { validator: (value: string) => /^[A-Z]{3}$/.test(value), message: 'Invalid currency code.' },
       required: true,
       index: true,
     },

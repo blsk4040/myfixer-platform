@@ -44,15 +44,17 @@ const crypto_1 = __importDefault(require("crypto"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const user_model_1 = __importStar(require("../models/user.model"));
 const market_config_1 = require("../config/market.config");
-const payment_capabilities_config_1 = require("../config/payment-capabilities.config");
 const technician_model_1 = __importStar(require("../models/technician.model"));
 const technician_capability_model_1 = __importStar(require("../models/technician-capability.model"));
 const technician_telemetry_model_1 = __importDefault(require("../models/technician-telemetry.model"));
+const market_setting_model_1 = __importStar(require("../models/market-setting.model"));
+const market_finance_guard_service_1 = require("../services/market-finance-guard.service");
 const audit_log_model_1 = __importDefault(require("../models/audit-log.model"));
 const email_service_1 = require("../services/email/email.service");
 const booking_model_1 = __importStar(require("../models/booking.model"));
 const service_availability_service_1 = require("../services/service-availability.service");
 const media_storage_service_1 = require("../services/media-storage.service");
+const market_finance_guard_service_2 = require("../services/market-finance-guard.service");
 // --- JWT Helper Generator ---
 const generateToken = (userId, role, email) => {
     const secret = process.env.JWT_SECRET;
@@ -64,6 +66,16 @@ const generateToken = (userId, role, email) => {
 const hashResetToken = (token) => crypto_1.default.createHash('sha256').update(token).digest('hex');
 const generateEmailVerificationToken = () => crypto_1.default.randomBytes(32).toString('hex');
 const getClientBaseUrl = (req) => (process.env.CLIENT_APP_URL || `${req.protocol}://${req.get('host') || ''}`).replace(/\/$/, '');
+const isMarketActiveForOnboarding = async (countryCode) => {
+    const market = await market_setting_model_1.default.findOne({
+        'identity.countryCode': countryCode,
+        'identity.status': market_setting_model_1.MarketStatus.ACTIVE,
+        $or: [{ 'deletionLock.locked': { $ne: true } }, { deletionLock: { $exists: false } }],
+    })
+        .select('_id')
+        .lean();
+    return Boolean(market);
+};
 const wantsJsonResponse = (req) => req.method !== 'GET' ||
     req.query.format === 'json' ||
     String(req.get('accept') || '').includes('application/json');
@@ -73,17 +85,24 @@ const escapeHtml = (value) => value
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+const padiWordmarkHtml = `
+  <span class="padi-wordmark" aria-label="Padi">
+    <span>Pad</span><span class="padi-i"><span class="padi-dot"></span><span class="padi-stem"></span></span>
+  </span>
+`;
 const renderEmailVerificationPage = (args) => {
     const openAppUrl = args.openAppUrl || process.env.CLIENT_APP_DEEP_LINK || 'myfixerclient://email-verified';
     const accent = args.status === 'success' ? '#00FF87' : '#F87171';
     const safeTitle = escapeHtml(args.title);
     const safeMessage = escapeHtml(args.message);
+    const safeOpenAppLabel = escapeHtml(args.openAppLabel || 'Open Padi');
+    const safeReturnAppLabel = escapeHtml(args.returnAppLabel || 'Padi');
     return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${safeTitle} | MyFixer</title>
+  <title>${safeTitle} | Padi</title>
   <style>
     body {
       margin: 0;
@@ -114,6 +133,42 @@ const renderEmailVerificationPage = (args) => {
       background: ${accent};
       font-size: 34px;
       font-weight: 900;
+    }
+    .brand {
+      margin: 0 0 18px;
+    }
+    .padi-wordmark {
+      display: inline-flex;
+      align-items: flex-end;
+      justify-content: center;
+      color: #FFFFFF;
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+    .padi-i {
+      display: inline-flex;
+      width: 13px;
+      height: 29px;
+      margin-left: 1px;
+      padding-bottom: 2px;
+      align-items: center;
+      justify-content: flex-end;
+      flex-direction: column;
+    }
+    .padi-dot {
+      width: 6px;
+      height: 6px;
+      margin-bottom: 4px;
+      border-radius: 999px;
+      background: #B8FF3D;
+    }
+    .padi-stem {
+      width: 5px;
+      height: 15px;
+      border-radius: 999px;
+      background: #FFFFFF;
     }
     h1 {
       margin: 0;
@@ -150,10 +205,11 @@ const renderEmailVerificationPage = (args) => {
 <body>
   <main>
     <div class="mark">${args.status === 'success' ? '&#10003;' : '!'}</div>
+    <div class="brand">${padiWordmarkHtml}</div>
     <h1>${safeTitle}</h1>
     <p>${safeMessage}</p>
-    <a href="${escapeHtml(openAppUrl)}">Open MyFixer</a>
-    <small>If the app does not open automatically, return to MyFixer and tap "I've verified my email".</small>
+    <a href="${escapeHtml(openAppUrl)}">${safeOpenAppLabel}</a>
+    <small>If the app does not open automatically, return to ${safeReturnAppLabel} and tap "I've verified my email".</small>
   </main>
 </body>
 </html>`;
@@ -286,19 +342,19 @@ const buildSessionUser = (user, req) => ({
     mustChangePassword: Boolean(user.mustChangePassword),
     greeting: req ? getLocalizedGreeting(req) : undefined,
 });
-const buildSessionTechnician = (technicianProfile, user) => {
+const buildSessionTechnician = async (technicianProfile, user) => {
     if (!technicianProfile)
         return undefined;
     const countryCode = (0, market_config_1.normalizeCountryCode)(technicianProfile.countryCode || user?.countryCode);
-    const market = (0, market_config_1.getMarketByCountry)(countryCode);
-    const payoutCapabilities = (0, payment_capabilities_config_1.getCountryPaymentCapabilities)(market.countryCode);
+    const market = await (0, market_finance_guard_service_2.assertActiveMarket)(countryCode);
+    const payoutCapabilities = await (0, market_finance_guard_service_1.getMarketPayoutCapabilities)(market.identity.countryCode);
     const reviewCount = Number(technicianProfile.stats?.reviewCount || 0);
     const averageRating = reviewCount > 0 ? Number(technicianProfile.stats?.averageRating || 0) : null;
     return {
         id: technicianProfile._id,
         approvalStatus: technicianProfile.approvalStatus,
-        countryCode: market.countryCode,
-        currency: market.currency,
+        countryCode: market.identity.countryCode,
+        currency: market.identity.currency,
         serviceCategories: technicianProfile.serviceCategories,
         city: technicianProfile.city,
         businessName: technicianProfile.businessName,
@@ -407,6 +463,10 @@ const updateMyDefaultAddress = async (req, res) => {
         return;
     }
     try {
+        if (!(await isMarketActiveForOnboarding(countryCode))) {
+            res.status(409).json({ message: 'MyFixer is not accepting service addresses in this market right now.' });
+            return;
+        }
         const fullAddress = [streetAddress, suburb, city, postalCode].join(', ');
         const defaultServiceAddress = {
             streetAddress,
@@ -459,7 +519,11 @@ const registerUser = async (req, res) => {
         // 2. Prevent Account Duplication
         const normalizedEmail = email.toLowerCase().trim();
         const resolvedCountryCode = (0, market_config_1.normalizeCountryCode)(countryCode ?? location.country);
-        const market = (0, market_config_1.getMarketByCountry)(resolvedCountryCode);
+        const market = await (0, market_finance_guard_service_2.assertActiveMarket)(resolvedCountryCode);
+        if (!(await isMarketActiveForOnboarding(market.identity.countryCode))) {
+            res.status(409).json({ message: 'Paddy is not accepting new registrations in this market right now.' });
+            return;
+        }
         const userExists = await user_model_1.default.findOne({ email: normalizedEmail });
         if (userExists) {
             res.status(409).json({ message: 'An account with this email address already exists.' });
@@ -474,7 +538,7 @@ const registerUser = async (req, res) => {
             email: normalizedEmail,
             phone: phone.trim(),
             location: {
-                country: market.countryName,
+                country: market.identity.countryName,
                 city: location.city.trim(),
                 area: typeof location.area === 'string'
                     ? location.area.trim()
@@ -484,8 +548,8 @@ const registerUser = async (req, res) => {
                             ? location.neighborhood.trim()
                             : '',
             },
-            countryCode: market.countryCode,
-            currency: market.currency,
+            countryCode: market.identity.countryCode,
+            currency: market.identity.currency,
             password: hashedPassword,
             role: user_model_1.UserRole.CUSTOMER,
             profileCompleted: true,
@@ -575,7 +639,7 @@ const loginUser = async (req, res) => {
             token,
             user: buildSessionUser(user, req),
             technician: technicianProfile
-                ? buildSessionTechnician(technicianProfile, user)
+                ? await buildSessionTechnician(technicianProfile, user)
                 : undefined,
         });
     }
@@ -666,7 +730,7 @@ const verifyEmail = async (req, res) => {
             res.status(400).send(renderEmailVerificationPage({
                 status: 'error',
                 title: 'Link expired or already used',
-                message: 'This email verification link is invalid or has already been used. Open MyFixer and request a fresh verification email if needed.',
+                message: 'This email verification link is invalid or has already been used. Open Padi and request a fresh verification email if needed.',
             }));
             return;
         }
@@ -679,8 +743,10 @@ const verifyEmail = async (req, res) => {
             ? process.env.TECHNICIAN_APP_DEEP_LINK || 'myfixertechnician://email-verified'
             : process.env.CLIENT_APP_DEEP_LINK || 'myfixerclient://email-verified';
         const successMessage = verifiedRole === user_model_1.UserRole.TECHNICIAN
-            ? 'Your MyFixer email is verified. You can return to the technician app while your application is reviewed.'
-            : 'Your MyFixer email is verified. You can return to the app and continue booking services.';
+            ? 'Your Padi Pro email is verified. You can return to the technician app while your application is reviewed.'
+            : 'Your Padi email is verified. You can return to the app and continue booking services.';
+        const openAppLabel = verifiedRole === user_model_1.UserRole.TECHNICIAN ? 'Open Padi Pro' : 'Open Padi';
+        const returnAppLabel = verifiedRole === user_model_1.UserRole.TECHNICIAN ? 'Padi Pro' : 'Padi';
         if (shouldReturnJson) {
             res.status(200).json({ status: 'success', message: 'Email verified successfully.' });
             return;
@@ -690,6 +756,8 @@ const verifyEmail = async (req, res) => {
             title: 'Email verified',
             message: successMessage,
             openAppUrl,
+            openAppLabel,
+            returnAppLabel,
         }));
     }
     catch (error) {
@@ -765,7 +833,7 @@ const googleAuth = async (req, res) => {
                     status: 'email_verification_required',
                     token,
                     user: sessionUser,
-                    technician: buildSessionTechnician(technicianProfile, user),
+                    technician: await buildSessionTechnician(technicianProfile, user),
                     message: 'Please verify your email before accessing the technician dashboard.',
                 });
                 return;
@@ -804,7 +872,7 @@ const googleAuth = async (req, res) => {
             token,
             user: sessionUser,
             technician: technicianProfile
-                ? buildSessionTechnician(technicianProfile, user)
+                ? await buildSessionTechnician(technicianProfile, user)
                 : undefined,
         });
     }
@@ -853,7 +921,11 @@ const completeGoogleClientProfile = async (req, res) => {
             res.status(400).json({ message: 'Invalid service address coordinates.' });
             return;
         }
-        const market = (0, market_config_1.getMarketByCountry)(countryCode);
+        const market = await (0, market_finance_guard_service_2.assertActiveMarket)(countryCode);
+        if (!(await isMarketActiveForOnboarding(market.identity.countryCode))) {
+            res.status(409).json({ message: 'MyFixer is not accepting new registrations in this market right now.' });
+            return;
+        }
         const existingUser = await user_model_1.default.findOne({ email });
         if (existingUser && (0, user_model_1.normalizeUserRole)(existingUser.role) !== user_model_1.UserRole.CUSTOMER) {
             res.status(409).json({ message: 'This Google account is already linked to another MyFixer role.' });
@@ -864,7 +936,7 @@ const completeGoogleClientProfile = async (req, res) => {
             suburb,
             city,
             postalCode,
-            countryCode: market.countryCode,
+            countryCode: market.identity.countryCode,
             fullAddress,
             updatedAt: new Date(),
         };
@@ -880,13 +952,13 @@ const completeGoogleClientProfile = async (req, res) => {
                 name,
                 phone,
                 location: {
-                    country: market.countryName,
+                    country: market.identity.countryName,
                     city,
                     area,
                 },
                 defaultServiceAddress,
-                countryCode: market.countryCode,
-                currency: market.currency,
+                countryCode: market.identity.countryCode,
+                currency: market.identity.currency,
                 profileCompleted: true,
                 emailVerified: existingUser?.emailVerified || false,
                 isEmailVerified: existingUser?.isEmailVerified || false,
@@ -950,19 +1022,19 @@ const bootstrapAdmin = async (req, res) => {
             return;
         }
         const resolvedCountryCode = (0, market_config_1.normalizeCountryCode)(countryCode ?? location?.country);
-        const market = (0, market_config_1.getMarketByCountry)(resolvedCountryCode);
+        const market = await (0, market_finance_guard_service_2.assertActiveMarket)(resolvedCountryCode);
         const hashedPassword = await bcrypt_1.default.hash(password, 10);
         const admin = await user_model_1.default.create({
             name: name.trim(),
             email: email.toLowerCase().trim(),
             phone: phone.trim(),
             location: {
-                country: market.countryName,
+                country: market.identity.countryName,
                 city: location?.city?.trim() || 'Head Office',
                 area: typeof location?.area === 'string' ? location.area.trim() : '',
             },
-            countryCode: market.countryCode,
-            currency: market.currency,
+            countryCode: market.identity.countryCode,
+            currency: market.identity.currency,
             password: hashedPassword,
             role: user_model_1.UserRole.ADMIN,
             adminRole: user_model_1.AdminRole.SUPER_ADMIN,
@@ -1121,7 +1193,11 @@ const registerTechnician = async (req, res) => {
             return;
         }
         const resolvedCountryCode = (0, market_config_1.normalizeCountryCode)(countryCode ?? location.country);
-        const market = (0, market_config_1.getMarketByCountry)(resolvedCountryCode);
+        const market = await (0, market_finance_guard_service_2.assertActiveMarket)(resolvedCountryCode);
+        if (!(await isMarketActiveForOnboarding(market.identity.countryCode))) {
+            res.status(409).json({ message: 'MyFixer is not accepting new technician registrations in this market right now.' });
+            return;
+        }
         const marketAvailability = await (0, service_availability_service_1.getMarketAvailability)(resolvedCountryCode, location.city, location.area ?? location.neighbourhood ?? location.neighborhood);
         const bookableServiceKeys = new Set(marketAvailability.services
             .filter((service) => service.canBook)
@@ -1138,7 +1214,7 @@ const registerTechnician = async (req, res) => {
             email: normalizedEmail,
             phone: phone.trim(),
             location: {
-                country: market.countryName,
+                country: market.identity.countryName,
                 city: location.city.trim(),
                 area: typeof location.area === 'string'
                     ? location.area.trim()
@@ -1148,8 +1224,8 @@ const registerTechnician = async (req, res) => {
                             ? location.neighborhood.trim()
                             : '',
             },
-            countryCode: market.countryCode,
-            currency: market.currency,
+            countryCode: market.identity.countryCode,
+            currency: market.identity.currency,
             password: hashedPassword,
             role: user_model_1.UserRole.TECHNICIAN,
             emailVerified: false,
@@ -1165,7 +1241,7 @@ const registerTechnician = async (req, res) => {
         const technician = await technician_model_1.default.create({
             userId: user._id,
             approvalStatus,
-            countryCode: market.countryCode,
+            countryCode: market.identity.countryCode,
             city: location.city.trim(),
             serviceCategories: availableServiceCategories,
             yearsExperience: Number.isFinite(Number(yearsExperience)) ? Number(yearsExperience) : 0,
@@ -1230,7 +1306,7 @@ const registerTechnician = async (req, res) => {
                     greeting: getLocalizedGreeting(req),
                 }
                 : null,
-            technician: buildSessionTechnician(technician, user),
+            technician: await buildSessionTechnician(technician, user),
             verificationEmailSent,
         });
     }
