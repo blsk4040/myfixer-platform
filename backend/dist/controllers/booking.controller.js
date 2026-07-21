@@ -44,13 +44,14 @@ const matching_service_1 = __importStar(require("../services/matching.service"))
 // 2. UNCOMMENT AND USE YOUR ACTUAL EMAIL SERVICE UTILITY
 const email_service_1 = require("../services/email/email.service");
 const billing_model_1 = require("../models/billing.model");
+const payment_transaction_model_1 = __importStar(require("../models/payment-transaction.model"));
 const user_model_1 = require("../models/user.model");
 const user_model_2 = __importDefault(require("../models/user.model"));
 const quote_model_1 = __importStar(require("../models/quote.model"));
 const technician_model_1 = __importStar(require("../models/technician.model"));
 const technician_capability_model_1 = __importStar(require("../models/technician-capability.model"));
 const service_waitlist_model_1 = __importStar(require("../models/service-waitlist.model"));
-const market_setting_model_1 = __importStar(require("../models/market-setting.model"));
+const market_setting_model_1 = __importDefault(require("../models/market-setting.model"));
 const audit_service_1 = require("../services/audit.service");
 const audit_log_model_1 = require("../models/audit-log.model");
 const market_config_1 = require("../config/market.config");
@@ -77,43 +78,6 @@ const normalizeFallbackPreference = (value) => {
 };
 const parseDateInput = (value) => typeof value === 'string' || value instanceof Date ? new Date(value) : null;
 const isValidDate = (value) => Boolean(value && !Number.isNaN(value.getTime()));
-const isMarketServiceExplicitlyActive = async (countryCode, serviceKey) => {
-    const setting = await market_setting_model_1.default.findOne({ 'identity.countryCode': countryCode })
-        .select('identity.countryCode coverage.serviceCategories coverage.cityServiceAvailability')
-        .lean();
-    if (!setting)
-        return false;
-    const normalizeEntry = (entry) => {
-        if (typeof entry === 'string') {
-            return { serviceKey: (0, matching_service_1.normalizeDispatchServiceKey)(entry), status: market_setting_model_1.MarketStatus.ACTIVE };
-        }
-        if (!entry || typeof entry !== 'object')
-            return null;
-        const record = entry;
-        return {
-            serviceKey: (0, matching_service_1.normalizeDispatchServiceKey)(record.serviceKey ?? record.key ?? record.value ?? record.label),
-            status: Object.values(market_setting_model_1.MarketStatus).includes(record.status)
-                ? record.status
-                : market_setting_model_1.MarketStatus.DISABLED,
-        };
-    };
-    const matches = [
-        ...((setting.coverage?.serviceCategories || []).map(normalizeEntry)),
-        ...((setting.coverage?.cityServiceAvailability || []).flatMap((city) => {
-            const record = city;
-            const services = Array.isArray(record.services) ? record.services : [];
-            const areas = Array.isArray(record.areas) ? record.areas : [];
-            return [
-                ...services.map(normalizeEntry),
-                ...areas.flatMap((area) => {
-                    const areaRecord = area;
-                    return Array.isArray(areaRecord.services) ? areaRecord.services.map(normalizeEntry) : [];
-                }),
-            ];
-        })),
-    ].filter((entry) => Boolean(entry?.serviceKey));
-    return matches.some((entry) => entry.serviceKey === serviceKey && entry.status === market_setting_model_1.MarketStatus.ACTIVE);
-};
 const getAuthenticatedUser = (request) => request.user;
 const getSocketIdentity = (socket) => {
     const query = socket.handshake.query;
@@ -538,15 +502,6 @@ const createBooking = async (request, response) => {
         },
     });
     priceMinor = priceBreakdown.totalMinor;
-    const explicitlyActive = await isMarketServiceExplicitlyActive(market.countryCode, requestedServiceKey);
-    if (!explicitlyActive) {
-        response.status(409).json({
-            message: 'This service is not active in the selected market coverage settings.',
-            serviceStatus: market_setting_model_1.MarketStatus.DISABLED,
-            serviceKey: requestedServiceKey,
-        });
-        return;
-    }
     const preferredRebooking = await validatePreferredProviderRebooking({
         customerId,
         preferredTechnicianId,
@@ -1495,7 +1450,7 @@ const runWorkflowStatusAction = async (request, response, nextStatus, action) =>
         });
         if (nextStatus === booking_model_1.BookingStatus.IN_PROGRESS) {
             const providerRole = providerRoleForService(booking.serviceKey);
-            await createCustomerBookingNotification(booking, 'JOB_STARTED', 'Job started', `Your ${providerRole} has started work on ${booking.applianceType}. Keep approvals and payments inside MyFixer.`);
+            await createCustomerBookingNotification(booking, 'JOB_STARTED', 'Job started', `Your ${providerRole} has started work on ${booking.applianceType}. Padi keeps approvals and payment steps together for this booking.`);
         }
         response.status(200).json({ success: true, bookingId: booking.id, status: booking.status });
     }
@@ -1539,7 +1494,7 @@ const startJob = async (request, response) => {
             });
             response.status(409).json({
                 success: false,
-                message: 'Work cannot begin until all MyFixer approval and payment requirements are satisfied.',
+                message: 'Work cannot begin until all Padi approval and payment requirements are satisfied.',
                 code: eligibility.reasonCode,
                 eligibility,
             });
@@ -1577,7 +1532,7 @@ const startJob = async (request, response) => {
             updatedAt: booking.updatedAt,
         });
         const providerRole = providerRoleForService(booking.serviceKey);
-        await createCustomerBookingNotification(booking, 'JOB_STARTED', 'Job started', `Your ${providerRole} has started work on ${booking.applianceType}. Keep approvals and payments inside MyFixer.`);
+        await createCustomerBookingNotification(booking, 'JOB_STARTED', 'Job started', `Your ${providerRole} has started work on ${booking.applianceType}. Padi keeps approvals and payment steps together for this booking.`);
         response.status(200).json({ success: true, bookingId: booking.id, status: booking.status, eligibility });
     }
     catch (error) {
@@ -1619,7 +1574,7 @@ const startInspection = async (request, response) => {
             updatedAt: booking.updatedAt,
         });
         const providerRole = providerRoleForService(booking.serviceKey);
-        await createCustomerBookingNotification(booking, 'INSPECTION_STARTED', 'Inspection started', `Your ${providerRole} has started inspection for ${booking.applianceType}. Keep approvals and payments inside MyFixer.`);
+        await createCustomerBookingNotification(booking, 'INSPECTION_STARTED', 'Inspection started', `Your ${providerRole} has started inspection for ${booking.applianceType}. Padi keeps approvals and payment steps together for this booking.`);
         response.status(200).json({ success: true, bookingId: booking.id, inspection: booking.inspection });
     }
     catch (error) {
@@ -1705,12 +1660,12 @@ const confirmArrival = async (request, response) => {
             io,
         });
         const providerRole = providerRoleForService(booking.serviceKey);
-        await createCustomerBookingNotification(booking, 'TECHNICIAN_ARRIVED', `${providerRole} has arrived`, `Your ${providerRole} has arrived for ${booking.applianceType}. Keep all job communication, approvals and payments inside MyFixer.`);
+        await createCustomerBookingNotification(booking, 'TECHNICIAN_ARRIVED', `${providerRole} has arrived`, `Your ${providerRole} has arrived for ${booking.applianceType}. Padi keeps job communication, approvals and payment steps together.`);
         response.status(200).json({
             success: true,
             bookingId: booking.id,
             status: booking.status,
-            message: 'Arrival confirmed. Keep all job communication, approvals and payments inside MyFixer.',
+            message: 'Arrival confirmed. Padi keeps job communication, approvals and payment steps together.',
         });
     }
     catch (error) {
@@ -1765,12 +1720,15 @@ const finalizeJobInvoice = async (request, response) => {
         const fallbackPartsAmount = toFiniteNumber(body.partsAmount) ?? 0;
         const baseAmount = approvedQuote
             ? approvedQuote.lineItems
-                .filter((item) => item.type === quote_model_1.QuoteLineItemType.CALLOUT)
+                .filter((item) => item.type === quote_model_1.QuoteLineItemType.CALLOUT || item.type === quote_model_1.QuoteLineItemType.CALL_OUT)
                 .reduce((sum, item) => sum + decimalFromMinor(item.totalAmountMinor), 0) || decimalFromMinor(booking.priceMinor)
             : fallbackBaseAmount;
         const additionalLabor = approvedQuote
             ? approvedQuote.lineItems
-                .filter((item) => item.type === quote_model_1.QuoteLineItemType.LABOR || item.type === quote_model_1.QuoteLineItemType.ADD_ON || item.type === quote_model_1.QuoteLineItemType.SURCHARGE)
+                .filter((item) => item.type === quote_model_1.QuoteLineItemType.LABOR ||
+                item.type === quote_model_1.QuoteLineItemType.LABOUR ||
+                item.type === quote_model_1.QuoteLineItemType.ADD_ON ||
+                item.type === quote_model_1.QuoteLineItemType.SURCHARGE)
                 .reduce((sum, item) => sum + decimalFromMinor(item.totalAmountMinor), 0)
             : fallbackAdditionalLabor;
         const partsAmount = approvedQuote
@@ -1860,11 +1818,19 @@ const finalizeJobInvoice = async (request, response) => {
             proofPhoto
         });
         await booking.save();
+        let finalizedInvoiceNumber = '';
+        let finalizedInvoiceId = '';
         if (mongoose_1.default.Types.ObjectId.isValid(booking.customerId) &&
             booking.technicianId &&
             mongoose_1.default.Types.ObjectId.isValid(booking.technicianId)) {
-            const invoiceNumber = `INV-${new Date().getFullYear()}-${booking.id.slice(-6).toUpperCase()}`;
+            const fallbackInvoiceNumber = `INV-PADI-${new Date().getFullYear()}-${booking.id.slice(-6).toUpperCase()}`;
             const existingInvoice = await billing_model_1.Invoice.findOne({ bookingId: booking._id });
+            const successfulPayment = await payment_transaction_model_1.default.findOne({
+                bookingId: booking._id,
+                provider: payment_transaction_model_1.PaymentProvider.PAYSTACK,
+                status: payment_transaction_model_1.PaymentTransactionStatus.SUCCESS,
+            }).sort({ paidAt: -1, verifiedAt: -1, createdAt: -1 });
+            const invoiceNumber = existingInvoice?.invoiceNumber || fallbackInvoiceNumber;
             const invoiceBefore = existingInvoice
                 ? {
                     status: existingInvoice.status,
@@ -1893,7 +1859,10 @@ const finalizeJobInvoice = async (request, response) => {
                 platformCommissionBps,
                 platformCommissionAmountMinor,
                 technicianNetAmountMinor,
-                status: billing_model_1.InvoiceStatus.UNPAID,
+                status: successfulPayment ? billing_model_1.InvoiceStatus.PAID : billing_model_1.InvoiceStatus.UNPAID,
+                paymentGateway: successfulPayment?.provider || existingInvoice?.paymentGateway || '',
+                paymentReference: successfulPayment?.reference || existingInvoice?.paymentReference || '',
+                paidAt: successfulPayment?.paidAt || successfulPayment?.verifiedAt || existingInvoice?.paidAt,
                 metadata: {
                     ...(existingInvoice?.metadata || {}),
                     bookingId: booking.id,
@@ -1919,6 +1888,8 @@ const finalizeJobInvoice = async (request, response) => {
                     pricingRuleVersion: 'market-pricing-v1',
                 },
             }, { upsert: true, new: true, setDefaultsOnInsert: true });
+            finalizedInvoiceNumber = invoice.invoiceNumber;
+            finalizedInvoiceId = invoice._id.toString();
             await (0, audit_service_1.logAuditEvent)(request, {
                 action: existingInvoice ? 'invoice.update' : 'invoice.create',
                 module: 'PAYMENTS',
@@ -2009,7 +1980,14 @@ const finalizeJobInvoice = async (request, response) => {
             status: booking.status,
             updatedAt: booking.updatedAt,
         });
-        const invoiceInboxMessages = await createCustomerBookingNotification(booking, 'INVOICE_GENERATED', 'Invoice generated', `Your invoice for ${booking.applianceType} has been generated.`, { totalAmountMinor: invoiceTotalMinor, currency: booking.currency });
+        const invoiceInboxMessages = await createCustomerBookingNotification(booking, 'INVOICE_GENERATED', 'Invoice generated', `Your invoice for ${booking.applianceType} has been generated.`, {
+            feed: 'inbox',
+            documentType: 'INVOICE',
+            invoiceId: finalizedInvoiceId,
+            invoiceNumber: finalizedInvoiceNumber,
+            totalAmountMinor: invoiceTotalMinor,
+            currency: booking.currency,
+        });
         invoiceInboxMessages.forEach((message) => {
             io?.to(`customer:${booking.customerId.toString()}`).emit('new_inbox_message', message);
         });
@@ -2081,6 +2059,10 @@ const finalizeJobInvoice = async (request, response) => {
         });
     }
     catch (error) {
+        if (error instanceof booking_workflow_service_1.BookingWorkflowError) {
+            response.status(error.statusCode).json({ message: error.message, code: error.code });
+            return;
+        }
         console.error('Failed to settle final billing operations endpoint run:', error);
         response.status(500).json({ message: 'Failed to process job closure accounting entries' });
     }

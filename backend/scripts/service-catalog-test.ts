@@ -1,7 +1,11 @@
 import assert from 'assert';
 import { readFileSync } from 'fs';
 import MarketSetting, { MarketStatus } from '../src/models/market-setting.model';
-import ServiceCatalog, { ServicePublicationStatus } from '../src/models/service-catalog.model';
+import ServiceCatalog, {
+  ServiceBillingModel,
+  ServicePublicationStatus,
+  ServiceSubscriptionCadence,
+} from '../src/models/service-catalog.model';
 import { DEFAULT_SERVICE_DEFINITIONS, getMarketAvailability, validateServiceBookable } from '../src/services/service-availability.service';
 import { calculatePriceBreakdown } from '../src/services/price-breakdown.service';
 import { analyzeServiceHierarchyBackfill } from './backfill-service-hierarchy';
@@ -261,6 +265,10 @@ async function run() {
         status: MarketStatus.ACTIVE,
         publicationStatus: ServicePublicationStatus.PUBLISHED,
         calloutFeeMinor: 35000,
+        billingModel: ServiceBillingModel.SUBSCRIPTION,
+        subscriptionEligible: true,
+        subscriptionCadences: [ServiceSubscriptionCadence.MONTHLY],
+        subscriptionNotes: 'Future monthly support plan candidate.',
       }],
     }]);
     const itAvailability = await getMarketAvailability('ZA', 'Johannesburg');
@@ -269,6 +277,9 @@ async function run() {
     assert.strictEqual(itAvailability.groups[0].categories[0].label, 'IT Support');
     assert.strictEqual(itAvailability.groups[0].categories[0].status, MarketStatus.ACTIVE);
     assert.strictEqual(itAvailability.groups[0].categories[0].services[0].label, 'Computer Repair');
+    assert.strictEqual(itAvailability.groups[0].categories[0].services[0].billingModel, ServiceBillingModel.SUBSCRIPTION);
+    assert.strictEqual(itAvailability.groups[0].categories[0].services[0].subscriptionEligible, true);
+    assert.deepStrictEqual(itAvailability.groups[0].categories[0].services[0].subscriptionCadences, [ServiceSubscriptionCadence.MONTHLY]);
     assert.strictEqual(itAvailability.services[0].serviceKey, 'it_support');
     const itBooking = await validateServiceBookable({ countryCode: 'ZA', city: 'Johannesburg', serviceKey: 'it_support', subcategoryKey: 'computer_repair' });
     assert.strictEqual(itBooking.allowed, true, 'Computer Repair should be bookable when the published hierarchy is available.');

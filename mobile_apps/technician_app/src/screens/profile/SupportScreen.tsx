@@ -1,4 +1,3 @@
-// src/screens/profile/SupportScreen.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,35 +15,51 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CheckCircle2, MessageCircle, Plus, RefreshCw, Send } from 'lucide-react-native';
 import apiService, { SupportMessage, SupportTicket } from '../../services/api.service';
-import { Colors, Radius } from '../../theme';
+
+const Colors = {
+  background: '#0B0B0D',
+  surface: '#17171A',
+  surfaceRaised: '#222226',
+  input: '#121215',
+  border: '#303036',
+  primary: '#B8FF3D',
+  text: '#F7F7F5',
+  textMuted: '#B9B9BF',
+  textSubtle: '#74747C',
+};
+
+const Radius = {
+  md: 12,
+  lg: 16,
+};
 
 const supportTopics = [
-  { label: 'Booking help', value: 'BOOKING' },
-  { label: 'Payment or invoice', value: 'PAYMENT' },
-  { label: 'Provider issue', value: 'PROVIDER' },
-  { label: 'Account help', value: 'ACCOUNT' },
-  { label: 'General question', value: 'GENERAL' },
+  { label: 'Payouts', value: 'PAYOUT' },
+  { label: 'Document approval', value: 'DOCUMENTS' },
+  { label: 'Jobs', value: 'JOBS' },
+  { label: 'Account', value: 'ACCOUNT' },
+  { label: 'General', value: 'GENERAL' },
 ];
 
 const triageSuggestions: Record<string, string[]> = {
-  BOOKING: [
-    'Check Activity for your latest booking update.',
-    'Make sure your address and booking time are correct.',
+  PAYOUT: [
+    'Check Earnings for your latest payout update.',
+    'Confirm your payout method is complete and active.',
   ],
-  PAYMENT: [
-    'Check Inbox for invoices, quotes, receipts or payment updates.',
-    'If payment failed, check your bank app, then try again.',
+  DOCUMENTS: [
+    'Make sure the photo or document is clear and matches your Padi Pro profile.',
+    'Profile photos and documents need approval before you can go live.',
   ],
-  PROVIDER: [
-    'Check Alerts for provider accepted, arriving or delayed updates.',
-    'Keep the booking open while Padi Support checks what is happening.',
+  JOBS: [
+    'Check Jobs for incoming, active, scheduled and completed work.',
+    'Keep your location on and duty status updated while we check.',
   ],
   ACCOUNT: [
-    'Check Account and Security for your email, password and devices.',
-    'Make sure your phone number and email are up to date.',
+    'Check Profile and Security for your password, devices and account activity.',
+    'Make sure your email and phone number are up to date.',
   ],
   GENERAL: [
-    'Add any booking, quote or invoice reference if you have one.',
+    'Add any job, payout, quote or invoice reference if you have one.',
     'Describe what happened and what you expected to happen.',
   ],
 };
@@ -64,7 +79,7 @@ const statusLabel = (status: SupportTicket['status']): string => {
 
 export function SupportScreen(): React.JSX.Element {
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
-  const [selectedTicketId, setSelectedTicketId] = useState<string>('');
+  const [selectedTicketId, setSelectedTicketId] = useState('');
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -72,7 +87,7 @@ export function SupportScreen(): React.JSX.Element {
   const [sending, setSending] = useState(false);
   const [showNewTicket, setShowNewTicket] = useState(false);
   const [subject, setSubject] = useState('');
-  const [category, setCategory] = useState('BOOKING');
+  const [category, setCategory] = useState('PAYOUT');
   const [bookingReference, setBookingReference] = useState('');
   const [firstMessage, setFirstMessage] = useState('');
   const [replyText, setReplyText] = useState('');
@@ -172,13 +187,13 @@ export function SupportScreen(): React.JSX.Element {
           issueType: category,
           bookingReference: reference,
           suggestedFixesViewed: activeSuggestions,
-          handoffReason: 'Customer requested human support after bot triage',
+          handoffReason: 'Padi Pro requested human support after bot triage',
         },
       });
       setSubject('');
       setBookingReference('');
       setFirstMessage('');
-      setCategory('BOOKING');
+      setCategory('PAYOUT');
       setShowNewTicket(false);
       await loadAll(result.ticket.id);
     } catch (error) {
@@ -229,7 +244,7 @@ export function SupportScreen(): React.JSX.Element {
             <View style={styles.heroCopy}>
               <Text style={styles.heroTitle}>Help & Support</Text>
               <Text style={styles.heroText}>
-                Chat with Padi Support about bookings, payments, providers or your account.
+                Chat with Padi Support about payouts, document approval, jobs or your account.
               </Text>
             </View>
           </View>
@@ -274,7 +289,7 @@ export function SupportScreen(): React.JSX.Element {
                 })}
               </View>
 
-              <Text style={styles.label}>Booking, quote or invoice reference</Text>
+              <Text style={styles.label}>Job, payout or document reference</Text>
               <TextInput
                 value={bookingReference}
                 onChangeText={setBookingReference}
@@ -357,7 +372,7 @@ export function SupportScreen(): React.JSX.Element {
 
               <View style={styles.messageStack}>
                 {messages.length ? messages.map((message) => {
-                  const mine = message.senderType === 'CUSTOMER';
+                  const mine = message.senderType === 'TECHNICIAN';
                   return (
                     <View key={message.id} style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleAgent]}>
                       <Text style={[styles.bubbleAuthor, mine ? styles.bubbleAuthorMine : styles.bubbleAuthorAgent]}>

@@ -63,15 +63,15 @@ export function BookingHistoryScreen(): React.JSX.Element {
 
   const handleBookAgain = (item: BookingHistoryItem) => {
     if (item.status !== 'COMPLETED') {
-      Alert.alert('Book Again', 'You can rebook a provider after a completed Paddy job.');
+      Alert.alert('Book Again', 'You can rebook a provider after a completed Padi job.');
       return;
     }
 
     const hasPreferredProvider = Boolean(item.technician?.id);
     Alert.alert(
-      'Book through Paddy',
+      'Book through Padi',
       hasPreferredProvider
-        ? `We will prioritize ${item.technician?.name || 'your previous provider'} if they are available while keeping payment, tracking, support, and job protection inside Paddy.`
+        ? `We will prioritize ${item.technician?.name || 'your previous provider'} if they are available while keeping payment, tracking, support, and job protection inside Padi.`
         : 'This will create a fresh request for the same service. Preferred provider rebooking is only available after a completed job with an assigned provider.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -163,7 +163,7 @@ export function BookingHistoryScreen(): React.JSX.Element {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" />
 
       {loading ? (
@@ -175,6 +175,12 @@ export function BookingHistoryScreen(): React.JSX.Element {
           data={bookings}
           keyExtractor={(item) => item.id}
           renderItem={renderBookingItem}
+          ListHeaderComponent={
+            <View style={styles.screenHeader}>
+              <Text style={styles.screenTitle}>History</Text>
+              <Text style={styles.screenSubtitle}>Completed, cancelled and invoiced bookings</Text>
+            </View>
+          }
           contentContainerStyle={styles.listContainer}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={<View style={styles.emptyContainer}><Text style={styles.emptyText}>No bookings yet. Completed and cancelled bookings will appear here.</Text></View>}
@@ -240,8 +246,11 @@ export function BookingHistoryScreen(): React.JSX.Element {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  listContainer: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.lg, paddingBottom: 112 },
+  listContainer: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, paddingBottom: 112 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  screenHeader: { marginBottom: Spacing.xl },
+  screenTitle: { color: Colors.text, fontSize: 28, fontWeight: '900' },
+  screenSubtitle: { color: Colors.textSubtle, fontSize: 12, fontWeight: '700', marginTop: 4 },
   card: { backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.lg, borderWidth: 1, borderColor: Colors.border, marginBottom: Spacing.md },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
   categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },

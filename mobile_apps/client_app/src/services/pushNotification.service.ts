@@ -12,7 +12,7 @@ const configureAndroidChannel = async (): Promise<void> => {
   if (Platform.OS !== 'android') return;
 
   await Notifications.setNotificationChannelAsync('default', {
-    name: 'Paddy updates',
+    name: 'Padi updates',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#B8FF3D',

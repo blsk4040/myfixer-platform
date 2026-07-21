@@ -261,7 +261,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
           <MapPin color={Colors.primary} size={28} />
           <Text style={styles.mapFallbackTitle}>Live map unavailable in this runtime</Text>
           <Text style={styles.mapFallbackBody}>
-            Rebuild and launch the Paddy dev app to load native MapLibre tracking.
+            Rebuild and launch the Padi dev app to load native MapLibre tracking.
           </Text>
         </View>
       )}
@@ -290,7 +290,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
             <Text style={styles.providerName}>{technician?.name || (technicianLocation ? `Assigned ${providerRole.capitalized}` : `Securing nearest ${providerRole.singular}`)}</Text>
             <View style={styles.verificationBadgeRow}>
               <ShieldCheck color={Colors.primary} size={14} />
-              <Text style={styles.verificationText}>Verified Paddy Pro</Text>
+              <Text style={styles.verificationText}>Verified Padi Pro</Text>
             </View>
           </View>
         </View>

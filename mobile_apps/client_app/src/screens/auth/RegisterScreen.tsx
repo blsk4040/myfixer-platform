@@ -189,7 +189,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
     try {
       const GoogleSignin = await loadGoogleSignin();
       if (!GoogleSignin) {
-        throw new Error('Google Sign-In native module is not available in this runtime. Rebuild and launch the Paddy dev app, not Expo Go.');
+        throw new Error('Google Sign-In native module is not available in this runtime. Rebuild and launch the Padi dev app, not Expo Go.');
       }
 
       await GoogleSignin.hasPlayServices({

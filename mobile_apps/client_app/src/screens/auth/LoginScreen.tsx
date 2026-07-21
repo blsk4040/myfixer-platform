@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { LockKeyhole, Mail } from 'lucide-react-native';
+import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, ShieldCheck, Sparkles } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Colors, IconSizes, Radius, Shadows, Spacing, Typography } from '../../theme';
@@ -23,7 +23,7 @@ import { assertConfiguredUrl, getApiBaseUrl } from '../../config/runtime.config'
 import { BRAND } from '../../config/brand';
 import { isExpoGoRuntime } from '../../config/runtimeEnvironment';
 
-const brandLogo = require('../../assets/logo/56 PM.png');
+const brandLogo = require('../../assets/logo/final_2_logo.png');
 
 type GoogleSigninModule = typeof import('@react-native-google-signin/google-signin')['GoogleSignin'];
 
@@ -42,6 +42,8 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState<boolean>(false);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
 
   // Configuration check using webClientId as specified
   const isGoogleConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
@@ -184,20 +186,42 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoidingView}>
         <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
           <View style={styles.brandContainer}>
-            <Image
-              source={brandLogo}
-              style={styles.brandLogo}
-              resizeMode="contain"
-              accessible
-              accessibilityLabel={`${BRAND.displayName} logo`}
-            />
+            <View style={styles.logoFrame}>
+              <Image
+                source={brandLogo}
+                style={styles.brandLogo}
+                resizeMode="contain"
+                accessible
+                accessibilityLabel={`${BRAND.displayName} logo`}
+              />
+            </View>
+            <Text style={styles.kicker}>Trusted home services, on demand</Text>
+            <Text style={styles.heroTitle}>Welcome back</Text>
+            <Text style={styles.heroCopy}>
+              Sign in to book verified providers, track active jobs, and manage your Padi account.
+            </Text>
+            <View style={styles.signalRow}>
+              <View style={styles.signalPill}>
+                <ShieldCheck color={Colors.primary} size={16} />
+                <Text style={styles.signalText}>Verified providers</Text>
+              </View>
+              <View style={styles.signalPill}>
+                <Sparkles color={Colors.amber} size={16} />
+                <Text style={styles.signalText}>Clear pricing</Text>
+              </View>
+            </View>
           </View>
 
           <View style={styles.formContainer}>
+            <View style={styles.formHeader}>
+              <Text style={styles.formTitle}>Sign in</Text>
+              <Text style={styles.formSubtitle}>Use your customer account details.</Text>
+            </View>
+
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address</Text>
-              <View style={styles.inputShell}>
-                <Mail color={Colors.textSubtle} size={IconSizes.md} />
+              <View style={[styles.inputShell, focusedField === 'email' && styles.inputShellFocused]}>
+                <Mail color={focusedField === 'email' ? Colors.primary : Colors.textSubtle} size={IconSizes.md} />
                 <TextInput
                   style={styles.input}
                   placeholder="name@domain.com"
@@ -208,6 +232,8 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
                   textContentType="username"
                   value={email}
                   onChangeText={setEmail}
+                  onFocus={() => setFocusedField('email')}
+                  onBlur={() => setFocusedField(null)}
                   editable={!isLoading && !isGoogleLoading}
                   accessibilityLabel="Email address"
                   returnKeyType="next"
@@ -216,24 +242,40 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Secure Password</Text>
-              <View style={styles.inputShell}>
-                <LockKeyhole color={Colors.textSubtle} size={IconSizes.md} />
+              <Text style={styles.inputLabel}>Password</Text>
+              <View style={[styles.inputShell, focusedField === 'password' && styles.inputShellFocused]}>
+                <LockKeyhole color={focusedField === 'password' ? Colors.primary : Colors.textSubtle} size={IconSizes.md} />
                 <TextInput
                   style={styles.input}
                   placeholder="Enter your password"
                   placeholderTextColor={Colors.textSubtle}
-                  secureTextEntry
+                  secureTextEntry={!isPasswordVisible}
                   autoCapitalize="none"
                   autoComplete="password"
                   textContentType="password"
                   value={password}
                   onChangeText={setPassword}
+                  onFocus={() => setFocusedField('password')}
+                  onBlur={() => setFocusedField(null)}
                   editable={!isLoading && !isGoogleLoading}
                   accessibilityLabel="Password"
                   returnKeyType="done"
                   onSubmitEditing={handleLogin}
                 />
+                <TouchableOpacity
+                  style={styles.visibilityButton}
+                  activeOpacity={0.75}
+                  onPress={() => setIsPasswordVisible((current) => !current)}
+                  disabled={isLoading || isGoogleLoading}
+                  accessibilityRole="button"
+                  accessibilityLabel={isPasswordVisible ? 'Hide password' : 'Show password'}
+                >
+                  {isPasswordVisible ? (
+                    <EyeOff color={Colors.textMuted} size={18} />
+                  ) : (
+                    <Eye color={Colors.textMuted} size={18} />
+                  )}
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -245,7 +287,7 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
               accessibilityRole="button"
               accessibilityLabel="Forgot password"
             >
-              <Text style={styles.forgotText}>Forgot Password?</Text>
+              <Text style={styles.forgotText}>Forgot password?</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -259,22 +301,25 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
               {isLoading ? (
                 <View style={styles.loadingRow}>
                   <ActivityIndicator color={Colors.background} />
-                  <Text style={styles.loginBtnText}>Signing In</Text>
+                  <Text style={styles.loginBtnText}>Signing in</Text>
                 </View>
               ) : (
-                <Text style={styles.loginBtnText}>Sign In</Text>
+                <View style={styles.buttonContent}>
+                  <Text style={styles.loginBtnText}>Sign in</Text>
+                  <ArrowRight color={Colors.background} size={18} />
+                </View>
               )}
             </TouchableOpacity>
 
             <View style={styles.socialDivider}>
               <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
+              <Text style={styles.dividerText}>or continue with</Text>
               <View style={styles.dividerLine} />
             </View>
 
             <TouchableOpacity
               style={[
-                styles.googleButton, 
+                styles.googleButton,
                 (isLoading || isGoogleLoading || !isGoogleConfigured) && styles.googleButtonDisabled
               ]}
               activeOpacity={0.86}
@@ -290,22 +335,24 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
                   <View style={styles.googleIconWrap}>
                     <Text style={styles.googleIconText}>G</Text>
                   </View>
-                  <Text style={styles.googleButtonText}>Continue with Google</Text>
+                  <Text style={styles.googleButtonText}>Google</Text>
                 </>
               )}
             </TouchableOpacity>
           </View>
 
-          <View style={styles.footerRow}>
-            <Text style={styles.footerText}>New to the platform? </Text>
+          <View style={styles.footerCard}>
+            <Text style={styles.footerText}>New to Padi?</Text>
             <TouchableOpacity
-              activeOpacity={0.7}
+              style={styles.registerButton}
+              activeOpacity={0.78}
               onPress={() => navigation.navigate('Register')}
               disabled={isLoading || isGoogleLoading}
               accessibilityRole="button"
               accessibilityLabel="Create account"
             >
-              <Text style={styles.registerText}>Create Account</Text>
+              <Text style={styles.registerText}>Create account</Text>
+              <ArrowRight color={Colors.primary} size={16} />
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -320,24 +367,97 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
     paddingHorizontal: Spacing.xxl,
-    paddingVertical: Spacing.xxxl,
+    paddingTop: Spacing.xxxl,
+    paddingBottom: Spacing.huge,
     justifyContent: 'center',
   },
-  brandContainer: { alignItems: 'center', marginBottom: Spacing.huge },
+  brandContainer: {
+    alignItems: 'center',
+    marginBottom: Spacing.xxxl,
+  },
+  logoFrame: {
+    width: '100%',
+    maxWidth: 250,
+    height: 104,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.xl,
+  },
   brandLogo: {
     width: '100%',
-    maxWidth: 320,
-    height: 164,
+    height: '100%',
+  },
+  kicker: {
+    color: Colors.primary,
+    fontSize: Typography.caption.fontSize,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0,
     marginBottom: Spacing.sm,
+  },
+  heroTitle: {
+    color: Colors.white,
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  heroCopy: {
+    color: Colors.textMuted,
+    fontSize: Typography.body.fontSize,
+    lineHeight: 22,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginTop: Spacing.md,
+    maxWidth: 330,
+  },
+  signalRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginTop: Spacing.xl,
+  },
+  signalPill: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: Colors.borderStrong,
+    backgroundColor: Colors.surface,
+  },
+  signalText: {
+    color: Colors.text,
+    fontSize: Typography.caption.fontSize,
+    fontWeight: '700',
   },
   formContainer: {
     width: '100%',
-    padding: Spacing.lg,
+    maxWidth: 460,
+    alignSelf: 'center',
+    padding: Spacing.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.lg,
+    borderColor: Colors.borderStrong,
+    borderRadius: Radius.xl,
     backgroundColor: Colors.card,
     ...Shadows.card,
+  },
+  formHeader: {
+    marginBottom: Spacing.xl,
+  },
+  formTitle: {
+    color: Colors.white,
+    fontSize: Typography.title.fontSize,
+    fontWeight: '900',
+  },
+  formSubtitle: {
+    color: Colors.textSubtle,
+    fontSize: Typography.label.fontSize,
+    fontWeight: '600',
+    marginTop: Spacing.xs,
   },
   inputGroup: { width: '100%', marginBottom: Spacing.lg },
   inputLabel: {
@@ -347,15 +467,19 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   inputShell: {
-    minHeight: 54,
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.input,
     paddingHorizontal: Spacing.lg,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.border,
+  },
+  inputShellFocused: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.surfaceRaised,
   },
   input: {
     flex: 1,
@@ -364,20 +488,28 @@ const styles = StyleSheet.create({
     fontWeight: Typography.body.fontWeight,
     paddingVertical: Platform.OS === 'ios' ? Spacing.lg : Spacing.md,
   },
+  visibilityButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radius.pill,
+  },
   forgotBtn: { alignSelf: 'flex-end', paddingVertical: Spacing.sm },
-  forgotText: { color: Colors.textMuted, fontSize: Typography.label.fontSize, fontWeight: '600' },
+  forgotText: { color: Colors.textMuted, fontSize: Typography.label.fontSize, fontWeight: '700' },
   loginBtn: {
-    minHeight: 54,
+    minHeight: 58,
     backgroundColor: Colors.primary,
     padding: Spacing.lg,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: Spacing.xl,
   },
   loginBtnDisabled: { backgroundColor: Colors.primaryPressed, opacity: 0.7 },
   loadingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  loginBtnText: { color: Colors.background, fontSize: Typography.body.fontSize, fontWeight: '800' },
+  buttonContent: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  loginBtnText: { color: Colors.background, fontSize: Typography.body.fontSize, fontWeight: '900' },
   socialDivider: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -387,11 +519,11 @@ const styles = StyleSheet.create({
   dividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
   dividerText: { color: Colors.textSubtle, fontSize: Typography.caption.fontSize, fontWeight: '700' },
   googleButton: {
-    minHeight: 54,
+    minHeight: 56,
     backgroundColor: Colors.white,
     borderColor: Colors.border,
     borderWidth: 1,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -409,14 +541,28 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
   },
   googleIconText: { color: '#4285F4', fontSize: 16, fontWeight: '900' },
-  googleButtonText: { color: '#111827', fontSize: Typography.body.fontSize, fontWeight: '800' },
-  footerRow: {
+  googleButtonText: { color: '#111827', fontSize: Typography.body.fontSize, fontWeight: '900' },
+  footerCard: {
+    width: '100%',
+    maxWidth: 460,
+    alignSelf: 'center',
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: Spacing.xxxl,
-    flexWrap: 'wrap',
+    gap: Spacing.md,
+    marginTop: Spacing.xl,
+    padding: Spacing.lg,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
   },
-  footerText: { color: Colors.textSubtle, fontSize: Typography.label.fontSize },
-  registerText: { color: Colors.primary, fontSize: Typography.label.fontSize, fontWeight: '700' },
+  footerText: { color: Colors.textMuted, fontSize: Typography.label.fontSize, fontWeight: '700' },
+  registerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    flexShrink: 0,
+  },
+  registerText: { color: Colors.primary, fontSize: Typography.label.fontSize, fontWeight: '900' },
 });

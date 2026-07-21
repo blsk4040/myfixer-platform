@@ -4,10 +4,10 @@
   "private": true,
   "main": "expo/AppEntry",
   "scripts": {
-    "start": "node ../../config/run-with-platform-env.js expo start --offline",
-    "android": "node ../../config/run-with-platform-env.js expo start --offline --android",
-    "ios": "node ../../config/run-with-platform-env.js expo start --offline --ios",
-    "web": "node ../../config/run-with-platform-env.js expo start --offline --web",
+    "start": "node ../../config/run-with-platform-env.js expo start",
+    "android": "node ../../config/run-with-platform-env.js expo start --android",
+    "ios": "node ../../config/run-with-platform-env.js expo start --ios",
+    "web": "node ../../config/run-with-platform-env.js expo start --web",
     "typecheck": "node ../../config/run-with-platform-env.js tsc --noEmit"
   },
   "dependencies": {

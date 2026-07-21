@@ -35,6 +35,9 @@ const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
     AdminPermission.BOOKINGS_READ,
     AdminPermission.TECHNICIANS_READ,
     AdminPermission.CLIENTS_CONTACT_READ,
+    AdminPermission.SUPPORT_READ,
+    AdminPermission.SUPPORT_REPLY,
+    AdminPermission.SUPPORT_UPDATE,
   ],
   [AdminRole.TECHNICIAN_REVIEWER]: [
     AdminPermission.OVERVIEW_READ,
@@ -59,44 +62,64 @@ const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
   ],
 };
 
-export const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
+export const authenticateToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const authHeader = req.headers.authorization;
   const secret = process.env.JWT_SECRET;
 
   if (!secret) {
-    return res.status(500).json({ message: 'JWT secret is not configured' });
+    res.status(500).json({ message: 'JWT secret is not configured' });
+    return;
   }
 
   if (!authHeader) {
-    return res.status(401).json({ message: 'No token provided' });
+    res.status(401).json({ message: 'No token provided' });
+    return;
   }
 
   const [scheme, token] = authHeader.split(' ');
   if (scheme !== 'Bearer' || !token) {
-    return res.status(401).json({ message: 'Invalid authorization header' });
+    res.status(401).json({ message: 'Invalid authorization header' });
+    return;
   }
 
   try {
     const decoded = jwt.verify(token, secret);
     if (!decoded || typeof decoded !== 'object') {
-      return res.status(403).json({ message: 'Invalid token' });
+      res.status(403).json({ message: 'Invalid token' });
+      return;
     }
 
-    const payload = decoded as jwt.JwtPayload & { id?: string; _id?: string; email?: string; role?: string };
+    const payload = decoded as jwt.JwtPayload & { id?: string; _id?: string; email?: string; role?: string; tokenVersion?: number };
     const userId = payload._id ?? payload.id;
     if (!userId) {
-      return res.status(403).json({ message: 'Invalid token payload' });
+      res.status(403).json({ message: 'Invalid token payload' });
+      return;
+    }
+
+    const user = await User.findById(userId).select('role isActive accountStatus +refreshTokenVersion');
+    if (!user || user.isActive === false) {
+      res.status(403).json({ message: 'This account session is no longer active.' });
+      return;
+    }
+
+    const currentTokenVersion = Number(user.refreshTokenVersion || 0);
+    const presentedTokenVersion = Number.isFinite(Number(payload.tokenVersion))
+      ? Number(payload.tokenVersion)
+      : 0;
+    if (presentedTokenVersion !== currentTokenVersion) {
+      res.status(401).json({ message: 'This session has expired. Please sign in again.' });
+      return;
     }
 
     (req as any).user = {
       ...payload,
       id: userId,
       _id: userId,
-      role: normalizeUserRole(payload.role),
+      role: normalizeUserRole(user.role || payload.role),
     };
     next();
   } catch (err) {
-    return res.status(403).json({ message: 'Invalid token' });
+    res.status(403).json({ message: 'Invalid token' });
   }
 };
 

@@ -83,7 +83,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
     const handleQuote = (quote: JobQuote) => setPendingQuote(quote);
     const handlePaymentSecured = () => {
       setPaymentStatus('SECURED');
-      Alert.alert('Payment confirmed', 'Paddy verified the payment with Paystack. The provider can now begin work.');
+      Alert.alert('Payment confirmed', 'Padi verified the payment with Paystack. The provider can now begin work.');
       setPendingQuote(null);
     };
     const handlePaymentFailed = () => setPaymentStatus('FAILED');
@@ -166,7 +166,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
         });
         setPaymentStatus(initialized.payment.status);
         await Linking.openURL(initialized.payment.authorizationUrl);
-        Alert.alert('Paystack checkout opened', 'Payment is confirmed only after Paddy verifies it with Paystack.');
+        Alert.alert('Secure checkout opened', 'Padi will confirm the payment before work continues.');
       } else {
         await apiService.rejectJobQuote(pendingQuote.id, 'Client rejected the quote in the app.');
         Alert.alert('Quote Rejected', `The ${resolvedProviderRole.singular} has been notified.`);
@@ -199,7 +199,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
       setIsCompletionActionLoading(true);
       await apiService.confirmCompletion(trackingId, `completion-confirm:${trackingId}`);
       setCompletionPending(false);
-      Alert.alert('Completion confirmed', 'Thanks. The provider earning is now eligible for Paddy review and admin-approved payout.');
+      Alert.alert('Completion confirmed', 'Thanks. The provider earning is now eligible for Padi review and admin-approved payout.');
     } catch (error: any) {
       Alert.alert('Completion Error', error.message || 'Could not confirm completion.');
     } finally {
@@ -213,7 +213,7 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
       setIsCompletionActionLoading(true);
       await apiService.reportCompletionIssue(trackingId, 'Customer reported an issue from the tracking screen.');
       setCompletionPending(false);
-      Alert.alert('Issue reported', 'Paddy has been notified. Provider payout will remain on hold while this is reviewed.');
+      Alert.alert('Issue reported', 'Padi has been notified. Provider payout will remain on hold while this is reviewed.');
     } catch (error: any) {
       Alert.alert('Issue Error', error.message || 'Could not report this issue.');
     } finally {
@@ -340,9 +340,9 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
       <Modal visible={!!pendingQuote} animationType="slide" transparent onRequestClose={() => setPendingQuote(null)}>
         <View style={styles.quoteModalOverlay}>
           <View style={styles.quoteModalContent}>
-            <Text style={styles.quoteTitle}>Approve Work Order {pendingQuote?.version ? `v${pendingQuote.version}` : ''}</Text>
+            <Text style={styles.quoteTitle}>Approve Work Order {pendingQuote?.quoteNumber || (pendingQuote?.version ? `v${pendingQuote.version}` : '')}</Text>
             <Text style={styles.quoteSubtitle}>Review the {resolvedProviderRole.singular}'s quote before work continues.</Text>
-            <Text style={styles.quoteWarning}>Only pay through Paddy. Payments made outside the app may not qualify for refunds, dispute support, invoices or service guarantees.</Text>
+            <Text style={styles.quoteWarning}>Padi keeps quote approval, checkout, invoices and support together for this booking.</Text>
             <Text style={styles.paymentStatusText}>Payment status: {paymentStatusLabel}</Text>
 
             <View style={styles.quoteLineList}>

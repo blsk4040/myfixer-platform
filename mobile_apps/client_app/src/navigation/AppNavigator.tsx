@@ -31,6 +31,7 @@ import NotificationInboxScreen, { NotificationAlertsScreen } from '../screens/no
 import SubscriptionDashboardScreen from '../screens/subscriptions/SubscriptionDashboardScreen';
 import { AddressesScreen } from '../screens/profile/AddressesScreen';
 import { SecurityScreen } from '../screens/profile/SecurityScreen';
+import { SupportScreen } from '../screens/profile/SupportScreen';
 import apiService from '../services/api.service';
 import authService from '../services/auth.service';
 import { Colors } from '../theme';
@@ -76,6 +77,7 @@ export type RootStackParamList = {
   };
   Addresses: undefined;
   Security: undefined;
+  Support: undefined;
 };
 
 export type TabParamList = {
@@ -375,6 +377,14 @@ export function AppNavigator(): React.JSX.Element {
             component={SecurityScreen}
             options={{
               title: 'Security',
+            }}
+          />
+
+          <Stack.Screen
+            name="Support"
+            component={SupportScreen}
+            options={{
+              title: 'Help & Support',
             }}
           />
         </Stack.Navigator>

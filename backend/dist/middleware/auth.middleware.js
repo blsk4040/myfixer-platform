@@ -72,6 +72,9 @@ const ADMIN_ROLE_PERMISSIONS = {
         user_model_1.AdminPermission.BOOKINGS_READ,
         user_model_1.AdminPermission.TECHNICIANS_READ,
         user_model_1.AdminPermission.CLIENTS_CONTACT_READ,
+        user_model_1.AdminPermission.SUPPORT_READ,
+        user_model_1.AdminPermission.SUPPORT_REPLY,
+        user_model_1.AdminPermission.SUPPORT_UPDATE,
     ],
     [user_model_1.AdminRole.TECHNICIAN_REVIEWER]: [
         user_model_1.AdminPermission.OVERVIEW_READ,
@@ -95,39 +98,57 @@ const ADMIN_ROLE_PERMISSIONS = {
         user_model_1.AdminPermission.SETTINGS_READ,
     ],
 };
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     const secret = process.env.JWT_SECRET;
     if (!secret) {
-        return res.status(500).json({ message: 'JWT secret is not configured' });
+        res.status(500).json({ message: 'JWT secret is not configured' });
+        return;
     }
     if (!authHeader) {
-        return res.status(401).json({ message: 'No token provided' });
+        res.status(401).json({ message: 'No token provided' });
+        return;
     }
     const [scheme, token] = authHeader.split(' ');
     if (scheme !== 'Bearer' || !token) {
-        return res.status(401).json({ message: 'Invalid authorization header' });
+        res.status(401).json({ message: 'Invalid authorization header' });
+        return;
     }
     try {
         const decoded = jsonwebtoken_1.default.verify(token, secret);
         if (!decoded || typeof decoded !== 'object') {
-            return res.status(403).json({ message: 'Invalid token' });
+            res.status(403).json({ message: 'Invalid token' });
+            return;
         }
         const payload = decoded;
         const userId = payload._id ?? payload.id;
         if (!userId) {
-            return res.status(403).json({ message: 'Invalid token payload' });
+            res.status(403).json({ message: 'Invalid token payload' });
+            return;
+        }
+        const user = await user_model_1.default.findById(userId).select('role isActive accountStatus +refreshTokenVersion');
+        if (!user || user.isActive === false) {
+            res.status(403).json({ message: 'This account session is no longer active.' });
+            return;
+        }
+        const currentTokenVersion = Number(user.refreshTokenVersion || 0);
+        const presentedTokenVersion = Number.isFinite(Number(payload.tokenVersion))
+            ? Number(payload.tokenVersion)
+            : 0;
+        if (presentedTokenVersion !== currentTokenVersion) {
+            res.status(401).json({ message: 'This session has expired. Please sign in again.' });
+            return;
         }
         req.user = {
             ...payload,
             id: userId,
             _id: userId,
-            role: (0, user_model_1.normalizeUserRole)(payload.role),
+            role: (0, user_model_1.normalizeUserRole)(user.role || payload.role),
         };
         next();
     }
     catch (err) {
-        return res.status(403).json({ message: 'Invalid token' });
+        res.status(403).json({ message: 'Invalid token' });
     }
 };
 exports.authenticateToken = authenticateToken;

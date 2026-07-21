@@ -39,6 +39,7 @@ export interface IQuoteLineItem {
 }
 
 export interface IJobQuote extends Document {
+  quoteNumber: string;
   bookingId: mongoose.Types.ObjectId;
   customerId: mongoose.Types.ObjectId;
   technicianId: mongoose.Types.ObjectId;
@@ -137,6 +138,12 @@ QuoteLineItemSchema.set('toObject', { virtuals: true });
 
 const JobQuoteSchema = new Schema<IJobQuote>(
   {
+    quoteNumber: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
     bookingId: {
       type: Schema.Types.ObjectId,
       ref: 'Booking',
@@ -330,6 +337,10 @@ JobQuoteSchema.index({ customerId: 1, status: 1 });
 JobQuoteSchema.index({ technicianId: 1, status: 1 });
 JobQuoteSchema.index({ status: 1, createdAt: -1 });
 JobQuoteSchema.index({ expiresAt: 1, status: 1 });
+JobQuoteSchema.index(
+  { quoteNumber: 1 },
+  { unique: true, partialFilterExpression: { quoteNumber: { $type: 'string', $ne: '' } } }
+);
 
 export const JobQuote =
   (mongoose.models.JobQuote as mongoose.Model<IJobQuote> | undefined) ??

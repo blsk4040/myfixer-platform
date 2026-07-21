@@ -76,7 +76,7 @@ export function ActivityScreen({ navigation }: any): React.JSX.Element {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.emptyContent}>
         <View style={styles.brandPill}>
           <ShieldCheckIcon color={Colors.primary} size={16} />

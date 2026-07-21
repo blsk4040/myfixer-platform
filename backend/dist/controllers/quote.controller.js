@@ -50,8 +50,10 @@ const getUserId = (request) => String(getAuthUser(request)?.id ?? getAuthUser(re
 const isOwnerOrAdmin = (booking, userId, role) => role === user_model_1.UserRole.ADMIN || String(booking.customerId) === userId;
 const isAssignedTechnicianOrAdmin = (booking, userId, role) => role === user_model_1.UserRole.ADMIN || String(booking.technicianId || '') === userId;
 const isQuoteSubmittedStatus = (status) => [quote_model_1.QuoteStatus.SUBMITTED, quote_model_1.QuoteStatus.SENT_TO_CLIENT].includes(status);
+const buildQuoteNumber = (quoteId, version) => `Q-PADI-${new Date().getFullYear()}-${quoteId.toString().slice(-6).toUpperCase()}-V${Math.max(1, Math.round(version || 1))}`;
 const serializeQuote = (quote) => ({
     id: quote._id?.toString?.() ?? quote.id,
+    quoteNumber: quote.quoteNumber || (quote._id ? buildQuoteNumber(quote._id, Number(quote.version || 1)) : ''),
     bookingId: quote.bookingId?.toString?.() ?? quote.bookingId,
     customerId: quote.customerId?.toString?.() ?? quote.customerId,
     technicianId: quote.technicianId?.toString?.() ?? quote.technicianId,
@@ -158,7 +160,10 @@ const createJobQuote = async (request, response) => {
         const totals = (0, quote_workflow_service_1.calculateQuoteTotals)(Array.isArray(body.lineItems) ? body.lineItems : [], booking.currency);
         const now = new Date();
         const status = shouldSubmit ? quote_model_1.QuoteStatus.SUBMITTED : quote_model_1.QuoteStatus.DRAFT;
+        const quoteId = new mongoose_1.default.Types.ObjectId();
         const quote = await quote_model_1.default.create({
+            _id: quoteId,
+            quoteNumber: buildQuoteNumber(quoteId, version),
             bookingId: booking._id,
             customerId: booking.customerId,
             technicianId: booking.technicianId,
@@ -209,8 +214,15 @@ const createJobQuote = async (request, response) => {
                 channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
                 type: 'QUOTE_SUBMITTED',
                 title: 'Quote ready for review',
-                message: `Review the MyFixer quote for ${booking.applianceType}. Only pay through MyFixer.`,
-                metadata: { bookingId: booking.id, quoteId: quote.id, version: quote.version },
+                message: `Review the Padi quote for ${booking.applianceType}. Only pay through Padi.`,
+                metadata: {
+                    feed: 'inbox',
+                    documentType: 'QUOTE',
+                    bookingId: booking.id,
+                    quoteId: quote.id,
+                    quoteNumber: quote.quoteNumber,
+                    version: quote.version,
+                },
             });
         }
         await (0, audit_service_1.logAuditEvent)(request, {
@@ -261,6 +273,7 @@ const submitJobQuote = async (request, response) => {
         }
         const now = new Date();
         quote.status = quote_model_1.QuoteStatus.SUBMITTED;
+        quote.quoteNumber = quote.quoteNumber || buildQuoteNumber(quote._id, Number(quote.version || 1));
         quote.sentAt = now;
         quote.submittedAt = now;
         quote.submittedBy = new mongoose_1.default.Types.ObjectId(userId);
@@ -277,6 +290,21 @@ const submitJobQuote = async (request, response) => {
         booking.set('workAuthorization.evaluatedAt', now);
         await booking.save();
         emitQuoteEvent(request, quote.version > 1 ? 'quote_revised' : 'quote_submitted', quote);
+        await (0, notification_service_1.createNotifications)({
+            userId: booking.customerId,
+            channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
+            type: 'QUOTE_SUBMITTED',
+            title: 'Quote ready for review',
+            message: `Review the Padi quote for ${booking.applianceType}. Only pay through Padi.`,
+            metadata: {
+                feed: 'inbox',
+                documentType: 'QUOTE',
+                bookingId: booking.id,
+                quoteId: quote.id,
+                quoteNumber: quote.quoteNumber || buildQuoteNumber(quote._id, Number(quote.version || 1)),
+                version: quote.version,
+            },
+        });
         response.status(200).json({ success: true, quote: serializeQuote(quote) });
     }
     catch (error) {
@@ -376,7 +404,14 @@ const decideJobQuote = async (request, response, decision) => {
         message: decision === quote_model_1.QuoteStatus.APPROVED
             ? 'The client approved the quote. Payment is still required before work can begin.'
             : 'The client rejected the quote. Create a revision if appropriate.',
-        metadata: { bookingId: booking.id, quoteId: updated.id, version: updated.version },
+        metadata: {
+            feed: 'inbox',
+            documentType: 'QUOTE',
+            bookingId: booking.id,
+            quoteId: updated.id,
+            quoteNumber: updated.quoteNumber || buildQuoteNumber(updated._id, Number(updated.version || 1)),
+            version: updated.version,
+        },
     });
     await (0, audit_service_1.logAuditEvent)(request, {
         action: decision === quote_model_1.QuoteStatus.APPROVED ? 'quote.approved' : 'quote.rejected',
@@ -443,7 +478,14 @@ const requestQuoteClarification = async (request, response) => {
         type: 'QUOTE_CLARIFICATION_REQUESTED',
         title: 'Client requested clarification',
         message: 'The client requested clarification. Create a revised quote instead of editing the submitted quote.',
-        metadata: { bookingId: booking.id, quoteId: updated.id, version: updated.version },
+        metadata: {
+            feed: 'inbox',
+            documentType: 'QUOTE',
+            bookingId: booking.id,
+            quoteId: updated.id,
+            quoteNumber: updated.quoteNumber || buildQuoteNumber(updated._id, Number(updated.version || 1)),
+            version: updated.version,
+        },
     });
     await (0, audit_service_1.logAuditEvent)(request, {
         action: 'quote.clarification_requested',

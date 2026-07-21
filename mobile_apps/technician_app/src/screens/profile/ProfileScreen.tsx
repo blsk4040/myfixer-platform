@@ -48,7 +48,7 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
   const totalCompletedCount = Math.max(technicianIdentity.stats.completedJobs, completedJobs.length);
   const currentRating = technicianIdentity.stats.reviewCount > 0 && technicianIdentity.stats.averageRating !== null
     ? technicianIdentity.stats.averageRating.toFixed(1)
-    : 'New';
+    : '0.0';
   const serviceCategories = technicianIdentity.serviceCategories.length
     ? technicianIdentity.serviceCategories.map(formatServiceCategory)
     : ['No service categories set'];
@@ -169,6 +169,20 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
             onPress={() => navigation.navigate('BankingInvoice')}
           >
             <Text style={styles.menuItemText}>Banking Details & Tax Invoices</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => navigation.navigate('Security')}
+          >
+            <Text style={styles.menuItemText}>Security</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => navigation.navigate('Support')}
+          >
+            <Text style={styles.menuItemText}>Help & Support</Text>
           </TouchableOpacity>
         </View>
 

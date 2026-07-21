@@ -186,6 +186,7 @@ export interface BookingHistoryItem {
 
 export interface JobQuote {
   id: string;
+  quoteNumber?: string;
   bookingId: string;
   currency: CurrencyCode;
   status: string;
@@ -410,6 +411,73 @@ export interface NotificationInboxResponse {
   unreadCount: number;
 }
 
+export type SupportTicketStatus = 'OPEN' | 'PENDING' | 'RESOLVED';
+
+export interface SupportTicket {
+  id: string;
+  ticketNumber: string;
+  requesterId: string;
+  requesterType: 'CUSTOMER' | 'TECHNICIAN';
+  bookingId?: string | null;
+  subject: string;
+  category: string;
+  status: SupportTicketStatus;
+  priority: 'NORMAL' | 'HIGH' | 'URGENT';
+  assignedAgentId?: string | null;
+  lastMessageAt?: string | null;
+  resolvedAt?: string | null;
+  triage?: {
+    issueType?: string;
+    bookingReference?: string;
+    suggestedFixesViewed?: string[];
+    handoffReason?: string;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupportMessage {
+  id: string;
+  ticketId: string;
+  senderId?: string | null;
+  senderType: 'CUSTOMER' | 'TECHNICIAN' | 'AGENT' | 'SYSTEM';
+  messageType: 'TEXT' | 'SYSTEM';
+  text: string;
+  internal: boolean;
+  createdAt: string;
+}
+
+export interface SecuritySummaryResponse {
+  success: boolean;
+  security: {
+    email: string;
+    emailVerified: boolean;
+    phoneVerified: boolean;
+    lastLoginAt?: string | null;
+    lastPasswordChangeAt?: string | null;
+    tokenVersion: number;
+    currentDevice: {
+      label: string;
+      userAgent?: string;
+    };
+    recentEvents: Array<{
+      id: string;
+      action: string;
+      success: boolean;
+      createdAt: string;
+      device?: string;
+    }>;
+  };
+}
+
+export interface SecuritySessionResponse {
+  success?: boolean;
+  status?: string;
+  message: string;
+  token?: string;
+  user?: AuthSession['user'];
+}
+
 export interface ManagedCollectionSubscriptionPlan {
   _id: string;
   name: string;
@@ -579,6 +647,57 @@ class ApiService {
 
   getNotifications(): Promise<NotificationInboxResponse> {
     return this.request<NotificationInboxResponse>('/notifications');
+  }
+
+  getSupportTickets(): Promise<{ success: boolean; tickets: SupportTicket[] }> {
+    return this.request('/support/tickets');
+  }
+
+  createSupportTicket(payload: {
+    subject: string;
+    message: string;
+    category?: string;
+    bookingId?: string;
+    triage?: {
+      issueType?: string;
+      bookingReference?: string;
+      suggestedFixesViewed?: string[];
+      handoffReason?: string;
+    };
+  }): Promise<{ success: boolean; ticket: SupportTicket; message: SupportMessage }> {
+    return this.request('/support/tickets', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  getSupportTicketMessages(ticketId: string): Promise<{ success: boolean; ticket: SupportTicket; messages: SupportMessage[] }> {
+    return this.request(`/support/tickets/${encodeURIComponent(ticketId)}/messages`);
+  }
+
+  sendSupportMessage(ticketId: string, text: string): Promise<{ success: boolean; ticket: SupportTicket; message: SupportMessage }> {
+    return this.request(`/support/tickets/${encodeURIComponent(ticketId)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ message: text }),
+    });
+  }
+
+  getSecuritySummary(): Promise<SecuritySummaryResponse> {
+    return this.request<SecuritySummaryResponse>('/auth/security');
+  }
+
+  changePassword(payload: { currentPassword: string; newPassword: string }): Promise<SecuritySessionResponse> {
+    return this.request<SecuritySessionResponse>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  signOutOtherSessions(): Promise<SecuritySessionResponse> {
+    return this.request<SecuritySessionResponse>('/auth/sign-out-other-sessions', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
   }
 
   updateNotification(id: string, action: 'MARK_READ' | 'MARK_UNREAD' | 'ARCHIVE'): Promise<{

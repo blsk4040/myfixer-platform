@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAdminAuditLogs = exports.updateAdminPromotion = exports.archiveAdminPromotion = exports.endAdminPromotion = exports.pauseAdminPromotion = exports.activateAdminPromotion = exports.duplicateAdminPromotion = exports.getAdminPromotionAudit = exports.getAdminPromotionRedemptions = exports.getAdminPromotionPerformance = exports.getAdminPromotionById = exports.createAdminPromotion = exports.getAdminPromotionsSummary = exports.listAdminPromotions = exports.updateAdminUser = exports.createAdminUser = exports.listAdminUsers = exports.deleteAdminMarketArea = exports.updateAdminMarketArea = exports.createAdminMarketArea = exports.deleteAdminMarketCity = exports.updateAdminMarketCity = exports.createAdminMarketCity = exports.deleteAdminMarket = exports.updateAdminMarket = exports.getPublicMarketAvailability = exports.getPublicMarkets = exports.previewAdminPricing = exports.getPublicServices = exports.updateAdminService = exports.deleteAdminBookableService = exports.deleteAdminServiceCategory = exports.deleteAdminServiceGroup = exports.updateAdminServiceGroup = exports.createAdminService = exports.uploadAdminServiceImage = exports.getAdminServices = exports.getAdminMarkets = exports.getAdminWalletTransactions = exports.getAdminInvoices = exports.getAdminQuotes = exports.updateTechnicianCapabilityStatus = exports.getAdminBookingById = exports.getAdminBookings = exports.revealAdminClientContact = exports.getAdminClients = exports.getAdminOverview = exports.buildPromotionAnalyticsSummary = exports.promotionMaterialFieldsChanged = void 0;
+exports.clearAdminAuditLogs = exports.getAdminAuditLogs = exports.updateAdminPromotion = exports.archiveAdminPromotion = exports.endAdminPromotion = exports.pauseAdminPromotion = exports.activateAdminPromotion = exports.duplicateAdminPromotion = exports.getAdminPromotionAudit = exports.getAdminPromotionRedemptions = exports.getAdminPromotionPerformance = exports.getAdminPromotionById = exports.createAdminPromotion = exports.getAdminPromotionsSummary = exports.listAdminPromotions = exports.updateAdminUser = exports.createAdminUser = exports.listAdminUsers = exports.deleteAdminMarketArea = exports.updateAdminMarketArea = exports.createAdminMarketArea = exports.deleteAdminMarketCity = exports.updateAdminMarketCity = exports.createAdminMarketCity = exports.deleteAdminMarket = exports.updateAdminMarket = exports.getPublicMarketAvailability = exports.getPublicMarkets = exports.previewAdminPricing = exports.getPublicServices = exports.updateAdminService = exports.deleteAdminBookableService = exports.deleteAdminServiceCategory = exports.deleteAdminServiceGroup = exports.updateAdminServiceGroup = exports.createAdminService = exports.uploadAdminServiceImage = exports.getAdminServices = exports.getAdminMarkets = exports.getAdminWalletTransactions = exports.getAdminInvoices = exports.getAdminQuotes = exports.updateTechnicianCapabilityStatus = exports.getAdminBookingById = exports.getAdminBookings = exports.revealAdminClientContact = exports.getAdminClients = exports.getAdminOverview = exports.buildPromotionAnalyticsSummary = exports.promotionMaterialFieldsChanged = void 0;
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const crypto_1 = __importDefault(require("crypto"));
 const mongoose_1 = __importDefault(require("mongoose"));
@@ -363,6 +363,13 @@ const normalizePromotionPayload = (body) => {
 const normalizeServiceStatus = (value) => Object.values(service_catalog_model_1.ServicePublicationStatus).includes(value)
     ? value
     : service_catalog_model_1.ServicePublicationStatus.DRAFT;
+const normalizeServiceBillingModel = (value) => Object.values(service_catalog_model_1.ServiceBillingModel).includes(value)
+    ? value
+    : service_catalog_model_1.ServiceBillingModel.ON_DEMAND;
+const normalizeSubscriptionCadences = (value) => (Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [])
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter((item) => Object.values(service_catalog_model_1.ServiceSubscriptionCadence).includes(item))
+    .filter((item, index, values) => values.indexOf(item) === index);
 const normalizeMarketStatusValue = (value, fallback = market_setting_model_1.MarketStatus.ACTIVE) => Object.values(market_setting_model_1.MarketStatus).includes(value) ? value : fallback;
 const MAX_SERVICE_PRICE_MINOR = 100_000_000;
 const MAX_SERVICE_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -437,6 +444,8 @@ const normalizeServiceSubcategories = (value) => Array.isArray(value)
         const stableServiceKey = (0, service_availability_service_1.normalizeServiceKey)(record.serviceKey ?? subcategoryKey);
         const calloutFeeMinor = minorFromInput(record.calloutFeeMinor, record.calloutFee);
         const minimumChargeMinor = minorFromInput(record.minimumChargeMinor, record.minimumCharge);
+        const billingModel = normalizeServiceBillingModel(record.billingModel);
+        const subscriptionEligible = billingModel === service_catalog_model_1.ServiceBillingModel.SUBSCRIPTION || record.subscriptionEligible === true;
         return {
             subcategoryKey,
             serviceKey: stableServiceKey || subcategoryKey,
@@ -456,6 +465,10 @@ const normalizeServiceSubcategories = (value) => Array.isArray(value)
             fixedPriceSupported: record.fixedPriceSupported === true,
             requiresCapabilityApproval: record.requiresCapabilityApproval === undefined ? true : record.requiresCapabilityApproval === true,
             capabilityRequirements: normalizeCapabilityRequirements(record.capabilityRequirements),
+            billingModel,
+            subscriptionEligible,
+            subscriptionCadences: subscriptionEligible ? normalizeSubscriptionCadences(record.subscriptionCadences) : [],
+            subscriptionNotes: subscriptionEligible ? String(record.subscriptionNotes || '').trim().slice(0, 800) : '',
             ...(calloutFeeMinor !== undefined ? { calloutFeeMinor } : {}),
             ...(minimumChargeMinor !== undefined ? { minimumChargeMinor } : {}),
         };
@@ -2970,6 +2983,10 @@ const updateAdminPromotion = async (req, res) => {
 exports.updateAdminPromotion = updateAdminPromotion;
 const getAdminAuditLogs = async (req, res) => {
     try {
+        if (!await isSuperAdmin(req)) {
+            res.status(403).json({ success: false, message: 'Only a super admin can view audit logs.' });
+            return;
+        }
         const logs = await audit_log_model_1.default.find()
             .sort({ createdAt: -1 })
             .limit(parseLimit(req.query.limit, 100));
@@ -2980,4 +2997,25 @@ const getAdminAuditLogs = async (req, res) => {
     }
 };
 exports.getAdminAuditLogs = getAdminAuditLogs;
+const clearAdminAuditLogs = async (req, res) => {
+    try {
+        if (!await isSuperAdmin(req)) {
+            res.status(403).json({ success: false, message: 'Only a super admin can clear audit logs.' });
+            return;
+        }
+        const beforeCount = await audit_log_model_1.default.countDocuments();
+        await audit_log_model_1.default.deleteMany({});
+        await logAdminAction(req, 'audit_logs.clear', 'AuditLog', 'all', { deletedCount: beforeCount });
+        res.status(200).json({
+            success: true,
+            message: 'Audit logs were cleared.',
+            deletedCount: beforeCount,
+        });
+    }
+    catch (error) {
+        console.error('Audit log clear failed:', error);
+        res.status(500).json({ success: false, message: 'Failed to clear audit logs.' });
+    }
+};
+exports.clearAdminAuditLogs = clearAdminAuditLogs;
 //# sourceMappingURL=admin.controller.js.map

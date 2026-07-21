@@ -146,6 +146,17 @@ const startServer = async () => {
   }
 };
 
+httpServer.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${port} is already in use. Stop the existing local backend process or set PORT to a free port before starting again.`);
+    console.error(`   Windows check: netstat -ano | findstr :${port}`);
+    console.error(`   Windows stop:  taskkill /PID <PID> /F`);
+  } else {
+    console.error('❌ HTTP server failed to start:', error);
+  }
+  void mongoose.disconnect().finally(() => process.exit(1));
+});
+
 process.on('SIGINT', () => {
   void shutdown('SIGINT');
 });

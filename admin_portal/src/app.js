@@ -115,6 +115,12 @@ const state = {
     message: '',
     error: '',
   },
+  supportDesk: {
+    selectedTicketId: '',
+    statusFilter: '',
+    message: '',
+    error: '',
+  },
   collectionOperationFilters: {
     countryCode: '',
     city: '',
@@ -146,6 +152,8 @@ const state = {
       meta: {},
     },
     notifications: [],
+    supportTickets: [],
+    supportMessages: [],
     notificationCounts: [],
     notificationMeta: {
       statuses: [],
@@ -198,10 +206,11 @@ const views = [
   { id: 'clients', label: 'Clients', icon: 'C', permission: 'overview.read' },
   { id: 'technicians', label: 'Technicians', icon: 'T', permission: 'technicians.read' },
   { id: 'bookings', label: 'Bookings', icon: 'B', permission: 'bookings.read' },
-  { id: 'managedCollections', label: 'Managed Collection', icon: 'M', permission: 'bookings.read' },
-  { id: 'collectionOperations', label: 'Collection Operations', icon: 'C', permission: 'bookings.read' },
+  { id: 'managedCollections', label: 'Recurring Customers', icon: 'R', permission: 'bookings.read' },
+  { id: 'collectionOperations', label: 'Recurring Operations', icon: 'O', permission: 'bookings.read' },
   { id: 'notifications', label: 'Notifications', icon: 'N', permission: 'bookings.read' },
-  { id: 'subscriptions', label: 'Subscriptions', icon: 'R', permission: 'finance.read' },
+  { id: 'support', label: 'Support', icon: 'S', permission: 'support.read' },
+  { id: 'subscriptions', label: 'Recurring Services', icon: 'S', permission: 'finance.read' },
   { id: 'quotes', label: 'Quotes', icon: 'Q', permission: 'bookings.read' },
   { id: 'invoices', label: 'Invoices', icon: '$', permission: 'finance.read' },
   { id: 'settlements', label: 'Settlements', icon: 'P', permission: 'finance.read' },
@@ -210,7 +219,7 @@ const views = [
   { id: 'adminUsers', label: 'Users', icon: 'A', permission: 'admins.read' },
   { id: 'services', label: 'Services', icon: 'S', permission: 'markets.read' },
   { id: 'settings', label: 'Markets', icon: 'S', permission: 'markets.read' },
-  { id: 'auditLogs', label: 'Audit Logs', icon: 'H', permission: 'admins.read' },
+  { id: 'auditLogs', label: 'Audit Logs', icon: 'H', permission: 'super_admin' },
 ];
 
 const app = document.getElementById('app');
@@ -220,7 +229,7 @@ const rolePermissions = {
   OPERATIONS_MANAGER: ['overview.read', 'bookings.read', 'bookings.update', 'technicians.read', 'clients.contact.read', 'settings.read'],
   DISPATCHER: ['overview.read', 'bookings.read', 'bookings.update'],
   FINANCE_ADMIN: ['overview.read', 'finance.read', 'promotions.read', 'promotions.create', 'promotions.update', 'promotions.activate', 'promotions.pause', 'promotions.archive', 'promotions.performance.read', 'promotions.redemptions.read', 'settings.read'],
-  SUPPORT_AGENT: ['overview.read', 'bookings.read', 'technicians.read', 'clients.contact.read'],
+  SUPPORT_AGENT: ['support.read', 'support.reply', 'support.update'],
   TECHNICIAN_REVIEWER: ['overview.read', 'technicians.read', 'technicians.review'],
   MARKET_MANAGER: ['overview.read', 'markets.read', 'markets.update', 'settings.read'],
   READ_ONLY_ADMIN: ['overview.read', 'bookings.read', 'technicians.read', 'finance.read', 'promotions.read', 'markets.read', 'admins.read', 'settings.read'],
@@ -299,9 +308,14 @@ const TIMEZONE_ALIASES = {
 
 function hasPermission(permission) {
   if (!permission) return true;
+  if (permission === 'super_admin') return state.user?.adminRole === 'SUPER_ADMIN';
   const adminRole = state.user?.adminRole || 'READ_ONLY_ADMIN';
   const permissions = new Set([...(rolePermissions[adminRole] || []), ...(state.user?.adminPermissions || [])]);
   return permissions.has('*') || permissions.has(permission);
+}
+
+function isSuperAdminUser() {
+  return state.user?.adminRole === 'SUPER_ADMIN';
 }
 
 function visibleViews() {
@@ -1001,6 +1015,7 @@ async function loadAllData() {
       managedCollections: hasPermission('bookings.read') ? api('/admin/managed-collections') : Promise.resolve({ profiles: [], reminders: [] }),
       collectionOperations: hasPermission('bookings.read') ? api(`/admin/collection-operations${queryStringFrom(state.collectionOperationFilters)}`) : Promise.resolve({ jobs: [], metrics: {}, calendar: {}, meta: {} }),
       notifications: hasPermission('bookings.read') ? api(`/admin/notifications${queryStringFrom(state.notificationFilters)}`) : Promise.resolve({ notifications: [], counts: [], meta: {} }),
+      supportTickets: hasPermission('support.read') ? api(`/admin/support/tickets${queryStringFrom({ status: state.supportDesk.statusFilter })}`) : Promise.resolve({ tickets: [] }),
       subscriptions: hasPermission('finance.read') ? api('/admin/managed-collection-subscriptions') : Promise.resolve({ plans: [], subscriptions: [], invoices: [], reports: {}, meta: {} }),
       quotes: hasPermission('bookings.read') ? api('/admin/quotes?limit=100') : Promise.resolve({ quotes: [] }),
       invoices: hasPermission('finance.read') ? api('/admin/invoices?limit=100') : Promise.resolve({ invoices: [] }),
@@ -1011,10 +1026,10 @@ async function loadAllData() {
       markets: hasPermission('markets.read') ? api('/admin/markets') : Promise.resolve({ markets: [], availableStatuses: [], availablePaymentProviders: [], defaultServiceCategories: [], availableMarkets: [] }),
       services: hasPermission('markets.read') ? api('/admin/services') : Promise.resolve({ services: [], statuses: [] }),
       adminUsers: hasPermission('admins.read') ? api('/admin/users') : Promise.resolve({ admins: [], roles: [], permissionsByRole: {} }),
-      auditLogs: hasPermission('admins.read') ? api('/admin/audit-logs?limit=100') : Promise.resolve({ logs: [] }),
+      auditLogs: isSuperAdminUser() ? api('/admin/audit-logs?limit=100') : Promise.resolve({ logs: [] }),
     };
 
-    const [overview, clients, technicians, bookings, managedCollections, collectionOperations, notifications, subscriptions, quotes, invoices, settlements, promotions, promotionSummary, ledger, markets, services, adminUsers, auditLogs] = await Promise.all(Object.values(requests));
+    const [overview, clients, technicians, bookings, managedCollections, collectionOperations, notifications, supportTickets, subscriptions, quotes, invoices, settlements, promotions, promotionSummary, ledger, markets, services, adminUsers, auditLogs] = await Promise.all(Object.values(requests));
 
     state.data.overview = overview.overview;
     state.data.clients = clients.clients || [];
@@ -1030,6 +1045,11 @@ async function loadAllData() {
       meta: collectionOperations.meta || {},
     };
     state.data.notifications = notifications.notifications || [];
+    state.data.supportTickets = supportTickets.tickets || [];
+    if (state.supportDesk.selectedTicketId && !state.data.supportTickets.some((ticket) => ticket.id === state.supportDesk.selectedTicketId)) {
+      state.supportDesk.selectedTicketId = '';
+      state.data.supportMessages = [];
+    }
     state.data.notificationCounts = notifications.counts || [];
     state.data.notificationMeta = {
       statuses: notifications.meta?.statuses || [],
@@ -1464,6 +1484,7 @@ function renderActiveView() {
   if (state.activeView === 'managedCollections') return renderManagedCollections();
   if (state.activeView === 'collectionOperations') return renderCollectionOperations();
   if (state.activeView === 'notifications') return renderNotifications();
+  if (state.activeView === 'support') return renderSupportDesk();
   if (state.activeView === 'subscriptions') return renderSubscriptions();
   if (state.activeView === 'quotes') return renderQuotes();
   if (state.activeView === 'invoices') return renderInvoices();
@@ -2179,18 +2200,18 @@ function remindersForProfile(profileId) {
 
 async function updateCollectionJob(id, action, extra = {}) {
   if (!canMutate('bookings.update')) {
-    alert('You do not have permission to manage collection operations.');
+    alert('You do not have permission to manage recurring service operations.');
     return;
   }
 
   const labels = {
-    MARK_COMPLETED: 'mark this collection completed',
-    MARK_MISSED: 'mark this collection missed',
-    RESCHEDULE: 'reschedule this collection',
-    CANCEL: 'cancel this collection',
+    MARK_COMPLETED: 'mark this recurring visit completed',
+    MARK_MISSED: 'mark this recurring visit missed',
+    RESCHEDULE: 'reschedule this recurring visit',
+    CANCEL: 'cancel this recurring visit',
   };
 
-  if (!confirm(`Confirm you want to ${labels[action] || 'update this collection'}?`)) return;
+  if (!confirm(`Confirm you want to ${labels[action] || 'update this recurring visit'}?`)) return;
 
   try {
     await api(`/admin/collection-jobs/${id}`, {
@@ -2209,14 +2230,14 @@ function markCollectionCompleted(id) {
 }
 
 function markCollectionMissed(id) {
-  const missedReason = prompt('Reason this collection was missed?') || '';
+  const missedReason = prompt('Reason this recurring visit was missed?') || '';
   if (!missedReason.trim()) return;
   const notes = prompt('Additional notes (optional):') || '';
   updateCollectionJob(id, 'MARK_MISSED', { missedReason, notes });
 }
 
 function rescheduleCollectionJob(id) {
-  const scheduledFor = prompt('New collection date/time (YYYY-MM-DDTHH:mm):');
+  const scheduledFor = prompt('New recurring visit date/time (YYYY-MM-DDTHH:mm):');
   if (!scheduledFor) return;
   const notes = prompt('Reschedule notes (optional):') || '';
   updateCollectionJob(id, 'RESCHEDULE', { scheduledFor, notes });
@@ -2278,7 +2299,7 @@ function renderCollectionJobActions(job, canUpdate) {
 }
 
 function renderCollectionJobTable(rows, canUpdate) {
-  return renderGenericTable(rows, ['Customer', 'Location', 'Schedule', 'Collection', 'Status', 'Actions'], (job) => [
+  return renderGenericTable(rows, ['Customer', 'Location', 'Schedule', 'Service', 'Status', 'Actions'], (job) => [
     `<strong>${escapeHtml(job.customerName || 'Client')}</strong><span>${escapeHtml(job.customerEmail || '-')}</span>`,
     `${escapeHtml(job.city || '-')}<span>${escapeHtml(job.area || job.fullAddress || '')}</span>`,
     `${formatDate(job.scheduledFor)}<span>${escapeHtml(job.preferredCollectionDay || '-')}</span>`,
@@ -2321,7 +2342,7 @@ function renderCollectionOperations() {
 
   return `
     <section class="panel">
-      <div class="panel-header"><div><h2>Filters</h2><span>Country, city, area, collection type, status, and preferred day.</span></div></div>
+      <div class="panel-header"><div><h2>Filters</h2><span>Country, city, area, recurring service type, status, and preferred day.</span></div></div>
       <form class="settings-form" onsubmit="applyCollectionOperationFilters(event)">
         <div class="form-grid">
           <div>
@@ -2337,7 +2358,7 @@ function renderCollectionOperations() {
             <input name="area" value="${escapeHtml(filters.area || '')}" placeholder="Neighbourhood" />
           </div>
           <div>
-            <label>Collection Type</label>
+            <label>Service Type</label>
             <select name="collectionType">
               <option value="">All</option>
               ${(meta.collectionTypes || ['GENERAL_WASTE']).map((type) => `<option value="${type}" ${filters.collectionType === type ? 'selected' : ''}>${type}</option>`).join('')}
@@ -2373,11 +2394,11 @@ function renderCollectionOperations() {
       `).join('')}
     </div>
     <section class="panel">
-      <div class="panel-header"><div><h2>Today's Collections</h2><span>${todayJobs.length} scheduled</span></div></div>
+      <div class="panel-header"><div><h2>Today's Recurring Visits</h2><span>${todayJobs.length} scheduled</span></div></div>
       ${renderCollectionJobTable(todayJobs, canUpdate)}
     </section>
     <section class="panel">
-      <div class="panel-header"><div><h2>Tomorrow's Collections</h2><span>${tomorrowJobs.length} scheduled</span></div></div>
+      <div class="panel-header"><div><h2>Tomorrow's Recurring Visits</h2><span>${tomorrowJobs.length} scheduled</span></div></div>
       ${renderCollectionJobTable(tomorrowJobs, canUpdate)}
     </section>
     <section class="panel">
@@ -2389,15 +2410,15 @@ function renderCollectionOperations() {
       ${renderCollectionJobTable([...overdueJobs, ...jobs.filter((job) => job.status === 'MISSED')], canUpdate)}
     </section>
     <section class="panel">
-      <div class="panel-header"><div><h2>Monthly Calendar</h2><span>${monthJobs.length} collections</span></div></div>
+      <div class="panel-header"><div><h2>Monthly Calendar</h2><span>${monthJobs.length} recurring visits</span></div></div>
       ${renderCollectionJobTable(monthJobs, canUpdate)}
     </section>
     <section class="panel">
-      <div class="panel-header"><div><h2>Upcoming Collections</h2><span>${upcomingJobs.length} scheduled</span></div></div>
+      <div class="panel-header"><div><h2>Upcoming Recurring Visits</h2><span>${upcomingJobs.length} scheduled</span></div></div>
       ${renderCollectionJobTable(upcomingJobs.slice(0, 100), canUpdate)}
     </section>
     <section class="panel">
-      <div class="panel-header"><div><h2>Completed Collections</h2><span>${completedJobs.length} records</span></div></div>
+      <div class="panel-header"><div><h2>Completed Recurring Visits</h2><span>${completedJobs.length} records</span></div></div>
       ${renderCollectionJobTable(completedJobs.slice(0, 100), canUpdate)}
     </section>
   `;
@@ -2469,16 +2490,17 @@ async function cancelNotification(id) {
   }
 }
 
-async function sendClientNotification(event) {
+async function sendBroadcastNotification(event) {
   event.preventDefault();
   if (!canMutate('bookings.update')) {
-    alert('You do not have permission to send client notifications.');
+    alert('You do not have permission to send broadcasts.');
     return;
   }
 
   const form = new FormData(event.currentTarget);
   const payload = {
     audience: String(form.get('audience') || 'CLIENTS').trim(),
+    feed: String(form.get('feed') || 'ALERTS').trim(),
     title: String(form.get('title') || '').trim(),
     message: String(form.get('message') || '').trim(),
   };
@@ -2495,10 +2517,385 @@ async function sendClientNotification(event) {
     });
     event.currentTarget.reset();
     await refresh();
-    alert('Client alert broadcast sent.');
+    alert(`${payload.feed === 'INBOX' ? 'Inbox' : 'Alert'} broadcast sent.`);
   } catch (error) {
     alert(error.message);
   }
+}
+
+async function applySupportFilter(status = '') {
+  state.supportDesk.statusFilter = String(status || '').trim();
+  state.supportDesk.selectedTicketId = '';
+  state.data.supportMessages = [];
+  await refresh();
+}
+
+async function selectSupportTicket(ticketId) {
+  state.supportDesk.selectedTicketId = ticketId;
+  state.supportDesk.message = '';
+  state.supportDesk.error = '';
+  await loadSupportTicketMessages(ticketId);
+  render();
+}
+
+async function loadSupportTicketMessages(ticketId = state.supportDesk.selectedTicketId) {
+  if (!ticketId) {
+    state.data.supportMessages = [];
+    return;
+  }
+  try {
+    const result = await api(`/admin/support/tickets/${encodeURIComponent(ticketId)}/messages`);
+    state.data.supportMessages = result.messages || [];
+    const ticket = result.ticket;
+    if (ticket) {
+      state.data.supportTickets = (state.data.supportTickets || []).map((item) => item.id === ticket.id ? { ...item, ...ticket } : item);
+    }
+  } catch (error) {
+    state.supportDesk.error = error.message;
+  }
+}
+
+async function sendSupportReply(event) {
+  event.preventDefault();
+  if (!canMutate('support.reply')) {
+    alert('You do not have permission to reply to support tickets.');
+    return;
+  }
+  const ticketId = state.supportDesk.selectedTicketId;
+  if (!ticketId) return;
+  const form = new FormData(event.currentTarget);
+  const message = String(form.get('message') || '').trim();
+  const internal = form.get('internal') === 'on';
+  if (!message) {
+    alert('Enter a support reply.');
+    return;
+  }
+  try {
+    await api(`/admin/support/tickets/${encodeURIComponent(ticketId)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ message, internal }),
+    });
+    state.supportDesk.message = internal ? 'Internal note saved.' : 'Reply sent to the client.';
+    event.currentTarget.reset();
+    await loadAllData();
+    await loadSupportTicketMessages(ticketId);
+    render();
+  } catch (error) {
+    state.supportDesk.error = error.message;
+    render();
+  }
+}
+
+async function updateSupportTicketStatus(ticketId, status) {
+  if (!canMutate('support.update')) {
+    alert('You do not have permission to update support tickets.');
+    return;
+  }
+  try {
+    const result = await api(`/admin/support/tickets/${encodeURIComponent(ticketId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+    state.supportDesk.message = `Ticket marked ${status.toLowerCase()}.`;
+    state.data.supportTickets = (state.data.supportTickets || []).map((ticket) => ticket.id === result.ticket.id ? { ...ticket, ...result.ticket } : ticket);
+    await loadSupportTicketMessages(ticketId);
+    render();
+  } catch (error) {
+    state.supportDesk.error = error.message;
+    render();
+  }
+}
+
+async function updateSupportTicketPriority(ticketId, priority) {
+  if (!canMutate('support.update')) {
+    alert('You do not have permission to update support tickets.');
+    return;
+  }
+  try {
+    const result = await api(`/admin/support/tickets/${encodeURIComponent(ticketId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ priority }),
+    });
+    state.supportDesk.message = `Priority changed to ${priority.toLowerCase()}.`;
+    state.data.supportTickets = (state.data.supportTickets || []).map((ticket) => ticket.id === result.ticket.id ? { ...ticket, ...result.ticket } : ticket);
+    await loadSupportTicketMessages(ticketId);
+    render();
+  } catch (error) {
+    state.supportDesk.error = error.message;
+    render();
+  }
+}
+
+async function escalateSupportTicket(ticketId) {
+  if (!canMutate('support.update')) {
+    alert('You do not have permission to escalate support tickets.');
+    return;
+  }
+  const reason = prompt('Why should this ticket be escalated to a support lead?', 'Needs support lead review');
+  if (reason === null) return;
+  try {
+    const result = await api(`/admin/support/tickets/${encodeURIComponent(ticketId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ escalateToLead: true, escalationReason: reason }),
+    });
+    state.supportDesk.message = 'Ticket escalated to support lead.';
+    state.data.supportTickets = (state.data.supportTickets || []).map((ticket) => ticket.id === result.ticket.id ? { ...ticket, ...result.ticket } : ticket);
+    await loadSupportTicketMessages(ticketId);
+    render();
+  } catch (error) {
+    state.supportDesk.error = error.message;
+    render();
+  }
+}
+
+async function assignSupportTicketToMe(ticketId) {
+  if (!canMutate('support.update')) {
+    alert('You do not have permission to assign support tickets.');
+    return;
+  }
+  try {
+    const result = await api(`/admin/support/tickets/${encodeURIComponent(ticketId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ assignedAgentId: state.user?.id || state.user?._id || '' }),
+    });
+    state.supportDesk.message = 'Ticket assigned to you.';
+    state.data.supportTickets = (state.data.supportTickets || []).map((ticket) => ticket.id === result.ticket.id ? { ...ticket, ...result.ticket } : ticket);
+    render();
+  } catch (error) {
+    state.supportDesk.error = error.message;
+    render();
+  }
+}
+
+function supportStatusBadge(status) {
+  const normalized = String(status || 'OPEN').toUpperCase();
+  const tone = normalized === 'RESOLVED' ? 'good' : normalized === 'PENDING' ? 'warn' : 'info';
+  return `<span class="status ${tone}">${escapeHtml(normalized)}</span>`;
+}
+
+function supportPriorityBadge(priority) {
+  const normalized = String(priority || 'NORMAL').toUpperCase();
+  const tone = normalized === 'URGENT' ? 'bad' : normalized === 'HIGH' ? 'warn' : 'info';
+  return `<span class="status ${tone}">${escapeHtml(normalized)}</span>`;
+}
+
+function supportSlaSummary(ticket) {
+  const sla = ticket?.sla || {};
+  if (ticket?.status === 'RESOLVED') return 'Resolved';
+  if (!sla.firstResponseAt && sla.firstResponseDueAt) {
+    return `${sla.firstResponseOverdue ? 'First response overdue' : 'First response due'}: ${formatDate(sla.firstResponseDueAt)}`;
+  }
+  if (sla.nextResponseDueAt) {
+    return `${sla.nextResponseOverdue ? 'Next response overdue' : 'Next response due'}: ${formatDate(sla.nextResponseDueAt)}`;
+  }
+  if (sla.firstResponseAt) return `First response sent: ${formatDate(sla.firstResponseAt)}`;
+  return 'SLA not started';
+}
+
+function supportSlaTone(ticket) {
+  const sla = ticket?.sla || {};
+  if (ticket?.status === 'RESOLVED') return 'good';
+  if (sla.firstResponseOverdue || sla.nextResponseOverdue) return 'bad';
+  if (ticket?.priority === 'URGENT' || ticket?.escalationStatus === 'ESCALATED') return 'warn';
+  return 'info';
+}
+
+function renderSupportMessage(message) {
+  const senderType = String(message.senderType || '').toUpperCase();
+  const mine = senderType === 'AGENT';
+  const internal = message.internal === true;
+  const author = internal ? 'Internal note' : senderType === 'CUSTOMER' ? 'Client' : senderType === 'TECHNICIAN' ? 'Padi Pro' : senderType === 'AGENT' ? 'Support Agent' : 'System';
+  return `
+    <article class="support-message ${mine ? 'agent' : 'requester'} ${internal ? 'internal' : ''}">
+      <div class="support-message-meta">
+        <strong>${escapeHtml(author)}</strong>
+        <span>${formatDate(message.createdAt)}</span>
+      </div>
+      <p>${escapeHtml(message.text || '')}</p>
+    </article>
+  `;
+}
+
+function renderSupportDesk() {
+  const tickets = state.data.supportTickets || [];
+  const selected = tickets.find((ticket) => ticket.id === state.supportDesk.selectedTicketId) || tickets[0] || null;
+  if (selected && !state.supportDesk.selectedTicketId) state.supportDesk.selectedTicketId = selected.id;
+  const messages = state.data.supportMessages || [];
+  const counts = tickets.reduce((acc, ticket) => {
+    const status = String(ticket.status || 'OPEN').toUpperCase();
+    acc[status] = (acc[status] || 0) + 1;
+    if (ticket.escalationStatus === 'ESCALATED') acc.ESCALATED = (acc.ESCALATED || 0) + 1;
+    if (ticket.sla?.firstResponseOverdue || ticket.sla?.nextResponseOverdue) acc.OVERDUE = (acc.OVERDUE || 0) + 1;
+    if (ticket.priority === 'URGENT') acc.URGENT = (acc.URGENT || 0) + 1;
+    return acc;
+  }, {});
+  const currentFilter = state.supportDesk.statusFilter || '';
+  const canReply = canMutate('support.reply');
+  const canUpdate = canMutate('support.update');
+  const requester = selected?.requester || {};
+  const booking = selected?.booking || null;
+  const triage = selected?.triage || {};
+  const triageSuggestions = Array.isArray(triage.suggestedFixesViewed) ? triage.suggestedFixesViewed : [];
+
+  return `
+    <section class="support-desk">
+      <div class="support-desk-header">
+        <div>
+          <span class="eyebrow">Support Desk</span>
+          <h2>Client and Padi Pro conversations</h2>
+          <p>Agents can reply, assign and resolve support tickets with limited customer, provider and booking context.</p>
+        </div>
+        <button class="ghost-button compact" type="button" onclick="refresh()">Refresh</button>
+      </div>
+      <div class="support-metric-grid">
+        <article>
+          <span>Open</span>
+          <strong>${counts.OPEN || 0}</strong>
+          <small>Needs attention</small>
+        </article>
+        <article>
+          <span>Pending</span>
+          <strong>${counts.PENDING || 0}</strong>
+          <small>Waiting on Padi</small>
+        </article>
+        <article class="${counts.OVERDUE ? 'urgent' : ''}">
+          <span>SLA Risk</span>
+          <strong>${counts.OVERDUE || 0}</strong>
+          <small>${counts.URGENT || 0} urgent</small>
+        </article>
+        <article class="${counts.ESCALATED ? 'warn' : ''}">
+          <span>Escalated</span>
+          <strong>${counts.ESCALATED || 0}</strong>
+          <small>Lead review</small>
+        </article>
+      </div>
+      ${state.supportDesk.message ? `<div class="notice success">${escapeHtml(state.supportDesk.message)}</div>` : ''}
+      ${state.supportDesk.error ? `<div class="notice error">${escapeHtml(state.supportDesk.error)}</div>` : ''}
+      <div class="support-filter-row">
+        ${['', 'OPEN', 'PENDING', 'RESOLVED'].map((status) => {
+          const label = status || 'ALL';
+          const active = currentFilter === status;
+          const count = status ? counts[status] || 0 : tickets.length;
+          return `<button class="support-filter ${active ? 'active' : ''}" type="button" onclick="applySupportFilter('${status}')">${label}<span>${count}</span></button>`;
+        }).join('')}
+      </div>
+      <div class="support-desk-grid">
+        <section class="support-ticket-list" aria-label="Support tickets">
+          <div class="support-panel-header">
+            <h3>Tickets</h3>
+            <span>${tickets.length} shown</span>
+          </div>
+          <div class="support-scroll">
+            ${tickets.length ? tickets.map((ticket) => `
+              <button class="support-ticket-card ${selected?.id === ticket.id ? 'selected' : ''}" type="button" onclick="selectSupportTicket('${escapeHtml(ticket.id)}')">
+                <div class="support-ticket-topline">
+                  <span>${escapeHtml(ticket.ticketNumber || 'Support ticket')}</span>
+                  <em>${formatDate(ticket.lastMessageAt || ticket.updatedAt)}</em>
+                </div>
+                <strong>${escapeHtml(ticket.subject || 'Untitled support request')}</strong>
+                <small>${escapeHtml(ticket.requester?.name || ticket.requesterType || 'Requester')} / ${escapeHtml(ticket.category || 'GENERAL')}</small>
+                <div class="support-ticket-badges">
+                  ${supportStatusBadge(ticket.status)}
+                  ${supportPriorityBadge(ticket.priority)}
+                  ${ticket.escalationStatus === 'ESCALATED' ? '<span class="status warn">ESCALATED</span>' : ''}
+                </div>
+                <small class="support-sla-line ${supportSlaTone(ticket)}">${escapeHtml(supportSlaSummary(ticket))}</small>
+              </button>
+            `).join('') : renderEmpty('No support tickets match this view.', 'No tickets')}
+          </div>
+        </section>
+        <section class="support-conversation" aria-label="Support conversation">
+          ${selected ? `
+            <div class="support-conversation-hero">
+              <div class="support-avatar">${escapeHtml((requester.name || selected.requesterType || 'S').slice(0, 1).toUpperCase())}</div>
+              <div class="support-conversation-copy">
+                <span>${escapeHtml(selected.ticketNumber || selected.id)} / ${escapeHtml(selected.category || 'GENERAL')}</span>
+                <h3>${escapeHtml(selected.subject || 'Support ticket')}</h3>
+                <small class="${supportSlaTone(selected)}">${escapeHtml(supportSlaSummary(selected))}</small>
+              </div>
+              <div class="support-ticket-badges">
+                ${supportStatusBadge(selected.status)}
+                ${supportPriorityBadge(selected.priority)}
+                ${selected.escalationStatus === 'ESCALATED' ? '<span class="status warn">ESCALATED</span>' : ''}
+              </div>
+            </div>
+            <div class="support-context-grid">
+              <article>
+                <span>Requester</span>
+                <strong>${escapeHtml(requester.name || selected.requesterType || 'Requester')}</strong>
+                <small>${escapeHtml(requester.email || '')}</small>
+                <small>${escapeHtml([requester.role || selected.requesterType, requester.city, requester.countryCode].filter(Boolean).join(' / '))}</small>
+              </article>
+              <article>
+                <span>Booking Context</span>
+                ${booking ? `
+                  <strong>${escapeHtml(booking.service || 'Linked booking')}</strong>
+                  <small>${escapeHtml(booking.status || '')} / ${escapeHtml([booking.city, booking.countryCode].filter(Boolean).join(', '))}</small>
+                  <small>${escapeHtml(booking.id || '')}</small>
+                ` : `
+                  <strong>No linked booking</strong>
+                  <small>Support-only conversation</small>
+                `}
+              </article>
+              <article>
+                <span>Ownership</span>
+                <strong>${selected.assignedAgentId ? 'Assigned' : 'Unassigned'}</strong>
+                <small>${escapeHtml(selected.assignedAgentId || 'No agent assigned yet')}</small>
+              </article>
+              <article>
+                <span>SLA</span>
+                <strong>${escapeHtml(selected.sla?.firstResponseAt ? 'Responded' : selected.sla?.firstResponseOverdue ? 'Overdue' : 'On clock')}</strong>
+                <small>${escapeHtml(supportSlaSummary(selected))}</small>
+                <small>${selected.escalatedAt ? `Escalated: ${escapeHtml(formatDate(selected.escalatedAt))}` : 'Not escalated'}</small>
+              </article>
+              <article>
+                <span>Bot Triage</span>
+                <strong>${escapeHtml(triage.issueType || selected.category || 'GENERAL')}</strong>
+                <small>${triage.bookingReference ? `Reference: ${escapeHtml(triage.bookingReference)}` : 'No reference provided'}</small>
+                <small>${escapeHtml(triage.handoffReason || 'Human support requested')}</small>
+              </article>
+            </div>
+            ${triageSuggestions.length ? `
+              <div class="support-triage-note">
+                <strong>Suggested fixes shown</strong>
+                <ul>
+                  ${triageSuggestions.map((suggestion) => `<li>${escapeHtml(suggestion)}</li>`).join('')}
+                </ul>
+              </div>
+            ` : ''}
+            <div class="support-actions">
+              ${canUpdate ? `
+                <label class="support-priority-control">
+                  Priority
+                  <select onchange="updateSupportTicketPriority('${escapeHtml(selected.id)}', this.value)">
+                    ${['NORMAL', 'HIGH', 'URGENT'].map((priority) => `<option value="${priority}" ${selected.priority === priority ? 'selected' : ''}>${priority}</option>`).join('')}
+                  </select>
+                </label>
+              ` : ''}
+              ${canUpdate ? `<button class="ghost-button compact" type="button" onclick="assignSupportTicketToMe('${escapeHtml(selected.id)}')">Assign to Me</button>` : ''}
+              ${canUpdate && selected.escalationStatus !== 'ESCALATED' ? `<button class="ghost-button compact" type="button" onclick="escalateSupportTicket('${escapeHtml(selected.id)}')">Escalate to Lead</button>` : ''}
+              ${canUpdate && selected.status !== 'OPEN' ? `<button class="ghost-button compact" type="button" onclick="updateSupportTicketStatus('${escapeHtml(selected.id)}', 'OPEN')">Reopen</button>` : ''}
+              ${canUpdate && selected.status !== 'PENDING' ? `<button class="ghost-button compact" type="button" onclick="updateSupportTicketStatus('${escapeHtml(selected.id)}', 'PENDING')">Mark Pending</button>` : ''}
+              ${canUpdate && selected.status !== 'RESOLVED' ? `<button class="primary-button compact" type="button" onclick="updateSupportTicketStatus('${escapeHtml(selected.id)}', 'RESOLVED')">Resolve</button>` : ''}
+            </div>
+            <div class="support-message-list">
+              ${messages.length ? messages.map(renderSupportMessage).join('') : renderEmpty('Select this ticket again to load messages.', 'No messages loaded')}
+            </div>
+            ${canReply ? `
+              <form class="support-reply-form" onsubmit="sendSupportReply(event)">
+                <label>Reply</label>
+                <textarea name="message" rows="5" placeholder="Write a clear support reply..." required></textarea>
+                <div class="support-reply-actions">
+                  <label class="support-internal-note"><input type="checkbox" name="internal" /> Internal note only</label>
+                  <button class="primary-button compact" type="submit">Send Reply</button>
+                </div>
+              </form>
+            ` : '<p class="empty"><span>Read-only</span>You can view support tickets, but cannot reply.</p>'}
+          ` : renderEmpty('Support tickets created from the Client App or Padi Pro app will appear here.', 'No support tickets yet')}
+        </section>
+      </div>
+    </section>
+  `;
 }
 
 function renderNotifications() {
@@ -2512,15 +2909,25 @@ function renderNotifications() {
   return `
     <section class="panel notification-hero">
       <div class="panel-header">
-        <div><h2>Notification Center</h2><span>Broadcast alerts go to the app bell. Inbox remains for invoices, quotes, receipts and payment documents.</span></div>
+        <div><h2>Notification Center</h2><span>Route operational alerts to the bell, and document-style updates to Inbox.</span></div>
         ${canUpdate ? '<button class="primary-button compact" onclick="processDueNotifications()">Process Due</button>' : ''}
       </div>
       ${canUpdate ? `
-        <form class="notification-composer" onsubmit="sendClientNotification(event)">
+        <form class="notification-composer" onsubmit="sendBroadcastNotification(event)">
           <div>
-            <span class="eyebrow">Send Broadcast Alert</span>
-            <h3>Broadcast bell notification</h3>
-            <p>Send one in-app alert to the selected audience. It appears under the bell/Alerts, not Inbox.</p>
+            <span class="eyebrow">Broadcast Composer</span>
+            <h3>Send app broadcast</h3>
+            <p>Choose the audience and destination carefully. Alerts appear under the bell. Inbox is for quotes, invoices, receipts, payout records and support history.</p>
+          </div>
+          <div class="notification-route-grid">
+            <article>
+              <strong>Clients</strong>
+              <span>Alerts for booking updates. Inbox for quotes, invoices, receipts and support messages.</span>
+            </article>
+            <article>
+              <strong>Padi Pro</strong>
+              <span>Alerts for job and account notices. Inbox for quotes, invoices, payout notices and statements.</span>
+            </article>
           </div>
           <div class="form-grid">
             <div>
@@ -2532,16 +2939,23 @@ function renderNotifications() {
               </select>
             </div>
             <div>
+              <label>Destination</label>
+              <select name="feed" required>
+                <option value="ALERTS">Bell / Alerts</option>
+                <option value="INBOX">Inbox</option>
+              </select>
+            </div>
+            <div>
               <label>Title</label>
               <input name="title" maxlength="120" placeholder="Short alert title" required />
             </div>
             <div class="span-2">
               <label>Message</label>
-              <textarea name="message" maxlength="600" rows="6" placeholder="Write the client-facing alert" required></textarea>
+              <textarea name="message" maxlength="600" rows="8" placeholder="Write the broadcast message" required></textarea>
             </div>
           </div>
           <div class="review-actions">
-            <button class="primary-button compact" type="submit">Send Alert</button>
+            <button class="primary-button compact" type="submit">Send Broadcast</button>
             <button class="ghost-button compact" type="reset">Clear</button>
           </div>
         </form>
@@ -2603,10 +3017,10 @@ function renderNotifications() {
     </div>
     <section class="panel">
       <div class="panel-header"><h2>Notifications</h2><span>${rows.length} latest</span></div>
-      ${renderGenericTable(rows, ['Recipient', 'Message', 'Channel', 'Status', 'Schedule', 'Actions'], (notification) => [
+      ${renderGenericTable(rows, ['Recipient', 'Message', 'Route', 'Status', 'Schedule', 'Actions'], (notification) => [
         `<strong>${escapeHtml(notification.recipient?.name || 'User')}</strong><span>${escapeHtml(notification.recipient?.email || '-')}</span>`,
         `<strong>${escapeHtml(notification.title || '-')}</strong><span>${escapeHtml(notification.message || '')}</span>`,
-        `${escapeHtml(notification.channel || '-')}<span>${escapeHtml(notification.type || '-')}</span>`,
+        `${escapeHtml(notification.metadata?.feed || 'ALERTS')}<span>${escapeHtml(notification.metadata?.audience || notification.type || '-')} / ${escapeHtml(notification.channel || '-')}</span>`,
         `<span class="status ${statusClass(notification.status)}">${escapeHtml(notification.status || '-')}</span>${notification.lastError ? `<span>${escapeHtml(notification.lastError)}</span>` : ''}`,
         `${formatDate(notification.scheduledAt)}<span>Sent ${formatDate(notification.sentAt)}</span>`,
         canUpdate
@@ -2714,7 +3128,7 @@ function renderSubscriptions() {
     </section>
     <section class="panel">
       <div class="panel-header"><div><h2>Plans</h2><span>${plans.length} configured</span></div></div>
-      ${renderGenericTable(plans, ['Plan', 'Price', 'Billing', 'Collection', 'Status'], (plan) => [
+      ${renderGenericTable(plans, ['Plan', 'Price', 'Billing', 'Service Setup', 'Status'], (plan) => [
         `<strong>${escapeHtml(plan.name || '-')}</strong><span>${escapeHtml(plan.description || '')}</span>`,
         moneyFromMinor(plan.priceMinor, plan.currency),
         `${escapeHtml(plan.billingFrequency || '-')}<span>${escapeHtml(plan.countryCode || '-')}</span>`,
@@ -2724,12 +3138,12 @@ function renderSubscriptions() {
     </section>
     ${canManagePlans ? `
       <section class="panel">
-        <div class="panel-header"><div><h2>Create Plan</h2><span>Managed Collection Services only.</span></div></div>
+        <div class="panel-header"><div><h2>Create Plan</h2><span>Recurring service plans. Collection-specific options remain available for the current service.</span></div></div>
         <form class="settings-form" onsubmit="createSubscriptionPlan(event)">
           <label>Plan Name</label>
-          <input name="name" required placeholder="General Waste Monthly" />
+          <input name="name" required placeholder="Monthly Home Care Plan" />
           <label>Description</label>
-          <input name="description" placeholder="Weekly pickup with red, green, and blue bins" />
+          <input name="description" placeholder="Recurring service plan details" />
           <div class="form-grid">
             <div><label>Country</label><input name="countryCode" required placeholder="ZA" /></div>
             <div><label>Currency</label><input name="currency" required placeholder="ZAR" /></div>
@@ -2739,7 +3153,7 @@ function renderSubscriptions() {
               <select name="billingFrequency">${(meta.billingFrequencies || ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY']).map((item) => `<option value="${item}">${item}</option>`).join('')}</select>
             </div>
             <div>
-              <label>Collection Frequency</label>
+              <label>Service Frequency</label>
               <select name="collectionFrequency">${(meta.collectionFrequencies || ['WEEKLY', 'TWICE_WEEKLY', 'MONTHLY']).map((item) => `<option value="${item}">${item}</option>`).join('')}</select>
             </div>
             <div>
@@ -2748,7 +3162,7 @@ function renderSubscriptions() {
             </div>
           </div>
           <input name="collectionType" type="hidden" value="GENERAL_WASTE" />
-          <label>Bin Package</label>
+          <label>Service Package</label>
           <input name="binPackage" value="RED, GREEN, BLUE" />
           <button class="primary-button compact" type="submit">Create Plan</button>
         </form>
@@ -2773,9 +3187,9 @@ function renderManagedCollections() {
   return `
     <section class="panel">
       <div class="panel-header">
-        <div><h2>Managed Collection Customers</h2><span>${rows.length} signups</span></div>
+        <div><h2>Recurring Service Customers</h2><span>${rows.length} signups</span></div>
       </div>
-      ${renderGenericTable(rows, ['Customer', 'Location', 'Collection', 'Schedule', 'Status', 'Reminders'], (profile) => {
+      ${renderGenericTable(rows, ['Customer', 'Location', 'Service', 'Schedule', 'Status', 'Reminders'], (profile) => {
         const reminders = remindersForProfile(profile._id);
         return [
           `<strong>${escapeHtml(profile.customerName || 'Client')}</strong><span>${escapeHtml(profile.customerEmail || '-')}</span>`,
@@ -2836,7 +3250,8 @@ function renderQuotes() {
   return `
     <section class="panel">
       <div class="panel-header"><h2>Quotes & Work Orders</h2><span>${quotes.length} latest</span></div>
-      ${renderGenericTable(quotes, ['Status', 'Booking', 'Technician', 'Total', 'Sent'], (quote) => [
+      ${renderGenericTable(quotes, ['Quote', 'Status', 'Booking', 'Technician', 'Total', 'Sent'], (quote) => [
+        escapeHtml(quote.quoteNumber || quote._id || '-'),
         `<span class="status ${statusClass(quote.status)}">${escapeHtml(quote.status)}</span>`,
         escapeHtml(quote.bookingId?.applianceType || quote.bookingId || '-'),
         escapeHtml(quote.technicianId?.name || '-'),
@@ -3992,6 +4407,10 @@ function bookableServicesForCategory(serviceKey) {
     calloutFeeMinor: service.calloutFeeMinor ?? category.defaultCalloutFeeMinor,
     status: service.publicationStatus || service.status || category.status || 'DRAFT',
     inspectionRequired: service.inspectionRequired === true,
+    billingModel: service.billingModel || 'ON_DEMAND',
+    subscriptionEligible: service.subscriptionEligible === true || service.billingModel === 'SUBSCRIPTION',
+    subscriptionCadences: Array.isArray(service.subscriptionCadences) ? service.subscriptionCadences : [],
+    subscriptionNotes: service.subscriptionNotes || '',
     imageKey: service.imageKey || '',
     imageUrl: service.imageUrl || '',
     displayOrder: Number.isFinite(Number(service.displayOrder)) ? Number(service.displayOrder) : index,
@@ -4024,7 +4443,7 @@ function renderBookableServiceList(bookableServices) {
           <span class="service-group-card-copy">
             <strong>${escapeHtml(service.label)}</strong>
             <small>${typeof service.calloutFeeMinor === 'number' ? `${moneyFromMinor(service.calloutFeeMinor, currency)} call-out` : 'Call-out fee not set'}</small>
-            <em>${escapeHtml(String(service.status || 'DRAFT').replace('_', ' '))}${service.inspectionRequired ? ' - Inspection required' : ''}</em>
+            <em>${escapeHtml(String(service.status || 'DRAFT').replace('_', ' '))}${service.inspectionRequired ? ' - Inspection required' : ''}${service.subscriptionEligible ? ' - Subscription-ready' : ''}</em>
           </span>
           <span class="service-group-card-arrow" aria-hidden="true">&gt;</span>
         </article>
@@ -4050,6 +4469,15 @@ function renderBookableServiceDrawer(category, bookableService) {
   const descriptionValue = draft.description !== undefined ? draft.description : bookableService?.description || '';
   const calloutFeeValue = draft.calloutFee !== undefined ? draft.calloutFee : minorToDecimal(feeMinor);
   const inspectionRequiredValue = draft.inspectionRequired !== undefined ? draft.inspectionRequired : bookableService?.inspectionRequired === true;
+  const billingModelValue = draft.billingModel !== undefined ? draft.billingModel : bookableService?.billingModel || 'ON_DEMAND';
+  const subscriptionEligibleValue = draft.subscriptionEligible !== undefined
+    ? draft.subscriptionEligible
+    : bookableService?.subscriptionEligible === true || billingModelValue === 'SUBSCRIPTION';
+  const subscriptionCadenceValues = draft.subscriptionCadences !== undefined
+    ? draft.subscriptionCadences
+    : Array.isArray(bookableService?.subscriptionCadences) ? bookableService.subscriptionCadences : [];
+  const subscriptionNotesValue = draft.subscriptionNotes !== undefined ? draft.subscriptionNotes : bookableService?.subscriptionNotes || '';
+  const cadenceOptions = ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'];
 
   return `
     <div class="service-drawer-overlay" onclick="requestCloseBookableServiceDrawer('overlay')"></div>
@@ -4082,6 +4510,35 @@ function renderBookableServiceDrawer(category, bookableService) {
           <input name="inspectionRequired" type="checkbox" ${inspectionRequiredValue ? 'checked' : ''} ${canUpdate ? '' : 'disabled'} />
           Inspection Required
         </label>
+        <div class="service-subscription-metadata">
+          <label>
+            Billing Model
+            <select name="billingModel" ${canUpdate ? '' : 'disabled'}>
+              <option value="ON_DEMAND" ${billingModelValue === 'ON_DEMAND' ? 'selected' : ''}>One-time request</option>
+              <option value="SUBSCRIPTION" ${billingModelValue === 'SUBSCRIPTION' ? 'selected' : ''}>Subscription-ready</option>
+            </select>
+          </label>
+          <label class="checkbox-line">
+            <input name="subscriptionEligible" type="checkbox" ${subscriptionEligibleValue ? 'checked' : ''} ${canUpdate ? '' : 'disabled'} />
+            Supports future subscription plans
+          </label>
+          <div class="service-cadence-options">
+            <span>Future Billing Options</span>
+            <div>
+              ${cadenceOptions.map((cadence) => `
+                <label class="inline-check">
+                  <input name="subscriptionCadences" type="checkbox" value="${cadence}" ${subscriptionCadenceValues.includes(cadence) ? 'checked' : ''} ${canUpdate ? '' : 'disabled'} />
+                  ${cadence.charAt(0) + cadence.slice(1).toLowerCase()}
+                </label>
+              `).join('')}
+            </div>
+          </div>
+          <label>
+            Subscription Notes
+            <textarea name="subscriptionNotes" rows="2" placeholder="Internal setup notes for future subscription plans" ${canUpdate ? '' : 'disabled'}>${escapeHtml(subscriptionNotesValue)}</textarea>
+          </label>
+          <p class="setting-help tight">This is catalogue metadata for future subscription services. It does not change today&apos;s customer booking flow.</p>
+        </div>
         ${!canUpdate ? '<p class="setting-help">Read-only admins can view bookable service details but cannot change them.</p>' : ''}
         ${isEdit && canUpdate ? '<p class="setting-help tight">Delete is allowed only when this bookable service has no bookings, provider capabilities, market references, promotions, waitlists, or operational history.</p>' : ''}
         <div class="button-row">
@@ -4699,6 +5156,10 @@ function captureBookableDraftFromForm() {
     description: String(data.get('description') || ''),
     calloutFee: String(data.get('calloutFee') || ''),
     inspectionRequired: data.get('inspectionRequired') === 'on',
+    billingModel: String(data.get('billingModel') || 'ON_DEMAND'),
+    subscriptionEligible: data.get('subscriptionEligible') === 'on',
+    subscriptionCadences: data.getAll('subscriptionCadences').map((item) => String(item || '').trim()).filter(Boolean),
+    subscriptionNotes: String(data.get('subscriptionNotes') || ''),
   };
 }
 
@@ -4828,12 +5289,22 @@ async function saveBookableService(event, publicationStatus) {
   const description = String(form.get('description') || '').trim();
   const calloutFeeMinor = decimalToMinor(form.get('calloutFee'));
   const inspectionRequired = form.get('inspectionRequired') === 'on';
+  const billingModel = String(form.get('billingModel') || 'ON_DEMAND') === 'SUBSCRIPTION' ? 'SUBSCRIPTION' : 'ON_DEMAND';
+  const subscriptionEligible = billingModel === 'SUBSCRIPTION' || form.get('subscriptionEligible') === 'on';
+  const subscriptionCadences = form.getAll('subscriptionCadences')
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter((item, index, values) => ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'].includes(item) && values.indexOf(item) === index);
+  const subscriptionNotes = String(form.get('subscriptionNotes') || '').trim().slice(0, 800);
   let existingSubcategories = Array.isArray(category?.subcategories) ? category.subcategories : [];
   const draftSnapshot = {
     serviceName,
     description,
     calloutFee: String(form.get('calloutFee') || ''),
     inspectionRequired,
+    billingModel,
+    subscriptionEligible,
+    subscriptionCadences,
+    subscriptionNotes,
   };
   const fail = (message) => {
     state.serviceWorkspace.bookableDraft = draftSnapshot;
@@ -4905,6 +5376,10 @@ async function saveBookableService(event, publicationStatus) {
     searchKeywords: [serviceName, visibleCategory.label].filter(Boolean),
     synonyms: existingBookable?.synonyms || [],
     inspectionRequired,
+    billingModel,
+    subscriptionEligible,
+    subscriptionCadences: subscriptionEligible ? subscriptionCadences : [],
+    subscriptionNotes: subscriptionEligible ? subscriptionNotes : '',
     fixedPriceSupported: existingBookable?.fixedPriceSupported === true,
     requiresCapabilityApproval: existingBookable?.requiresCapabilityApproval === undefined ? true : existingBookable.requiresCapabilityApproval !== false,
     calloutFeeMinor,
@@ -6494,9 +6969,21 @@ async function deleteMarketCountry(countryCode) {
 }
 
 function renderAuditLogs() {
+  if (!isSuperAdminUser()) {
+    return `
+      <section class="panel">
+        <div class="panel-header"><h2>Audit Logs</h2><span>Restricted</span></div>
+        ${renderEmpty('Only a Super Admin can view audit logs.', 'Access restricted')}
+      </section>
+    `;
+  }
+  const canClearAuditLogs = true;
   return `
     <section class="panel">
-      <div class="panel-header"><h2>Audit Logs</h2><span>${state.data.auditLogs.length} latest</span></div>
+      <div class="panel-header">
+        <div><h2>Audit Logs</h2><span>${state.data.auditLogs.length} latest</span></div>
+        ${canClearAuditLogs ? '<button class="danger-button compact" type="button" onclick="clearAuditLogs()">Clear Audit Logs</button>' : ''}
+      </div>
       ${renderGenericTable(state.data.auditLogs, ['Action', 'Actor', 'Resource', 'Metadata', 'Created'], (log) => {
         const action = log.event?.action || log.action || '-';
         const actorEmail = log.actor?.email || log.actorEmail || '-';
@@ -6512,6 +6999,26 @@ function renderAuditLogs() {
       })}
     </section>
   `;
+}
+
+async function clearAuditLogs() {
+  if (!isSuperAdminUser()) {
+    alert('Only a super admin can clear audit logs.');
+    return;
+  }
+
+  const typed = prompt('Type CLEAR AUDIT LOGS to permanently clear the audit history.');
+  if (typed !== 'CLEAR AUDIT LOGS') return;
+  if (!confirm('This will permanently clear existing audit logs. Continue?')) return;
+
+  try {
+    const result = await api('/admin/audit-logs', { method: 'DELETE' });
+    await loadAllData();
+    alert(`${result.deletedCount || 0} audit log records were cleared.`);
+    render();
+  } catch (error) {
+    alert(error.message || 'Unable to clear audit logs.');
+  }
 }
 
 function renderGenericTable(rows, headers, mapRow) {
@@ -6634,7 +7141,8 @@ function renderBookingDrawer() {
         <h3>Chat History</h3>
         ${renderChatLog(messages, media)}
         <h3>Quotes</h3>
-        ${renderGenericTable(data.quotes || [], ['Status', 'Total', 'Items'], (quote) => [
+        ${renderGenericTable(data.quotes || [], ['Quote', 'Status', 'Total', 'Items'], (quote) => [
+          escapeHtml(quote.quoteNumber || quote._id || '-'),
           `<span class="status ${statusClass(quote.status)}">${escapeHtml(quote.status)}</span>`,
           getMoney(quote, 'totalAmount', 'totalAmountMinor', quote.currency),
           quote.lineItems?.length || 0,
@@ -6687,7 +7195,14 @@ window.resetNotificationFilters = resetNotificationFilters;
 window.processDueNotifications = processDueNotifications;
 window.retryNotification = retryNotification;
 window.cancelNotification = cancelNotification;
-window.sendClientNotification = sendClientNotification;
+window.sendBroadcastNotification = sendBroadcastNotification;
+window.applySupportFilter = applySupportFilter;
+window.selectSupportTicket = selectSupportTicket;
+window.sendSupportReply = sendSupportReply;
+window.updateSupportTicketStatus = updateSupportTicketStatus;
+window.updateSupportTicketPriority = updateSupportTicketPriority;
+window.escalateSupportTicket = escalateSupportTicket;
+window.assignSupportTicketToMe = assignSupportTicketToMe;
 window.createSubscriptionPlan = createSubscriptionPlan;
 window.generateSubscriptionInvoices = generateSubscriptionInvoices;
 window.createPromotion = createPromotion;
@@ -6706,6 +7221,7 @@ window.runPromotionLifecycle = runPromotionLifecycle;
 window.openPromotionDetails = openPromotionDetails;
 window.createAdminUser = createAdminUser;
 window.updateAdminUser = updateAdminUser;
+window.clearAuditLogs = clearAuditLogs;
 window.showTopLevelServiceGroupForm = showTopLevelServiceGroupForm;
 window.cancelTopLevelServiceGroup = cancelTopLevelServiceGroup;
 window.createTopLevelServiceGroup = createTopLevelServiceGroup;

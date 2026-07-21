@@ -39,8 +39,12 @@ const isAssignedTechnicianOrAdmin = (booking: any, userId: string, role: UserRol
 const isQuoteSubmittedStatus = (status: QuoteStatus): boolean =>
   [QuoteStatus.SUBMITTED, QuoteStatus.SENT_TO_CLIENT].includes(status);
 
+const buildQuoteNumber = (quoteId: mongoose.Types.ObjectId, version: number): string =>
+  `Q-PADI-${new Date().getFullYear()}-${quoteId.toString().slice(-6).toUpperCase()}-V${Math.max(1, Math.round(version || 1))}`;
+
 const serializeQuote = (quote: any) => ({
   id: quote._id?.toString?.() ?? quote.id,
+  quoteNumber: quote.quoteNumber || (quote._id ? buildQuoteNumber(quote._id, Number(quote.version || 1)) : ''),
   bookingId: quote.bookingId?.toString?.() ?? quote.bookingId,
   customerId: quote.customerId?.toString?.() ?? quote.customerId,
   technicianId: quote.technicianId?.toString?.() ?? quote.technicianId,
@@ -154,7 +158,10 @@ export const createJobQuote = async (request: Request, response: Response): Prom
     const totals = calculateQuoteTotals(Array.isArray(body.lineItems) ? body.lineItems as any[] : [], booking.currency);
     const now = new Date();
     const status = shouldSubmit ? QuoteStatus.SUBMITTED : QuoteStatus.DRAFT;
+    const quoteId = new mongoose.Types.ObjectId();
     const quote = await JobQuote.create({
+      _id: quoteId,
+      quoteNumber: buildQuoteNumber(quoteId, version),
       bookingId: booking._id,
       customerId: booking.customerId,
       technicianId: booking.technicianId,
@@ -212,8 +219,15 @@ export const createJobQuote = async (request: Request, response: Response): Prom
         channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
         type: 'QUOTE_SUBMITTED',
         title: 'Quote ready for review',
-        message: `Review the MyFixer quote for ${booking.applianceType}. Only pay through MyFixer.`,
-        metadata: { bookingId: booking.id, quoteId: quote.id, version: quote.version },
+        message: `Review the Padi quote for ${booking.applianceType}. Only pay through Padi.`,
+        metadata: {
+          feed: 'inbox',
+          documentType: 'QUOTE',
+          bookingId: booking.id,
+          quoteId: quote.id,
+          quoteNumber: quote.quoteNumber,
+          version: quote.version,
+        },
       });
     }
 
@@ -267,6 +281,7 @@ export const submitJobQuote = async (request: Request, response: Response): Prom
 
     const now = new Date();
     quote.status = QuoteStatus.SUBMITTED;
+    quote.quoteNumber = quote.quoteNumber || buildQuoteNumber(quote._id, Number(quote.version || 1));
     quote.sentAt = now;
     quote.submittedAt = now;
     quote.submittedBy = new mongoose.Types.ObjectId(userId);
@@ -289,6 +304,21 @@ export const submitJobQuote = async (request: Request, response: Response): Prom
     await booking.save();
 
     emitQuoteEvent(request, quote.version > 1 ? 'quote_revised' : 'quote_submitted', quote);
+    await createNotifications({
+      userId: booking.customerId,
+      channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
+      type: 'QUOTE_SUBMITTED',
+      title: 'Quote ready for review',
+      message: `Review the Padi quote for ${booking.applianceType}. Only pay through Padi.`,
+      metadata: {
+        feed: 'inbox',
+        documentType: 'QUOTE',
+        bookingId: booking.id,
+        quoteId: quote.id,
+        quoteNumber: quote.quoteNumber || buildQuoteNumber(quote._id, Number(quote.version || 1)),
+        version: quote.version,
+      },
+    });
     response.status(200).json({ success: true, quote: serializeQuote(quote) });
   } catch (error) {
     response.status(500).json({ message: 'Failed to submit quote.' });
@@ -408,7 +438,14 @@ const decideJobQuote = async (
     message: decision === QuoteStatus.APPROVED
       ? 'The client approved the quote. Payment is still required before work can begin.'
       : 'The client rejected the quote. Create a revision if appropriate.',
-    metadata: { bookingId: booking.id, quoteId: updated.id, version: updated.version },
+    metadata: {
+      feed: 'inbox',
+      documentType: 'QUOTE',
+      bookingId: booking.id,
+      quoteId: updated.id,
+      quoteNumber: updated.quoteNumber || buildQuoteNumber(updated._id, Number(updated.version || 1)),
+      version: updated.version,
+    },
   });
 
   await logAuditEvent(request, {
@@ -487,7 +524,14 @@ export const requestQuoteClarification = async (request: Request, response: Resp
     type: 'QUOTE_CLARIFICATION_REQUESTED',
     title: 'Client requested clarification',
     message: 'The client requested clarification. Create a revised quote instead of editing the submitted quote.',
-    metadata: { bookingId: booking.id, quoteId: updated.id, version: updated.version },
+    metadata: {
+      feed: 'inbox',
+      documentType: 'QUOTE',
+      bookingId: booking.id,
+      quoteId: updated.id,
+      quoteNumber: updated.quoteNumber || buildQuoteNumber(updated._id, Number(updated.version || 1)),
+      version: updated.version,
+    },
   });
   await logAuditEvent(request, {
     action: 'quote.clarification_requested',

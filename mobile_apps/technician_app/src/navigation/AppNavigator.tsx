@@ -17,6 +17,8 @@ import { EarningsScreen } from '../screens/earnings/EarningsScreen';
 import { ProfileScreen } from '../screens/profile/ProfileScreen';
 import { BankingInvoiceScreen } from '../screens/profile/BankingInvoiceScreen';
 import { ProfilePictureUploadScreen } from '../screens/profile/ProfilePictureUploadScreen';
+import { SecurityScreen } from '../screens/profile/SecurityScreen';
+import { SupportScreen } from '../screens/profile/SupportScreen';
 import TechnicianInboxScreen, { TechnicianAlertsScreen } from '../screens/notifications/NotificationFeedScreen';
 
 const HomeIcon = Home as any;
@@ -65,6 +67,28 @@ function ProfileStackScreen({ setIsAuthenticated }: AppNavigatorProps) {
         options={{
           headerShown: true,
           title: 'Profile Photo',
+          headerStyle: { backgroundColor: Colors.background },
+          headerTintColor: Colors.text,
+          headerShadowVisible: false,
+        }}
+      />
+      <ProfileStack.Screen
+        name="Security"
+        component={SecurityScreen}
+        options={{
+          headerShown: true,
+          title: 'Security',
+          headerStyle: { backgroundColor: Colors.background },
+          headerTintColor: Colors.text,
+          headerShadowVisible: false,
+        }}
+      />
+      <ProfileStack.Screen
+        name="Support"
+        component={SupportScreen}
+        options={{
+          headerShown: true,
+          title: 'Help & Support',
           headerStyle: { backgroundColor: Colors.background },
           headerTintColor: Colors.text,
           headerShadowVisible: false,

@@ -1,6 +1,10 @@
 import { CountryCode, MARKET_CONFIG, normalizeCountryCode } from '../config/market.config';
 import MarketSetting, { MarketStatus } from '../models/market-setting.model';
-import ServiceCatalog, { ServicePublicationStatus } from '../models/service-catalog.model';
+import ServiceCatalog, {
+  ServiceBillingModel,
+  ServicePublicationStatus,
+  ServiceSubscriptionCadence,
+} from '../models/service-catalog.model';
 
 export interface ServiceDefinition {
   serviceKey: string;
@@ -46,6 +50,10 @@ export interface ServiceDefinition {
     capabilityRequirements?: Record<string, unknown>;
     calloutFeeMinor?: number;
     minimumChargeMinor?: number;
+    billingModel?: ServiceBillingModel;
+    subscriptionEligible?: boolean;
+    subscriptionCadences?: ServiceSubscriptionCadence[];
+    subscriptionNotes?: string;
     pricingSource?: string;
   }>;
   pricingSource?: string;
@@ -100,6 +108,10 @@ export interface BookableServiceAvailability {
   message: string;
   calloutFeeMinor?: number;
   minimumChargeMinor?: number;
+  billingModel?: ServiceBillingModel;
+  subscriptionEligible?: boolean;
+  subscriptionCadences?: ServiceSubscriptionCadence[];
+  subscriptionNotes?: string;
   estimatedDurationMinutes?: number;
   inspectionRequired?: boolean;
   fixedPriceSupported?: boolean;
@@ -211,6 +223,10 @@ const publishedCatalogue = async (): Promise<Map<string, ServiceDefinition>> => 
             fixedPriceSupported: subcategory.fixedPriceSupported,
             requiresCapabilityApproval: subcategory.requiresCapabilityApproval,
             capabilityRequirements: subcategory.capabilityRequirements,
+            billingModel: subcategory.billingModel || ServiceBillingModel.ON_DEMAND,
+            subscriptionEligible: subcategory.subscriptionEligible === true,
+            subscriptionCadences: subcategory.subscriptionCadences || [],
+            subscriptionNotes: subcategory.subscriptionNotes || '',
             calloutFeeMinor: subcategory.calloutFeeMinor,
             minimumChargeMinor: subcategory.minimumChargeMinor,
           })),
@@ -349,6 +365,17 @@ const publicCatalogueDefaults = (catalogue: Map<string, ServiceDefinition>): Ser
 export const isMarketStatus = (value: unknown): value is MarketStatus =>
   typeof value === 'string' && Object.values(MarketStatus).includes(value as MarketStatus);
 
+const isServiceBillingModel = (value: unknown): value is ServiceBillingModel =>
+  typeof value === 'string' && Object.values(ServiceBillingModel).includes(value as ServiceBillingModel);
+
+const normalizeSubscriptionCadences = (value: unknown): ServiceSubscriptionCadence[] =>
+  (Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [])
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter((item): item is ServiceSubscriptionCadence =>
+      Object.values(ServiceSubscriptionCadence).includes(item as ServiceSubscriptionCadence)
+    )
+    .filter((item, index, values) => values.indexOf(item) === index);
+
 export const normalizeServiceEntry = (entry: unknown): ServiceDefinition | null => {
   if (typeof entry === 'string') {
     const serviceKey = normalizeServiceKey(entry);
@@ -397,6 +424,10 @@ export const normalizeServiceEntry = (entry: unknown): ServiceDefinition | null 
               estimatedDurationMinutes: Number.isFinite(Number(subRecord.estimatedDurationMinutes)) ? Number(subRecord.estimatedDurationMinutes) : undefined,
               inspectionRequired: subRecord.inspectionRequired === true,
               fixedPriceSupported: subRecord.fixedPriceSupported === true,
+              billingModel: isServiceBillingModel(subRecord.billingModel) ? subRecord.billingModel : ServiceBillingModel.ON_DEMAND,
+              subscriptionEligible: subRecord.subscriptionEligible === true,
+              subscriptionCadences: normalizeSubscriptionCadences(subRecord.subscriptionCadences),
+              subscriptionNotes: normalizeText(subRecord.subscriptionNotes).slice(0, 800),
               calloutFeeMinor: typeof subRecord.calloutFeeMinor === 'number'
                 ? subRecord.calloutFeeMinor
                 : typeof subRecord.calloutFee === 'number'
@@ -472,6 +503,10 @@ const buildServiceGroups = (
           fixedPriceSupported: subcategory.fixedPriceSupported ?? service.fixedPriceSupported,
           requiresCapabilityApproval: subcategory.requiresCapabilityApproval ?? service.requiresCapabilityApproval,
           capabilityRequirements: subcategory.capabilityRequirements ?? service.capabilityRequirements,
+          billingModel: subcategory.billingModel || ServiceBillingModel.ON_DEMAND,
+          subscriptionEligible: subcategory.subscriptionEligible === true,
+          subscriptionCadences: subcategory.subscriptionCadences || [],
+          subscriptionNotes: subcategory.subscriptionNotes || '',
           searchKeywords: subcategory.searchKeywords || [],
           synonyms: subcategory.synonyms || [],
           displayOrder: subcategory.displayOrder,

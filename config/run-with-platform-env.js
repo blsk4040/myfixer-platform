@@ -1,9 +1,23 @@
 #!/usr/bin/env node
 const { spawnSync } = require('child_process');
+const path = require('path');
 const { loadLocalEnvFile, loadPlatformConfig } = require('./load-platform-config');
 
 loadLocalEnvFile({ override: false });
 loadPlatformConfig({ override: false });
+
+const appendNodeOption = (option) => {
+  const existing = String(process.env.NODE_OPTIONS || '').trim();
+  if (existing.includes(option)) return;
+  process.env.NODE_OPTIONS = existing ? `${existing} ${option}` : option;
+};
+
+const mongoUri = String(process.env.MONGODB_URI || process.env.MONGO_URI || '');
+const shouldBootstrapDns = Boolean(process.env.NODE_DNS_SERVERS) || mongoUri.startsWith('mongodb+srv://');
+if (shouldBootstrapDns) {
+  const dnsBootstrapPath = path.join(__dirname, 'node-dns-bootstrap.js');
+  appendNodeOption(`--require=${dnsBootstrapPath}`);
+}
 
 const [command, ...args] = process.argv.slice(2);
 

@@ -34,7 +34,11 @@ import {
   ManagedCollectionSubscriptionInvoice,
 } from '../models/managed-collection-subscription.model';
 import ServiceWaitlist from '../models/service-waitlist.model';
-import ServiceCatalog, { ServicePublicationStatus } from '../models/service-catalog.model';
+import ServiceCatalog, {
+  ServiceBillingModel,
+  ServicePublicationStatus,
+  ServiceSubscriptionCadence,
+} from '../models/service-catalog.model';
 import Notification from '../models/notification.model';
 import { EmailService } from '../services/email/email.service';
 import {
@@ -410,6 +414,19 @@ const normalizeServiceStatus = (value: unknown): ServicePublicationStatus =>
     ? value as ServicePublicationStatus
     : ServicePublicationStatus.DRAFT;
 
+const normalizeServiceBillingModel = (value: unknown): ServiceBillingModel =>
+  Object.values(ServiceBillingModel).includes(value as ServiceBillingModel)
+    ? value as ServiceBillingModel
+    : ServiceBillingModel.ON_DEMAND;
+
+const normalizeSubscriptionCadences = (value: unknown): ServiceSubscriptionCadence[] =>
+  (Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [])
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter((item): item is ServiceSubscriptionCadence =>
+      Object.values(ServiceSubscriptionCadence).includes(item as ServiceSubscriptionCadence)
+    )
+    .filter((item, index, values) => values.indexOf(item) === index);
+
 const normalizeMarketStatusValue = (value: unknown, fallback = MarketStatus.ACTIVE): MarketStatus =>
   Object.values(MarketStatus).includes(value as MarketStatus) ? value as MarketStatus : fallback;
 
@@ -493,6 +510,8 @@ const normalizeServiceSubcategories = (value: unknown) =>
           const stableServiceKey = normalizeServiceKey(record.serviceKey ?? subcategoryKey);
           const calloutFeeMinor = minorFromInput(record.calloutFeeMinor, record.calloutFee);
           const minimumChargeMinor = minorFromInput(record.minimumChargeMinor, record.minimumCharge);
+          const billingModel = normalizeServiceBillingModel(record.billingModel);
+          const subscriptionEligible = billingModel === ServiceBillingModel.SUBSCRIPTION || record.subscriptionEligible === true;
           return {
             subcategoryKey,
             serviceKey: stableServiceKey || subcategoryKey,
@@ -512,6 +531,10 @@ const normalizeServiceSubcategories = (value: unknown) =>
             fixedPriceSupported: record.fixedPriceSupported === true,
             requiresCapabilityApproval: record.requiresCapabilityApproval === undefined ? true : record.requiresCapabilityApproval === true,
             capabilityRequirements: normalizeCapabilityRequirements(record.capabilityRequirements),
+            billingModel,
+            subscriptionEligible,
+            subscriptionCadences: subscriptionEligible ? normalizeSubscriptionCadences(record.subscriptionCadences) : [],
+            subscriptionNotes: subscriptionEligible ? String(record.subscriptionNotes || '').trim().slice(0, 800) : '',
             ...(calloutFeeMinor !== undefined ? { calloutFeeMinor } : {}),
             ...(minimumChargeMinor !== undefined ? { minimumChargeMinor } : {}),
           };
@@ -3238,11 +3261,37 @@ export const updateAdminPromotion = async (req: Request, res: Response): Promise
 
 export const getAdminAuditLogs = async (req: Request, res: Response): Promise<void> => {
   try {
+    if (!await isSuperAdmin(req)) {
+      res.status(403).json({ success: false, message: 'Only a super admin can view audit logs.' });
+      return;
+    }
+
     const logs = await AuditLog.find()
       .sort({ createdAt: -1 })
       .limit(parseLimit(req.query.limit, 100));
     res.status(200).json({ success: true, logs });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch audit logs.' });
+  }
+};
+
+export const clearAdminAuditLogs = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!await isSuperAdmin(req)) {
+      res.status(403).json({ success: false, message: 'Only a super admin can clear audit logs.' });
+      return;
+    }
+
+    const beforeCount = await AuditLog.countDocuments();
+    await AuditLog.deleteMany({});
+    await logAdminAction(req, 'audit_logs.clear', 'AuditLog', 'all', { deletedCount: beforeCount });
+    res.status(200).json({
+      success: true,
+      message: 'Audit logs were cleared.',
+      deletedCount: beforeCount,
+    });
+  } catch (error) {
+    console.error('Audit log clear failed:', error);
+    res.status(500).json({ success: false, message: 'Failed to clear audit logs.' });
   }
 };

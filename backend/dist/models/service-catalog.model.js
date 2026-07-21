@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ServicePublicationStatus = void 0;
+exports.ServiceSubscriptionCadence = exports.ServiceBillingModel = exports.ServicePublicationStatus = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
 const market_setting_model_1 = require("./market-setting.model");
 var ServicePublicationStatus;
@@ -43,6 +43,18 @@ var ServicePublicationStatus;
     ServicePublicationStatus["PAUSED"] = "PAUSED";
     ServicePublicationStatus["ARCHIVED"] = "ARCHIVED";
 })(ServicePublicationStatus || (exports.ServicePublicationStatus = ServicePublicationStatus = {}));
+var ServiceBillingModel;
+(function (ServiceBillingModel) {
+    ServiceBillingModel["ON_DEMAND"] = "ON_DEMAND";
+    ServiceBillingModel["SUBSCRIPTION"] = "SUBSCRIPTION";
+})(ServiceBillingModel || (exports.ServiceBillingModel = ServiceBillingModel = {}));
+var ServiceSubscriptionCadence;
+(function (ServiceSubscriptionCadence) {
+    ServiceSubscriptionCadence["WEEKLY"] = "WEEKLY";
+    ServiceSubscriptionCadence["MONTHLY"] = "MONTHLY";
+    ServiceSubscriptionCadence["QUARTERLY"] = "QUARTERLY";
+    ServiceSubscriptionCadence["YEARLY"] = "YEARLY";
+})(ServiceSubscriptionCadence || (exports.ServiceSubscriptionCadence = ServiceSubscriptionCadence = {}));
 const MAX_SERVICE_PRICE_MINOR = 100_000_000;
 const normalizeKey = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 const normalizeStringList = (values) => Array.isArray(values)
@@ -178,6 +190,26 @@ const ServiceSubcategorySchema = new mongoose_1.Schema({
         min: 0,
         max: MAX_SERVICE_PRICE_MINOR,
         default: undefined,
+    },
+    billingModel: {
+        type: String,
+        enum: Object.values(ServiceBillingModel),
+        default: ServiceBillingModel.ON_DEMAND,
+    },
+    subscriptionEligible: {
+        type: Boolean,
+        default: false,
+    },
+    subscriptionCadences: {
+        type: [String],
+        enum: Object.values(ServiceSubscriptionCadence),
+        default: [],
+    },
+    subscriptionNotes: {
+        type: String,
+        default: '',
+        trim: true,
+        maxlength: 800,
     },
 }, { _id: false });
 const ServiceCatalogSchema = new mongoose_1.Schema({

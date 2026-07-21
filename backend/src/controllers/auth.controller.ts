@@ -12,6 +12,7 @@ import TechnicianTelemetry from '../models/technician-telemetry.model';
 import MarketSetting, { MarketStatus } from '../models/market-setting.model';
 import { getMarketPayoutCapabilities } from '../services/market-finance-guard.service';
 import AuditLog from '../models/audit-log.model';
+import Notification, { NotificationChannel, NotificationStatus, NotificationType } from '../models/notification.model';
 import { EmailService } from '../services/email/email.service';
 import Booking, { BookingStatus } from '../models/booking.model';
 import { getMarketAvailability, normalizeServiceKey } from '../services/service-availability.service';
@@ -19,13 +20,13 @@ import { uploadImageToCloudinary } from '../services/media-storage.service';
 import { assertActiveMarket } from '../services/market-finance-guard.service';
 
 // --- JWT Helper Generator ---
-const generateToken = (userId: string, role: UserRole, email: string): string => {
+const generateToken = (userId: string, role: UserRole, email: string, tokenVersion = 0): string => {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
     throw new Error('JWT_SECRET is not configured.');
   }
 
-  return jwt.sign({ id: userId, _id: userId, role, email }, secret, { expiresIn: '30d' });
+  return jwt.sign({ id: userId, _id: userId, role, email, tokenVersion }, secret, { expiresIn: '30d' });
 };
 
 const hashResetToken = (token: string): string =>
@@ -253,6 +254,51 @@ const logAuthAudit = async (
     },
     metadata,
     success,
+  });
+};
+
+const getRequestDeviceLabel = (req: Request): string => {
+  const explicitDevice =
+    req.headers['x-device-name'] ??
+    req.headers['x-device-model'] ??
+    req.body?.deviceName;
+  const rawDevice = Array.isArray(explicitDevice) ? explicitDevice[0] : explicitDevice;
+  if (typeof rawDevice === 'string' && rawDevice.trim()) return rawDevice.trim().slice(0, 120);
+
+  const userAgent = String(req.headers['user-agent'] || '').trim();
+  if (!userAgent) return 'This device';
+  if (/android/i.test(userAgent)) return 'Android device';
+  if (/iphone|ipad|ios/i.test(userAgent)) return 'iOS device';
+  if (/windows/i.test(userAgent)) return 'Windows device';
+  if (/macintosh|mac os/i.test(userAgent)) return 'Mac device';
+  return 'Signed-in device';
+};
+
+const createSecurityAlert = async (
+  user: { _id: any; email?: string; phone?: string; name?: string },
+  title: string,
+  message: string,
+  metadata: Record<string, unknown> = {}
+) => {
+  await Notification.create({
+    recipient: {
+      userId: user._id,
+      email: user.email || '',
+      phone: user.phone || '',
+      name: user.name || '',
+    },
+    channel: NotificationChannel.IN_APP,
+    type: NotificationType.SYSTEM,
+    title,
+    message,
+    status: NotificationStatus.SENT,
+    scheduledAt: new Date(),
+    sentAt: new Date(),
+    metadata: {
+      feed: 'alerts',
+      source: 'SECURITY',
+      ...metadata,
+    },
   });
 };
 
@@ -588,7 +634,7 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
     const verificationEmailSent = await sendVerificationEmail(req, newUser);
 
     // 5. Auth Token Issuance Matrix
-    const token = generateToken(newUser._id.toString(), newUser.role, newUser.email);
+    const token = generateToken(newUser._id.toString(), newUser.role, newUser.email, newUser.refreshTokenVersion || 0);
 
     res.status(201).json({
       status: 'success',
@@ -619,7 +665,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
 
     // 2. Lookup Identity Footprint Match
     const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findOne({ email: normalizedEmail }).select('+password');
+    const user = await User.findOne({ email: normalizedEmail }).select('+password +refreshTokenVersion');
     if (!user) {
       res.status(401).json({ message: 'Invalid credentials. Access Denied.' });
       return;
@@ -672,7 +718,33 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    const token = generateToken(user._id.toString(), normalizedRole, user.email);
+    const now = new Date();
+    const previousLoginAt = user.lastLoginAt || null;
+    user.lastLoginAt = now;
+    await user.save();
+
+    await logAuthAudit(req, 'login.success', {
+      email: user.email,
+      userId: user._id.toString(),
+      role: normalizedRole,
+      device: getRequestDeviceLabel(req),
+      previousLoginAt,
+    });
+
+    if (previousLoginAt) {
+      await createSecurityAlert(
+        user,
+        'New sign-in to your Padi account',
+        `Your account was signed in on ${getRequestDeviceLabel(req)}. If this was not you, change your password immediately.`,
+        {
+          event: 'LOGIN_SUCCESS',
+          device: getRequestDeviceLabel(req),
+          previousLoginAt,
+        }
+      );
+    }
+
+    const token = generateToken(user._id.toString(), normalizedRole, user.email, user.refreshTokenVersion || 0);
 
     res.status(200).json({
       status: 'success',
@@ -734,7 +806,7 @@ export const changeOwnPassword = async (req: Request, res: Response): Promise<vo
       forced: Boolean(req.body.forced),
     });
 
-    const token = generateToken(user._id.toString(), normalizeUserRole(user.role), user.email);
+    const token = generateToken(user._id.toString(), normalizeUserRole(user.role), user.email, user.refreshTokenVersion || 0);
     res.status(200).json({
       status: 'success',
       message: 'Password updated successfully.',
@@ -744,6 +816,116 @@ export const changeOwnPassword = async (req: Request, res: Response): Promise<vo
   } catch (error) {
     console.error('Password change failed:', error);
     res.status(500).json({ message: 'Unable to change password right now.' });
+  }
+};
+
+export const getMySecuritySummary = async (req: Request, res: Response): Promise<void> => {
+  const authUser = getAuthenticatedUser(req);
+  const userId = String(authUser?.id ?? authUser?._id ?? '').trim();
+
+  if (!userId) {
+    res.status(401).json({ message: 'Authentication is required.' });
+    return;
+  }
+
+  try {
+    const user = await User.findById(userId).select('+refreshTokenVersion').lean();
+    if (!user || user.isActive === false) {
+      res.status(404).json({ message: 'Account not found.' });
+      return;
+    }
+
+    const recentAuthEvents = await AuditLog.find({
+      'event.module': 'AUTH',
+      'event.resourceType': 'User',
+      $or: [
+        { 'event.resourceId': userId },
+        { 'actor.email': user.email },
+        { 'metadata.userId': userId },
+      ],
+    })
+      .sort({ createdAt: -1 })
+      .limit(6)
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      security: {
+        email: user.email,
+        emailVerified: Boolean(user.isEmailVerified || user.emailVerified),
+        phoneVerified: Boolean(user.phoneVerified),
+        lastLoginAt: user.lastLoginAt || null,
+        lastPasswordChangeAt: user.lastPasswordChangeAt || null,
+        tokenVersion: user.refreshTokenVersion || 0,
+        currentDevice: {
+          label: getRequestDeviceLabel(req),
+          userAgent: String(req.headers['user-agent'] || ''),
+        },
+        recentEvents: recentAuthEvents.map((event) => ({
+          id: event._id?.toString(),
+          action: event.event?.action || '',
+          success: Boolean(event.success),
+          createdAt: event.createdAt,
+          device: event.request?.device || event.metadata?.device || '',
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Failed to load security summary:', error);
+    res.status(500).json({ message: 'Unable to load security settings right now.' });
+  }
+};
+
+export const signOutOtherSessions = async (req: Request, res: Response): Promise<void> => {
+  const authUser = getAuthenticatedUser(req);
+  const userId = String(authUser?.id ?? authUser?._id ?? '').trim();
+
+  if (!userId) {
+    res.status(401).json({ message: 'Authentication is required.' });
+    return;
+  }
+
+  try {
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $inc: { refreshTokenVersion: 1 },
+        $set: { updatedAt: new Date() },
+      },
+      { new: true }
+    ).select('+refreshTokenVersion');
+
+    if (!user || user.isActive === false) {
+      res.status(404).json({ message: 'Account not found.' });
+      return;
+    }
+
+    await logAuthAudit(req, 'sessions.sign_out_others', {
+      email: user.email,
+      userId: user._id.toString(),
+      device: getRequestDeviceLabel(req),
+    });
+
+    await createSecurityAlert(
+      user,
+      'Other sessions were signed out',
+      'All older Padi sessions were signed out. This device remains signed in.',
+      { event: 'SIGN_OUT_OTHER_SESSIONS', device: getRequestDeviceLabel(req) }
+    );
+
+    const token = generateToken(user._id.toString(), normalizeUserRole(user.role), user.email, user.refreshTokenVersion || 0);
+    res.status(200).json({
+      success: true,
+      message: 'Other sessions were signed out.',
+      token,
+      user: buildSessionUser(user, req),
+      technician: normalizeUserRole(user.role) === UserRole.TECHNICIAN
+        ? await buildSessionTechnician(await Technician.findOne({ userId: user._id }), user)
+        : undefined,
+    });
+  } catch (error) {
+    console.error('Failed to sign out other sessions:', error);
+    res.status(500).json({ message: 'Unable to sign out other sessions right now.' });
   }
 };
 
@@ -887,7 +1069,7 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
     if (!user.name && name) user.name = name;
     await user.save();
 
-    const token = generateToken(user._id.toString(), normalizeUserRole(user.role), user.email);
+    const token = generateToken(user._id.toString(), normalizeUserRole(user.role), user.email, user.refreshTokenVersion || 0);
     const sessionUser = buildSessionUser(user, req);
     const normalizedRole = normalizeUserRole(user.role);
     let technicianProfile: any = null;
@@ -1062,7 +1244,7 @@ export const completeGoogleClientProfile = async (req: Request, res: Response): 
     const verificationEmailSent = verificationUser
       ? await sendVerificationEmail(req, verificationUser)
       : false;
-    const token = generateToken(user._id.toString(), UserRole.CUSTOMER, user.email);
+    const token = generateToken(user._id.toString(), UserRole.CUSTOMER, user.email, user.refreshTokenVersion || 0);
     const emailVerified = Boolean(user.isEmailVerified || user.emailVerified);
 
     console.info('[auth.google.complete-profile] verification email result', {

@@ -113,6 +113,7 @@ const listAdminNotifications = async (req, res) => {
 exports.listAdminNotifications = listAdminNotifications;
 const createAdminBroadcastNotification = async (req, res) => {
     const audience = String(req.body?.audience || 'CLIENTS').trim().toUpperCase();
+    const feed = String(req.body?.feed || 'ALERTS').trim().toUpperCase();
     const title = String(req.body?.title || '').trim();
     const message = String(req.body?.message || '').trim();
     const audienceRoleMap = {
@@ -123,6 +124,10 @@ const createAdminBroadcastNotification = async (req, res) => {
     const roles = audienceRoleMap[audience];
     if (!roles) {
         res.status(400).json({ message: 'Select a valid broadcast audience.' });
+        return;
+    }
+    if (!['ALERTS', 'INBOX'].includes(feed)) {
+        res.status(400).json({ message: 'Select whether this broadcast belongs in Alerts or Inbox.' });
         return;
     }
     if (!title || title.length > 120) {
@@ -154,21 +159,22 @@ const createAdminBroadcastNotification = async (req, res) => {
             message,
             metadata: {
                 source: 'ADMIN_PORTAL',
-                feed: 'ALERTS',
+                feed,
                 broadcast: true,
                 audience,
             },
         })));
         const notifications = batches.flat();
         await (0, audit_service_1.logAuditEvent)(req, {
-            action: 'notification.client_alert.broadcast',
+            action: feed === 'INBOX' ? 'notification.inbox.broadcast' : 'notification.alert.broadcast',
             module: 'NOTIFICATIONS',
             resourceType: 'Notification',
-            resourceId: notifications[0]?._id?.toString?.() || 'client-alert-broadcast',
+            resourceId: notifications[0]?._id?.toString?.() || 'admin-broadcast',
             metadata: {
                 recipientCount: recipients.length,
                 notificationCount: notifications.length,
                 audience,
+                feed,
                 channel: notification_model_1.NotificationChannel.IN_APP,
                 type: notification_model_1.NotificationType.SYSTEM,
             },
@@ -176,8 +182,8 @@ const createAdminBroadcastNotification = async (req, res) => {
         res.status(201).json({ success: true, notifications, recipientCount: recipients.length });
     }
     catch (error) {
-        console.error('Failed to create client notification:', error);
-        res.status(500).json({ message: 'Failed to send client notification.' });
+        console.error('Failed to create broadcast notification:', error);
+        res.status(500).json({ message: 'Failed to send broadcast notification.' });
     }
 };
 exports.createAdminBroadcastNotification = createAdminBroadcastNotification;

@@ -85,7 +85,14 @@ class PaymentController {
                 res.status(error.statusCode).json({ message: error.message, code: error.code });
                 return;
             }
-            console.error('Failed to initialize payment:', error);
+            const upstream = error?.response;
+            console.error('Failed to initialize payment:', {
+                message: error instanceof Error ? error.message : 'Unknown payment initialization error.',
+                providerStatus: upstream?.status,
+                providerCode: upstream?.data?.code,
+                providerType: upstream?.data?.type,
+                providerMessage: upstream?.data?.message,
+            });
             res.status(500).json({ message: 'Unable to initialize secure payment.' });
         }
     }

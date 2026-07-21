@@ -174,14 +174,23 @@ const initializeBookingPayment = async (input, actor, req) => {
         promotions: Array.isArray(booking.metadata?.promotions) ? booking.metadata.promotions : [],
         priceBreakdown: quote?.metadata?.priceBreakdown || booking.metadata?.priceBreakdown || null,
     };
-    const initialized = await paystack_service_1.PaystackService.initializeTransaction({
-        email: booking.customerEmail || actor?.email || '',
-        amountMinor,
-        currency: booking.currency,
-        reference,
-        callbackUrl: input.callbackUrl,
-        metadata,
-    });
+    let initialized;
+    try {
+        initialized = await paystack_service_1.PaystackService.initializeTransaction({
+            email: booking.customerEmail || actor?.email || '',
+            amountMinor,
+            currency: booking.currency,
+            reference,
+            callbackUrl: input.callbackUrl,
+            metadata,
+        });
+    }
+    catch (error) {
+        const upstream = error?.response;
+        const providerCode = String(upstream?.data?.code || '').trim();
+        const providerMessage = String(upstream?.data?.message || '').trim();
+        throw new PaymentWorkflowError(providerMessage || 'Payment provider could not initialize checkout.', providerCode || 'PAYSTACK_INITIALIZE_FAILED', upstream?.status && upstream.status >= 400 && upstream.status < 500 ? 409 : 502);
+    }
     if (!initialized?.status || !initialized?.data?.authorization_url) {
         throw new PaymentWorkflowError('Payment provider could not initialize checkout.', 'PAYSTACK_INITIALIZE_FAILED', 502);
     }
@@ -388,7 +397,7 @@ const verifyAndSecurePayment = async (reference, req) => {
                         channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
                         type: 'PAYMENT_SECURED',
                         title: 'Payment secured',
-                        message: 'Payment is secured in MyFixer. You may begin work when all other requirements are met.',
+                        message: 'Payment is secured in Padi. You may begin work when all other requirements are met.',
                         metadata: { bookingId: booking.id, transactionId: updatedTransaction.id },
                     });
                 }

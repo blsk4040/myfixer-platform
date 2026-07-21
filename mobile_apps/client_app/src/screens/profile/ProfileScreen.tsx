@@ -80,7 +80,7 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
         navigation.navigate('Security');
         break;
       case 'Support':
-        Alert.alert('Support', 'Support Centre is not available yet.');
+        navigation.navigate('Support');
         break;
     }
   };

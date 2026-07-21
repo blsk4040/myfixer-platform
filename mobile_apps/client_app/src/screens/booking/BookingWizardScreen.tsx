@@ -36,7 +36,6 @@ import {
   promotionLabel,
   promotionSnapshots,
 } from '../../utils/financialDisplay';
-import { BRAND } from '../../config/brand';
 import { Colors, Radius, Spacing } from '../../theme';
 
 // ✅ Clean type casting to fully resolve IntrinsicAttributes TypeScript errors
@@ -311,10 +310,9 @@ export default function BookingWizardScreen() {
         <ScrollView contentContainerStyle={styles.scrollWrapper} keyboardShouldPersistTaps="handled">
           
           <View style={styles.header}>
-            <Text style={styles.headerLabel}>{BRAND.name} booking</Text>
             <Text style={styles.headerTitle}>{subCategory || 'Selected service'}</Text>
             <Text style={styles.headerSubtitle}>
-              Call-out fee: <Text style={styles.greenText}>{basePrice > 0 ? `R${basePrice}` : 'Confirmed by Paddy'}</Text>
+              Call-out fee: <Text style={styles.greenText}>{basePrice > 0 ? `R${basePrice}` : 'Confirmed by Padi'}</Text>
             </Text>
             <View style={styles.stepper}>
               {wizardSteps.map((step, index) => (
@@ -330,7 +328,7 @@ export default function BookingWizardScreen() {
               <View style={styles.preferredBox}>
                 <Text style={styles.preferredTitle}>Preferred provider request</Text>
                 <Text style={styles.preferredText}>
-                  We will prioritize {preferredTechnicianName || 'your previous provider'} if they are available. Paddy matching, payment, tracking, and support stay in-app.
+                  We will prioritize {preferredTechnicianName || 'your previous provider'} if they are available. Padi matching, payment, tracking, and support stay in-app.
                 </Text>
               </View>
             )}
@@ -562,8 +560,7 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
   scrollWrapper: { padding: Spacing.xxl, paddingBottom: 128 },
   header: { marginBottom: Spacing.xl },
-  headerLabel: { color: Colors.primary, fontSize: 11, fontWeight: '900', letterSpacing: 0, textTransform: 'uppercase' },
-  headerTitle: { color: Colors.text, fontSize: 28, fontWeight: '900', marginTop: 4 },
+  headerTitle: { color: Colors.text, fontSize: 28, fontWeight: '900' },
   headerSubtitle: { color: Colors.textMuted, fontSize: 14, marginTop: 5, fontWeight: '600' },
   greenText: { color: Colors.primary, fontWeight: '900' },
   stepper: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.xl },

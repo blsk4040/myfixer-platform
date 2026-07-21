@@ -103,6 +103,10 @@ const publishedCatalogue = async () => {
                 fixedPriceSupported: subcategory.fixedPriceSupported,
                 requiresCapabilityApproval: subcategory.requiresCapabilityApproval,
                 capabilityRequirements: subcategory.capabilityRequirements,
+                billingModel: subcategory.billingModel || service_catalog_model_1.ServiceBillingModel.ON_DEMAND,
+                subscriptionEligible: subcategory.subscriptionEligible === true,
+                subscriptionCadences: subcategory.subscriptionCadences || [],
+                subscriptionNotes: subcategory.subscriptionNotes || '',
                 calloutFeeMinor: subcategory.calloutFeeMinor,
                 minimumChargeMinor: subcategory.minimumChargeMinor,
             })),
@@ -229,6 +233,11 @@ const enrichServiceEntries = (entries, catalogue) => {
 const publicCatalogueDefaults = (catalogue) => Array.from(catalogue.values()).filter((service) => (service.subcategories || []).length > 0 || typeof service.calloutFeeMinor === 'number');
 const isMarketStatus = (value) => typeof value === 'string' && Object.values(market_setting_model_1.MarketStatus).includes(value);
 exports.isMarketStatus = isMarketStatus;
+const isServiceBillingModel = (value) => typeof value === 'string' && Object.values(service_catalog_model_1.ServiceBillingModel).includes(value);
+const normalizeSubscriptionCadences = (value) => (Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [])
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter((item) => Object.values(service_catalog_model_1.ServiceSubscriptionCadence).includes(item))
+    .filter((item, index, values) => values.indexOf(item) === index);
 const normalizeServiceEntry = (entry) => {
     if (typeof entry === 'string') {
         const serviceKey = (0, exports.normalizeServiceKey)(entry);
@@ -280,6 +289,10 @@ const normalizeServiceEntry = (entry) => {
                     estimatedDurationMinutes: Number.isFinite(Number(subRecord.estimatedDurationMinutes)) ? Number(subRecord.estimatedDurationMinutes) : undefined,
                     inspectionRequired: subRecord.inspectionRequired === true,
                     fixedPriceSupported: subRecord.fixedPriceSupported === true,
+                    billingModel: isServiceBillingModel(subRecord.billingModel) ? subRecord.billingModel : service_catalog_model_1.ServiceBillingModel.ON_DEMAND,
+                    subscriptionEligible: subRecord.subscriptionEligible === true,
+                    subscriptionCadences: normalizeSubscriptionCadences(subRecord.subscriptionCadences),
+                    subscriptionNotes: (0, exports.normalizeText)(subRecord.subscriptionNotes).slice(0, 800),
                     calloutFeeMinor: typeof subRecord.calloutFeeMinor === 'number'
                         ? subRecord.calloutFeeMinor
                         : typeof subRecord.calloutFee === 'number'
@@ -349,6 +362,10 @@ const buildServiceGroups = (services) => {
                 fixedPriceSupported: subcategory.fixedPriceSupported ?? service.fixedPriceSupported,
                 requiresCapabilityApproval: subcategory.requiresCapabilityApproval ?? service.requiresCapabilityApproval,
                 capabilityRequirements: subcategory.capabilityRequirements ?? service.capabilityRequirements,
+                billingModel: subcategory.billingModel || service_catalog_model_1.ServiceBillingModel.ON_DEMAND,
+                subscriptionEligible: subcategory.subscriptionEligible === true,
+                subscriptionCadences: subcategory.subscriptionCadences || [],
+                subscriptionNotes: subcategory.subscriptionNotes || '',
                 searchKeywords: subcategory.searchKeywords || [],
                 synonyms: subcategory.synonyms || [],
                 displayOrder: subcategory.displayOrder,

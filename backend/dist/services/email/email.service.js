@@ -7,13 +7,62 @@ const invoiceTemplate_1 = require("./templates/invoiceTemplate");
 const collectionNotificationTemplate_1 = require("./templates/collectionNotificationTemplate");
 const resendApiKey = process.env.RESEND_API_KEY;
 const resend = resendApiKey ? new resend_1.Resend(resendApiKey) : null;
+const escapeHtml = (value) => String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 const padiWordmarkHtml = `
-  <span style="display:inline-flex;align-items:flex-end;color:#111827;font-size:28px;line-height:1;font-weight:900;letter-spacing:0;">
-    <span>Pad</span><span style="display:inline-flex;width:13px;height:29px;margin-left:1px;padding-bottom:2px;align-items:center;justify-content:flex-end;flex-direction:column;">
+  <span style="display:inline-flex;align-items:flex-end;color:#FFFFFF;font-size:34px;line-height:1;font-weight:900;letter-spacing:0;">
+    <span>Pad</span><span style="display:inline-flex;width:13px;height:31px;margin-left:1px;padding-bottom:2px;align-items:center;justify-content:flex-start;flex-direction:column;">
       <span style="display:block;width:6px;height:6px;margin-bottom:4px;border-radius:999px;background:#B8FF3D;"></span>
-      <span style="display:block;width:5px;height:15px;border-radius:999px;background:#111827;"></span>
+      <span style="display:block;width:5px;height:18px;border-radius:999px;background:#FFFFFF;"></span>
     </span>
   </span>
+`;
+const renderPadiEmail = (args) => `
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(args.title)}</title>
+  </head>
+  <body style="margin:0;background:#0B0B0D;color:#F7F7F5;font-family:Arial,Helvetica,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;color:transparent;">${escapeHtml(args.preheader)}</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#0B0B0D;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#151518;border:1px solid #2A2A30;border-radius:22px;overflow:hidden;">
+            <tr>
+              <td style="padding:30px 28px 18px;background:#101013;">
+                ${padiWordmarkHtml}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:8px 28px 30px;">
+                <h1 style="margin:0 0 14px;color:#F7F7F5;font-size:26px;line-height:1.18;font-weight:900;">${escapeHtml(args.title)}</h1>
+                <div style="color:#D7D7D2;font-size:15px;line-height:1.62;">
+                  ${args.body}
+                </div>
+                ${args.ctaLabel && args.ctaUrl ? `
+                  <p style="margin:26px 0 0;">
+                    <a href="${escapeHtml(args.ctaUrl)}" style="display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 22px;background:#B8FF3D;color:#0B0B0D;border-radius:14px;text-decoration:none;font-weight:900;">
+                      ${escapeHtml(args.ctaLabel)}
+                    </a>
+                  </p>
+                ` : ''}
+                ${args.footerNote ? `<p style="margin:24px 0 0;color:#8E8E95;font-size:13px;line-height:1.5;">${escapeHtml(args.footerNote)}</p>` : ''}
+              </td>
+            </tr>
+          </table>
+          <p style="margin:16px 0 0;color:#74747C;font-size:12px;">Padi Support</p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
 `;
 class EmailService {
     static async sendNotificationEmail(args) {
@@ -107,14 +156,19 @@ class EmailService {
             const { data, error } = await resend.emails.send({
                 from: process.env.RESEND_FROM_EMAIL,
                 to: args.recipientEmail,
-                subject: 'Verify your Padi email',
-                html: `
-          <p>${padiWordmarkHtml}</p>
-          <p>Hello ${args.name || 'there'},</p>
-          <p>Please verify your email address to finish setting up your Padi account.</p>
-          <p><a href="${args.verificationUrl}">Verify email</a></p>
-          <p>If you did not create this account, you can ignore this email.</p>
-        `,
+                subject: 'Verify your Padi email address',
+                html: renderPadiEmail({
+                    preheader: 'Verify your email address to finish setting up your Padi account.',
+                    title: 'Verify your email address',
+                    body: `
+            <p style="margin:0 0 14px;">Hi ${escapeHtml(args.name || 'there')},</p>
+            <p style="margin:0 0 14px;">Welcome to Padi.</p>
+            <p style="margin:0;">Please verify your email address so we can finish setting up your account and keep your profile secure.</p>
+          `,
+                    ctaLabel: 'Verify Email',
+                    ctaUrl: args.verificationUrl,
+                    footerNote: 'If you did not create a Padi account, you can safely ignore this email.',
+                }),
             });
             if (error) {
                 console.error('Email verification dispatch failed:', {
@@ -229,25 +283,57 @@ class EmailService {
             const isRejected = normalizedStatus === 'REJECTED';
             const readableStatus = normalizedStatus.toLowerCase().replace(/_/g, ' ');
             const subject = isApproved
-                ? 'Your MyFixer Pro application has been approved'
-                : `Your MyFixer Pro application is ${readableStatus}`;
-            const nextStep = isApproved
-                ? '<p>You can now sign in to the MyFixer Technician app and go live when you are ready to receive jobs.</p>'
-                : '<p>Please contact MyFixer support if you need help with your application.</p>';
+                ? 'Your Padi Pro application has been approved'
+                : isRejected
+                    ? 'Update on your Padi Pro application'
+                    : `Your Padi Pro application is ${readableStatus}`;
             const reason = isRejected && args.rejectionReason
-                ? `<p><strong>Reason:</strong> ${args.rejectionReason}</p>`
+                ? `<p style="margin:18px 0;padding:14px 16px;border:1px solid #34343A;border-radius:14px;background:#101013;"><strong style="color:#F7F7F5;">Reason:</strong><br/>${escapeHtml(args.rejectionReason)}</p>`
                 : '';
+            const body = isApproved
+                ? `
+          <p style="margin:0 0 14px;">Hi ${escapeHtml(args.technicianName || 'there')},</p>
+          <p style="margin:0 0 14px;">Good news. Your Padi Pro application has been approved.</p>
+          <p style="margin:0 0 14px;">You can now sign in to the Padi Pro app, complete any remaining profile steps, and go live when you are ready to receive jobs.</p>
+          <p style="margin:0;">Before going live, please make sure your profile, service categories and availability are up to date.</p>
+        `
+                : isRejected
+                    ? `
+            <p style="margin:0 0 14px;">Hi ${escapeHtml(args.technicianName || 'there')},</p>
+            <p style="margin:0 0 14px;">Thank you for applying to join Padi Pro.</p>
+            <p style="margin:0;">We are not able to approve your application at this time.</p>
+            ${reason}
+            <p style="margin:0;">You can update your profile or contact Padi Support if you believe this was a mistake or would like us to review your application again.</p>
+          `
+                    : `
+            <p style="margin:0 0 14px;">Hi ${escapeHtml(args.technicianName || 'there')},</p>
+            <p style="margin:0 0 14px;">Your Padi Pro application status is now <strong style="color:#F7F7F5;">${escapeHtml(readableStatus)}</strong>.</p>
+            <p style="margin:0;">Please contact Padi Support if you need help with your application.</p>
+          `;
             const { data, error } = await resend.emails.send({
                 from: process.env.RESEND_FROM_EMAIL,
                 to: args.recipientEmail,
                 subject,
-                html: `
-          <p>Hello ${args.technicianName || 'there'},</p>
-          <p>Your MyFixer Pro application status is now <strong>${readableStatus}</strong>.</p>
-          ${reason}
-          ${nextStep}
-          <p>Thank you,<br/>The MyFixer Team</p>
-        `,
+                html: renderPadiEmail({
+                    preheader: isApproved
+                        ? 'Your Padi Pro application has been approved.'
+                        : isRejected
+                            ? 'There is an update on your Padi Pro application.'
+                            : `Your Padi Pro application is ${readableStatus}.`,
+                    title: isApproved
+                        ? 'Application approved'
+                        : isRejected
+                            ? 'Application update'
+                            : 'Application status updated',
+                    body,
+                    ctaLabel: isApproved ? 'Open Padi Pro' : isRejected ? 'Contact Support' : undefined,
+                    ctaUrl: isApproved
+                        ? (process.env.TECHNICIAN_APP_DEEP_LINK || process.env.CLIENT_APP_URL || '#')
+                        : isRejected
+                            ? (process.env.CLIENT_APP_URL || '#')
+                            : undefined,
+                    footerNote: 'Thank you, The Padi Team',
+                }),
             });
             if (error) {
                 console.error('Technician review email dispatch failed:', {

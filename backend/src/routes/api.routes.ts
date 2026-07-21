@@ -20,12 +20,14 @@ import {
   changeOwnPassword,
   completeGoogleClientProfile,
   forgotPassword,
+  getMySecuritySummary,
   getMyProfile,
   googleAuth,
   loginUser,
   registerTechnician,
   registerUser,
   resetPassword,
+  signOutOtherSessions,
   updateMyDefaultAddress,
   verifyEmail,
 } from '../controllers/auth.controller'; 
@@ -74,6 +76,7 @@ import {
   getAdminBookingById,
   getAdminBookings,
   getAdminClients,
+  clearAdminAuditLogs,
   activateAdminPromotion,
   archiveAdminPromotion,
   createAdminPromotion,
@@ -144,6 +147,15 @@ import {
   unregisterPushToken,
 } from '../controllers/push-token.controller';
 import {
+  createAdminSupportMessage,
+  createSupportTicket,
+  createSupportTicketMessage,
+  getSupportTicketMessages,
+  listAdminSupportTickets,
+  listMySupportTickets,
+  updateAdminSupportTicket,
+} from '../controllers/support.controller';
+import {
   createAdminSubscriptionPlan,
   createManagedCollectionSubscription,
   generateManagedCollectionSubscriptionInvoices,
@@ -174,6 +186,8 @@ apiRouter.post('/auth/verify-email', verifyEmail);
 apiRouter.post('/auth/forgot-password', forgotPassword);
 apiRouter.post('/auth/reset-password', resetPassword);
 apiRouter.post('/auth/change-password', authenticateToken, changeOwnPassword);
+apiRouter.get('/auth/security', authenticateToken, getMySecuritySummary);
+apiRouter.post('/auth/sign-out-other-sessions', authenticateToken, signOutOtherSessions);
 
 apiRouter.get('/markets', getPublicMarkets);
 apiRouter.get('/markets/public', getPublicMarkets);
@@ -188,6 +202,10 @@ apiRouter.get('/notification-preferences', authenticateToken, getMyNotificationP
 apiRouter.patch('/notification-preferences', authenticateToken, updateMyNotificationPreferences);
 apiRouter.post('/push-tokens', authenticateToken, registerPushToken);
 apiRouter.delete('/push-tokens', authenticateToken, unregisterPushToken);
+apiRouter.get('/support/tickets', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.TECHNICIAN]), listMySupportTickets);
+apiRouter.post('/support/tickets', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.TECHNICIAN]), createSupportTicket);
+apiRouter.get('/support/tickets/:ticketId/messages', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.TECHNICIAN]), getSupportTicketMessages);
+apiRouter.post('/support/tickets/:ticketId/messages', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.TECHNICIAN]), createSupportTicketMessage);
 apiRouter.post('/technician/profile-photo', authenticateToken, requireRole([UserRole.TECHNICIAN]), uploadMyTechnicianProfilePhoto);
 apiRouter.get('/profile/me', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyProfile);
 apiRouter.patch('/profile/default-address', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), updateMyDefaultAddress);
@@ -283,11 +301,16 @@ apiRouter.get('/admin/users', authenticateToken, requireRole([UserRole.ADMIN]), 
 apiRouter.post('/admin/users', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.ADMINS_CREATE), createAdminUser);
 apiRouter.patch('/admin/users/:id', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.ADMINS_UPDATE), updateAdminUser);
 apiRouter.get('/admin/audit-logs', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.ADMINS_READ), getAdminAuditLogs);
+apiRouter.delete('/admin/audit-logs', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.ADMINS_UPDATE), clearAdminAuditLogs);
 apiRouter.get('/admin/notifications', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_READ), listAdminNotifications);
 apiRouter.post('/admin/notifications', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_UPDATE), createAdminBroadcastNotification);
 apiRouter.post('/admin/notifications/process-due', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_UPDATE), processAdminNotifications);
 apiRouter.post('/admin/notifications/:id/retry', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_UPDATE), retryAdminNotification);
 apiRouter.post('/admin/notifications/:id/cancel', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_UPDATE), cancelAdminNotification);
+apiRouter.get('/admin/support/tickets', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.SUPPORT_READ), listAdminSupportTickets);
+apiRouter.patch('/admin/support/tickets/:ticketId', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.SUPPORT_UPDATE), updateAdminSupportTicket);
+apiRouter.get('/admin/support/tickets/:ticketId/messages', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.SUPPORT_READ), getSupportTicketMessages);
+apiRouter.post('/admin/support/tickets/:ticketId/messages', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.SUPPORT_REPLY), createAdminSupportMessage);
 apiRouter.get('/admin/managed-collection-subscriptions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), listAdminManagedCollectionSubscriptions);
 apiRouter.post('/admin/managed-collection-subscriptions/generate-invoices', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), generateManagedCollectionSubscriptionInvoices);
 apiRouter.post('/admin/managed-collection-subscription-plans', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), createAdminSubscriptionPlan);

@@ -151,7 +151,14 @@ export function ActiveJobsTab(): React.JSX.Element {
 
     const handleQuoteApproved = (quote: { bookingId?: string }) => {
       if (!quote.bookingId) return;
-      setApprovedQuoteJobIds((prev) => new Set(prev).add(String(quote.bookingId)));
+      const bookingId = String(quote.bookingId);
+      setApprovedQuoteJobIds((prev) => new Set(prev).add(bookingId));
+      patchJob(bookingId, {
+        quoteStatus: 'APPROVED',
+        paymentStatus: 'PENDING',
+        workAuthorizationStatus: 'AWAITING_PAYMENT',
+        workAuthorizationReason: 'PAYMENT_NOT_SECURED',
+      });
     };
 
     const handleQuoteRejected = (quote: { bookingId?: string }) => {
@@ -437,7 +444,7 @@ export function ActiveJobsTab(): React.JSX.Element {
   const handleStartInspection = async (job: JobPayload) => {
     Alert.alert(
       'Padi Pro inspection reminder',
-      'Complete all quotations, approvals and payments through Padi Pro. Do not request cash, private bank transfers, external payment links or cancellation of the booking.',
+      'Complete quotations, approvals and payment steps through Padi Pro so the job remains protected for you and the client.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -592,7 +599,11 @@ export function ActiveJobsTab(): React.JSX.Element {
       setInvoiceModalVisible(false);
       Alert.alert('Completion submitted', 'The client must inspect and confirm completion before this job becomes eligible for admin-approved payout.');
     } catch (error) {
-      Alert.alert('Invoice failed', 'Could not save this invoice right now.');
+      const title = isQuoteApprovedForJob(activeInvoiceJob) ? 'Completion failed' : 'Quote failed';
+      const fallback = isQuoteApprovedForJob(activeInvoiceJob)
+        ? 'Could not submit completion right now.'
+        : 'Could not send this quote right now.';
+      Alert.alert(title, error instanceof Error ? error.message : fallback);
     } finally {
       setSubmittingInvoice(false);
     }
@@ -864,7 +875,9 @@ export function ActiveJobsTab(): React.JSX.Element {
           <View style={styles.invoiceModalContent}>
             <Text style={styles.sheetTitle}>{isApprovedQuote ? 'Complete Job' : 'Send Quote'}</Text>
             <Text style={styles.sheetSubtitle}>
-              Add labour and parts so the client can review the final amount.
+              {isApprovedQuote
+                ? 'Confirm the final amount and submit completion for client review.'
+                : 'Add labour and parts so the client can review and approve the quote before work continues.'}
             </Text>
 
             <View style={styles.inputGroup}>

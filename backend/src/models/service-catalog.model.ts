@@ -8,6 +8,18 @@ export enum ServicePublicationStatus {
   ARCHIVED = 'ARCHIVED',
 }
 
+export enum ServiceBillingModel {
+  ON_DEMAND = 'ON_DEMAND',
+  SUBSCRIPTION = 'SUBSCRIPTION',
+}
+
+export enum ServiceSubscriptionCadence {
+  WEEKLY = 'WEEKLY',
+  MONTHLY = 'MONTHLY',
+  QUARTERLY = 'QUARTERLY',
+  YEARLY = 'YEARLY',
+}
+
 const MAX_SERVICE_PRICE_MINOR = 100_000_000;
 
 export interface IServiceSubcategory {
@@ -35,6 +47,10 @@ export interface IServiceSubcategory {
   };
   calloutFeeMinor?: number;
   minimumChargeMinor?: number;
+  billingModel?: ServiceBillingModel;
+  subscriptionEligible?: boolean;
+  subscriptionCadences?: ServiceSubscriptionCadence[];
+  subscriptionNotes?: string;
 }
 
 export interface IServiceCatalogDocument extends Document {
@@ -227,6 +243,26 @@ const ServiceSubcategorySchema = new Schema<IServiceSubcategory>(
       min: 0,
       max: MAX_SERVICE_PRICE_MINOR,
       default: undefined,
+    },
+    billingModel: {
+      type: String,
+      enum: Object.values(ServiceBillingModel),
+      default: ServiceBillingModel.ON_DEMAND,
+    },
+    subscriptionEligible: {
+      type: Boolean,
+      default: false,
+    },
+    subscriptionCadences: {
+      type: [String],
+      enum: Object.values(ServiceSubscriptionCadence),
+      default: [],
+    },
+    subscriptionNotes: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 800,
     },
   },
   { _id: false }

@@ -77,6 +77,7 @@ export const listAdminNotifications = async (req: Request, res: Response): Promi
 
 export const createAdminBroadcastNotification = async (req: Request, res: Response): Promise<void> => {
   const audience = String(req.body?.audience || 'CLIENTS').trim().toUpperCase();
+  const feed = String(req.body?.feed || 'ALERTS').trim().toUpperCase();
   const title = String(req.body?.title || '').trim();
   const message = String(req.body?.message || '').trim();
 
@@ -89,6 +90,11 @@ export const createAdminBroadcastNotification = async (req: Request, res: Respon
   const roles = audienceRoleMap[audience];
   if (!roles) {
     res.status(400).json({ message: 'Select a valid broadcast audience.' });
+    return;
+  }
+
+  if (!['ALERTS', 'INBOX'].includes(feed)) {
+    res.status(400).json({ message: 'Select whether this broadcast belongs in Alerts or Inbox.' });
     return;
   }
 
@@ -127,7 +133,7 @@ export const createAdminBroadcastNotification = async (req: Request, res: Respon
           message,
           metadata: {
             source: 'ADMIN_PORTAL',
-            feed: 'ALERTS',
+            feed,
             broadcast: true,
             audience,
           },
@@ -137,14 +143,15 @@ export const createAdminBroadcastNotification = async (req: Request, res: Respon
     const notifications = batches.flat();
 
     await logAuditEvent(req, {
-      action: 'notification.client_alert.broadcast',
+      action: feed === 'INBOX' ? 'notification.inbox.broadcast' : 'notification.alert.broadcast',
       module: 'NOTIFICATIONS',
       resourceType: 'Notification',
-      resourceId: notifications[0]?._id?.toString?.() || 'client-alert-broadcast',
+      resourceId: notifications[0]?._id?.toString?.() || 'admin-broadcast',
       metadata: {
         recipientCount: recipients.length,
         notificationCount: notifications.length,
         audience,
+        feed,
         channel: NotificationChannel.IN_APP,
         type: NotificationType.SYSTEM,
       },
@@ -152,8 +159,8 @@ export const createAdminBroadcastNotification = async (req: Request, res: Respon
 
     res.status(201).json({ success: true, notifications, recipientCount: recipients.length });
   } catch (error) {
-    console.error('Failed to create client notification:', error);
-    res.status(500).json({ message: 'Failed to send client notification.' });
+    console.error('Failed to create broadcast notification:', error);
+    res.status(500).json({ message: 'Failed to send broadcast notification.' });
   }
 };
 
