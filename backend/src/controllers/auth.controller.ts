@@ -749,6 +749,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
     res.status(200).json({
       status: 'success',
       token,
+      requiresPasswordChange: Boolean(user.mustChangePassword),
       user: buildSessionUser(user, req),
       technician: technicianProfile
         ? await buildSessionTechnician(technicianProfile, user)

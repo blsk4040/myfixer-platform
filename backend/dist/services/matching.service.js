@@ -162,6 +162,13 @@ const getTechnicianDistanceKm = (technician, booking) => {
     }
     return getDistanceKm(bookingLatitude, bookingLongitude, techLatitude, techLongitude);
 };
+const scoreCandidate = (candidate) => {
+    const distanceScore = Math.max(0, 100 - candidate.distanceKm * 2);
+    const reliabilityScore = Math.max(0, Math.min(100, candidate.reliabilityScore || 0));
+    const workloadPenalty = Math.min(35, candidate.activeJobs * 12);
+    const opportunityPenalty = Math.min(25, candidate.recentDispatches * 5);
+    return Math.round((distanceScore * 0.45) + (reliabilityScore * 0.35) + 20 - workloadPenalty - opportunityPenalty);
+};
 const findEligibleTechniciansWithTelemetryPipeline = async (booking) => {
     const coordinates = getBookingCoordinates(booking);
     const serviceKey = getBookingDispatchServiceCategory(booking);
@@ -246,20 +253,74 @@ const findEligibleTechniciansWithTelemetryPipeline = async (booking) => {
                 },
             },
         },
-        { $sort: { distanceMeters: 1 } },
+        {
+            $lookup: {
+                from: booking_model_1.default.collection.name,
+                let: { providerUserId: '$technician.userId' },
+                pipeline: [
+                    {
+                        $match: {
+                            $expr: { $eq: ['$technicianId', '$$providerUserId'] },
+                            status: { $in: [booking_model_1.BookingStatus.ACCEPTED, booking_model_1.BookingStatus.IN_ROUTE, booking_model_1.BookingStatus.ARRIVED, booking_model_1.BookingStatus.IN_PROGRESS, booking_model_1.BookingStatus.DIAGNOSTIC_DONE] },
+                        },
+                    },
+                    { $count: 'count' },
+                ],
+                as: 'activeJobStats',
+            },
+        },
+        {
+            $lookup: {
+                from: booking_model_1.default.collection.name,
+                let: { providerUserId: '$technician.userId' },
+                pipeline: [
+                    {
+                        $match: {
+                            createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) },
+                            'dispatch.attempts': { $elemMatch: { status: 'SENT' } },
+                            $expr: { $in: ['$$providerUserId', '$dispatch.attempts.technicianId'] },
+                        },
+                    },
+                    { $count: 'count' },
+                ],
+                as: 'recentDispatchStats',
+            },
+        },
         {
             $project: {
                 _id: 0,
                 technicianUserId: '$technician.userId',
                 distanceMeters: 1,
                 serviceRadiusKm: '$capability.serviceRadiusKm',
+                reliabilityScore: '$technician.reliabilityScore',
+                completedJobs: '$technician.stats.completedJobs',
+                activeJobs: { $ifNull: [{ $arrayElemAt: ['$activeJobStats.count', 0] }, 0] },
+                recentDispatches: { $ifNull: [{ $arrayElemAt: ['$recentDispatchStats.count', 0] }, 0] },
             },
         },
     ];
     const results = await technician_telemetry_model_1.default.aggregate(pipeline);
     return results
-        .map((result) => result.technicianUserId?.toString())
-        .filter((id) => Boolean(id));
+        .map((result) => {
+        const technicianId = result.technicianUserId?.toString();
+        if (!technicianId)
+            return null;
+        const distanceKm = Math.round((result.distanceMeters / 1000) * 100) / 100;
+        const candidate = {
+            technicianId,
+            distanceKm,
+            reliabilityScore: Number(result.reliabilityScore ?? 100),
+            activeJobs: Number(result.activeJobs ?? 0),
+            recentDispatches: Number(result.recentDispatches ?? 0),
+            serviceRadiusKm: Number(result.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM),
+        };
+        return {
+            ...candidate,
+            score: scoreCandidate(candidate),
+        };
+    })
+        .filter((candidate) => Boolean(candidate))
+        .sort((a, b) => b.score - a.score || a.distanceKm - b.distanceKm);
 };
 const matchingService = {
     async findNearbyTechnicians(latitude, longitude) {
@@ -319,10 +380,22 @@ const matchingService = {
             console.info('[matching-debug] eligible telemetry technicians for booking', {
                 bookingId,
                 matchedCount: eligible.length,
-                technicianUserIds: eligible,
+                technicianUserIds: eligible.map((candidate) => candidate.technicianId),
             });
         }
-        return eligible;
+        return eligible.map((candidate) => candidate.technicianId);
+    },
+    async rankEligibleOnlineTechniciansForBooking(bookingId) {
+        if (!mongoose_1.default.Types.ObjectId.isValid(bookingId)) {
+            return [];
+        }
+        const booking = await booking_model_1.default.findById(bookingId)
+            .select('status serviceKey applianceType generalArea metadata customerLocation countryCode dispatch createdAt')
+            .lean();
+        if (!booking || !isBookingDispatchOpen(booking)) {
+            return [];
+        }
+        return findEligibleTechniciansWithTelemetryPipeline(booking);
     },
     async markBookingStandby(bookingId) {
         if (!mongoose_1.default.Types.ObjectId.isValid(bookingId)) {

@@ -223,7 +223,34 @@ interface EligibleTechnicianAggregationResult {
   technicianUserId?: mongoose.Types.ObjectId;
   distanceMeters: number;
   serviceRadiusKm?: number;
+  reliabilityScore?: number;
+  completedJobs?: number;
+  activeJobs?: number;
+  recentDispatches?: number;
 }
+
+export interface RankedTechnicianCandidate {
+  technicianId: string;
+  distanceKm: number;
+  score: number;
+  reliabilityScore: number;
+  activeJobs: number;
+  recentDispatches: number;
+  serviceRadiusKm: number;
+}
+
+const scoreCandidate = (candidate: {
+  distanceKm: number;
+  reliabilityScore: number;
+  activeJobs: number;
+  recentDispatches: number;
+}): number => {
+  const distanceScore = Math.max(0, 100 - candidate.distanceKm * 2);
+  const reliabilityScore = Math.max(0, Math.min(100, candidate.reliabilityScore || 0));
+  const workloadPenalty = Math.min(35, candidate.activeJobs * 12);
+  const opportunityPenalty = Math.min(25, candidate.recentDispatches * 5);
+  return Math.round((distanceScore * 0.45) + (reliabilityScore * 0.35) + 20 - workloadPenalty - opportunityPenalty);
+};
 
 const findEligibleTechniciansWithTelemetryPipeline = async (
   booking: {
@@ -236,7 +263,7 @@ const findEligibleTechniciansWithTelemetryPipeline = async (
     countryCode?: unknown;
     dispatch?: { declinedByTechnicians?: mongoose.Types.ObjectId[] };
   }
-): Promise<string[]> => {
+): Promise<RankedTechnicianCandidate[]> => {
   const coordinates = getBookingCoordinates(booking);
   const serviceKey = getBookingDispatchServiceCategory(booking);
 
@@ -324,21 +351,74 @@ const findEligibleTechniciansWithTelemetryPipeline = async (
         },
       },
     },
-    { $sort: { distanceMeters: 1 } },
+    {
+      $lookup: {
+        from: Booking.collection.name,
+        let: { providerUserId: '$technician.userId' },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ['$technicianId', '$$providerUserId'] },
+              status: { $in: [BookingStatus.ACCEPTED, BookingStatus.IN_ROUTE, BookingStatus.ARRIVED, BookingStatus.IN_PROGRESS, BookingStatus.DIAGNOSTIC_DONE] },
+            },
+          },
+          { $count: 'count' },
+        ],
+        as: 'activeJobStats',
+      },
+    },
+    {
+      $lookup: {
+        from: Booking.collection.name,
+        let: { providerUserId: '$technician.userId' },
+        pipeline: [
+          {
+            $match: {
+              createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) },
+              'dispatch.attempts': { $elemMatch: { status: 'SENT' } },
+              $expr: { $in: ['$$providerUserId', '$dispatch.attempts.technicianId'] },
+            },
+          },
+          { $count: 'count' },
+        ],
+        as: 'recentDispatchStats',
+      },
+    },
     {
       $project: {
         _id: 0,
         technicianUserId: '$technician.userId',
         distanceMeters: 1,
         serviceRadiusKm: '$capability.serviceRadiusKm',
+        reliabilityScore: '$technician.reliabilityScore',
+        completedJobs: '$technician.stats.completedJobs',
+        activeJobs: { $ifNull: [{ $arrayElemAt: ['$activeJobStats.count', 0] }, 0] },
+        recentDispatches: { $ifNull: [{ $arrayElemAt: ['$recentDispatchStats.count', 0] }, 0] },
       },
     },
   ];
 
   const results = await TechnicianTelemetry.aggregate<EligibleTechnicianAggregationResult>(pipeline);
   return results
-    .map((result) => result.technicianUserId?.toString())
-    .filter((id): id is string => Boolean(id));
+    .map((result) => {
+      const technicianId = result.technicianUserId?.toString();
+      if (!technicianId) return null;
+      const distanceKm = Math.round((result.distanceMeters / 1000) * 100) / 100;
+      const candidate = {
+        technicianId,
+        distanceKm,
+        reliabilityScore: Number(result.reliabilityScore ?? 100),
+        activeJobs: Number(result.activeJobs ?? 0),
+        recentDispatches: Number(result.recentDispatches ?? 0),
+        serviceRadiusKm: Number(result.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM),
+      };
+      return {
+        ...candidate,
+        score: scoreCandidate(candidate),
+      };
+    })
+    .filter((candidate): candidate is RankedTechnicianCandidate => Boolean(candidate))
+    .sort((a, b) => b.score - a.score || a.distanceKm - b.distanceKm);
 };
 
 const matchingService = {
@@ -424,11 +504,27 @@ const matchingService = {
       console.info('[matching-debug] eligible telemetry technicians for booking', {
         bookingId,
         matchedCount: eligible.length,
-        technicianUserIds: eligible,
+        technicianUserIds: eligible.map((candidate) => candidate.technicianId),
       });
     }
 
-    return eligible;
+    return eligible.map((candidate) => candidate.technicianId);
+  },
+
+  async rankEligibleOnlineTechniciansForBooking(bookingId: string): Promise<RankedTechnicianCandidate[]> {
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      return [];
+    }
+
+    const booking = await Booking.findById(bookingId)
+      .select('status serviceKey applianceType generalArea metadata customerLocation countryCode dispatch createdAt')
+      .lean();
+
+    if (!booking || !isBookingDispatchOpen(booking)) {
+      return [];
+    }
+
+    return findEligibleTechniciansWithTelemetryPipeline(booking);
   },
 
   async markBookingStandby(bookingId: string): Promise<void> {

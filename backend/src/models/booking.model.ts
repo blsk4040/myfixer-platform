@@ -238,6 +238,18 @@ export interface IBooking extends Document {
     declinedByTechnicians: mongoose.Types.ObjectId[];
     acceptedByTechnician?: mongoose.Types.ObjectId | null;
     preferredTechnicianId?: mongoose.Types.ObjectId | null;
+    currentWave?: number;
+    nextRetryAt?: Date | null;
+    attempts?: {
+      technicianId: mongoose.Types.ObjectId;
+      wave: number;
+      status: 'SENT' | 'ACCEPTED' | 'DECLINED' | 'TIMED_OUT' | 'SKIPPED';
+      distanceKm?: number;
+      score?: number;
+      reason?: string;
+      sentAt: Date;
+      respondedAt?: Date | null;
+    }[];
   };
 
   metadata: Record<string, unknown>;
@@ -323,6 +335,53 @@ const AppointmentWindowSchema = new Schema(
   { _id: false }
 );
 
+const DispatchAttemptSchema = new Schema(
+  {
+    technicianId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+      index: true,
+    },
+    wave: {
+      type: Number,
+      required: true,
+      min: 1,
+      default: 1,
+    },
+    status: {
+      type: String,
+      enum: ['SENT', 'ACCEPTED', 'DECLINED', 'TIMED_OUT', 'SKIPPED'],
+      default: 'SENT',
+      index: true,
+    },
+    distanceKm: {
+      type: Number,
+      min: 0,
+      default: undefined,
+    },
+    score: {
+      type: Number,
+      default: undefined,
+    },
+    reason: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    sentAt: {
+      type: Date,
+      default: Date.now,
+      index: true,
+    },
+    respondedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
 const DispatchSchema = new Schema(
   {
     status: {
@@ -356,6 +415,20 @@ const DispatchSchema = new Schema(
       ref: 'User',
       default: null,
       index: true,
+    },
+    currentWave: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    nextRetryAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    attempts: {
+      type: [DispatchAttemptSchema],
+      default: [],
     },
   },
   { _id: false }

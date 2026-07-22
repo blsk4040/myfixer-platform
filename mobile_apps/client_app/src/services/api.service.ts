@@ -145,6 +145,9 @@ export interface CreateBookingResponse {
   success: boolean;
   bookingId: string;
   notifiedTechnicianIds: string[];
+  dispatchStatus?: 'BROADCASTING' | 'STANDBY' | 'SCHEDULED' | 'ACCEPTED' | 'EXPIRED' | 'CANCELLED';
+  standbyExpiresAt?: string | null;
+  message?: string;
   priceBreakdown?: PriceBreakdown | null;
   promotion?: AppliedPromotionSnapshot | null;
   promotions?: AppliedPromotionSnapshot[];
@@ -572,6 +575,13 @@ class ApiService {
         onsite_contact_name: payload.contactName,
         onsite_contact_phone: payload.contactPhone,
       }),
+    });
+  }
+
+  updateBookingStatus(bookingId: string, status: BookingStatus): Promise<{ success: boolean; bookingId: string; status: BookingStatus }> {
+    return this.request<{ success: boolean; bookingId: string; status: BookingStatus }>(`/bookings/${encodeURIComponent(bookingId)}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
     });
   }
 

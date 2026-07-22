@@ -12,6 +12,8 @@ import {
 } from '../services/settlement.service';
 import { AuthenticatedRequest } from '../types/auth.types';
 import { MarketFinanceGuardError } from '../services/market-finance-guard.service';
+import { assertAdminCountryAccess, countryScopeFilter, getAdminMarketScope, handleAdminMarketScopeError } from '../services/admin-market-scope.service';
+import ProviderSettlement from '../models/provider-settlement.model';
 
 const idempotencyKey = (req: AuthenticatedRequest): string =>
   String(req.headers['idempotency-key'] || req.body?.idempotencyKey || '').trim();
@@ -75,11 +77,18 @@ export const reportCompletionIssueController = async (req: AuthenticatedRequest,
   }
 };
 
-export const getAdminSettlements = async (_req: AuthenticatedRequest, res: Response): Promise<void> => {
+const assertSettlementCountryAccess = async (req: AuthenticatedRequest, settlementId: string): Promise<void> => {
+  const settlement = await ProviderSettlement.findById(settlementId).select('countryCode').lean();
+  if (!settlement) throw new SettlementError('Settlement not found.', 'SETTLEMENT_NOT_FOUND', 404);
+  await assertAdminCountryAccess(req, settlement.countryCode);
+};
+
+export const getAdminSettlements = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const settlements = await listSettlements();
+    const settlements = await listSettlements(countryScopeFilter(await getAdminMarketScope(req)));
     res.status(200).json({ success: true, settlements });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     handleError(res, error, 'Unable to list settlements.');
   }
 };
@@ -96,39 +105,47 @@ export const getTechnicianSettlements = async (req: AuthenticatedRequest, res: R
 
 export const approveAdminSettlement = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    await assertSettlementCountryAccess(req, String(req.params.settlementId || ''));
     const result = await approveSettlement(String(req.params.settlementId || ''), req.user, {
       reason: String(req.body?.reason || req.body?.note || ''),
       idempotencyKey: idempotencyKey(req),
     }, req);
     res.status(200).json({ success: true, duplicate: result.duplicate, settlement: result.settlement, payout: 'payout' in result ? result.payout : null });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     handleError(res, error, 'Unable to approve settlement.');
   }
 };
 
 export const holdAdminSettlement = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    await assertSettlementCountryAccess(req, String(req.params.id || req.params.settlementId || ''));
     const settlement = await holdSettlement(String(req.params.id || req.params.settlementId || ''), req.user, String(req.body?.reason || ''), req);
     res.status(200).json({ success: true, settlement });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     handleError(res, error, 'Unable to place settlement hold.');
   }
 };
 
 export const releaseAdminSettlementHold = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    await assertSettlementCountryAccess(req, String(req.params.id || req.params.settlementId || ''));
     const settlement = await releaseSettlementHold(String(req.params.id || req.params.settlementId || ''), req.user, String(req.body?.reason || 'Reviewed'));
     res.status(200).json({ success: true, settlement });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     handleError(res, error, 'Unable to release settlement hold.');
   }
 };
 
 export const retryAdminSettlementPayout = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    await assertSettlementCountryAccess(req, String(req.params.id || req.params.settlementId || ''));
     const result = await retrySettlementPayout(String(req.params.id || req.params.settlementId || ''), req.user, String(req.body?.reason || 'Retry payout'), req);
     res.status(200).json({ success: true, settlement: result.settlement, payout: 'payout' in result ? result.payout : null });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     handleError(res, error, 'Unable to retry settlement payout.');
   }
 };

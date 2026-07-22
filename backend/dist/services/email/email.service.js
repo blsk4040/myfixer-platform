@@ -95,10 +95,10 @@ class EmailService {
             const { data, error } = await resend.emails.send({
                 from: process.env.RESEND_FROM_EMAIL,
                 to: args.recipientEmail,
-                subject: 'Reset your MyFixer admin password',
+                subject: 'Reset your Padi BackOffice password',
                 html: `
           <p>Hello ${args.name || 'there'},</p>
-          <p>We received a request to reset your MyFixer admin password.</p>
+          <p>We received a request to reset your Padi BackOffice password.</p>
           <p><a href="${args.resetUrl}">Reset your password</a></p>
           <p>This link expires in 30 minutes. If you did not request this, you can ignore this email.</p>
         `,
@@ -122,15 +122,15 @@ class EmailService {
             const { error } = await resend.emails.send({
                 from: process.env.RESEND_FROM_EMAIL,
                 to: args.recipientEmail,
-                subject: 'Your MyFixer internal portal access',
+                subject: 'Your Padi BackOffice access is ready',
                 html: `
           <p>Hello ${args.name || 'there'},</p>
-          <p>Your MyFixer internal staff account has been created.</p>
+          <p>Your Padi BackOffice account has been created.</p>
           <p><strong>Portal:</strong> <a href="${args.portalUrl}">${args.portalUrl}</a></p>
           <p><strong>Username:</strong> ${args.username}</p>
           <p><strong>Temporary password:</strong> ${args.temporaryPassword}</p>
-          <p>You will be asked to change this temporary password the first time you sign in.</p>
-          <p>If you were not expecting this account, contact MyFixer support immediately.</p>
+          <p>For security, you will be asked to create a new password the first time you sign in.</p>
+          <p>If you were not expecting this account, please contact Padi Support immediately.</p>
         `,
             });
             if (error) {

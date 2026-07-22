@@ -16,6 +16,7 @@ import { logAuditEvent } from '../services/audit.service';
 import { AuditModule, AuditSeverity } from '../models/audit-log.model';
 import { createNotifications } from '../services/notification.service';
 import { NotificationChannel } from '../models/notification.model';
+import { getAdminMarketScope, handleAdminMarketScopeError } from '../services/admin-market-scope.service';
 
 const getAuthUser = (req: Request) =>
   (req as any).user as { id?: string; _id?: string; email?: string; role?: string } | undefined;
@@ -92,7 +93,7 @@ export const userCanAccessSupportTicket = (
   ticket: { requesterId?: unknown },
   userId: string,
   role: UserRole
-): boolean => role === UserRole.ADMIN || String(ticket.requesterId || '') === userId;
+): boolean => role !== UserRole.ADMIN && String(ticket.requesterId || '') === userId;
 
 const serializeTicket = (ticket: any) => ({
   id: ticket._id?.toString?.() ?? ticket.id,
@@ -198,6 +199,26 @@ const loadBookingForRequester = async (bookingId: string, requesterId: string, r
   return booking;
 };
 
+const adminCanAccessSupportTicketMarket = async (req: Request, ticket: { requesterId?: unknown; bookingId?: unknown }): Promise<boolean> => {
+  const scope = await getAdminMarketScope(req);
+  if (scope.canViewAllMarkets) return true;
+
+  const countryCodes = new Set<string>();
+  const requesterId = String(ticket.requesterId || '');
+  const bookingId = String(ticket.bookingId || '');
+  const [requester, booking] = await Promise.all([
+    mongoose.Types.ObjectId.isValid(requesterId)
+      ? User.findById(requesterId).select('countryCode').lean()
+      : Promise.resolve(null),
+    mongoose.Types.ObjectId.isValid(bookingId)
+      ? Booking.findById(bookingId).select('countryCode').lean()
+      : Promise.resolve(null),
+  ]);
+  if (requester?.countryCode) countryCodes.add(String(requester.countryCode).toUpperCase());
+  if (booking?.countryCode) countryCodes.add(String(booking.countryCode).toUpperCase());
+  return [...countryCodes].some((countryCode) => scope.effectiveCountryCodes.includes(countryCode));
+};
+
 const assertAdminSupportPermission = async (req: Request, permission: AdminPermission): Promise<boolean> => {
   const role = normalizeUserRole(getAuthUser(req)?.role);
   const userId = getUserId(req);
@@ -214,6 +235,9 @@ const loadAccessibleTicket = async (req: Request, includeInternal = false) => {
   if (!mongoose.Types.ObjectId.isValid(ticketId)) return null;
   const ticket = await SupportTicket.findById(ticketId);
   if (!ticket) return null;
+  if (role === UserRole.ADMIN) {
+    return (await adminCanAccessSupportTicketMarket(req, ticket)) ? ticket : null;
+  }
   if (userCanAccessSupportTicket(ticket, userId, role)) return ticket;
   if (includeInternal && await assertAdminSupportPermission(req, AdminPermission.SUPPORT_READ)) return ticket;
   return null;
@@ -354,11 +378,27 @@ export const createSupportTicketMessage = async (req: Request, res: Response): P
 };
 
 export const listAdminSupportTickets = async (req: Request, res: Response): Promise<void> => {
-  const status = normalizeSupportTicketStatus(req.query.status);
-  const filter = status ? { status } : {};
-  const tickets = await SupportTicket.find(filter).sort({ updatedAt: -1 }).limit(200).lean();
-  const enrichedTickets = await enrichAdminTickets(tickets);
-  res.status(200).json({ success: true, tickets: enrichedTickets.map(serializeTicket) });
+  try {
+    const status = normalizeSupportTicketStatus(req.query.status);
+    const filter: Record<string, unknown> = status ? { status } : {};
+    const scope = await getAdminMarketScope(req);
+    if (!scope.canViewAllMarkets) {
+      const [requesterIds, bookingIds] = await Promise.all([
+        User.find({ countryCode: { $in: scope.effectiveCountryCodes } }).distinct('_id'),
+        Booking.find({ countryCode: { $in: scope.effectiveCountryCodes } }).distinct('_id'),
+      ]);
+      filter.$or = [
+        { requesterId: { $in: requesterIds } },
+        { bookingId: { $in: bookingIds } },
+      ];
+    }
+    const tickets = await SupportTicket.find(filter).sort({ updatedAt: -1 }).limit(200).lean();
+    const enrichedTickets = await enrichAdminTickets(tickets);
+    res.status(200).json({ success: true, tickets: enrichedTickets.map(serializeTicket), marketScope: scope });
+  } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
+    res.status(500).json({ success: false, message: 'Failed to fetch support tickets.' });
+  }
 };
 
 export const createAdminSupportMessage = async (req: Request, res: Response): Promise<void> => {

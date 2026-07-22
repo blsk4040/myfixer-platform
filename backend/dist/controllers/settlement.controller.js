@@ -1,8 +1,13 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.retryAdminSettlementPayout = exports.releaseAdminSettlementHold = exports.holdAdminSettlement = exports.approveAdminSettlement = exports.getTechnicianSettlements = exports.getAdminSettlements = exports.reportCompletionIssueController = exports.confirmCompletion = exports.submitCompletion = void 0;
 const settlement_service_1 = require("../services/settlement.service");
 const market_finance_guard_service_1 = require("../services/market-finance-guard.service");
+const admin_market_scope_service_1 = require("../services/admin-market-scope.service");
+const provider_settlement_model_1 = __importDefault(require("../models/provider-settlement.model"));
 const idempotencyKey = (req) => String(req.headers['idempotency-key'] || req.body?.idempotencyKey || '').trim();
 const handleError = (res, error, fallback) => {
     if (error instanceof settlement_service_1.SettlementError || error instanceof market_finance_guard_service_1.MarketFinanceGuardError) {
@@ -60,12 +65,20 @@ const reportCompletionIssueController = async (req, res) => {
     }
 };
 exports.reportCompletionIssueController = reportCompletionIssueController;
-const getAdminSettlements = async (_req, res) => {
+const assertSettlementCountryAccess = async (req, settlementId) => {
+    const settlement = await provider_settlement_model_1.default.findById(settlementId).select('countryCode').lean();
+    if (!settlement)
+        throw new settlement_service_1.SettlementError('Settlement not found.', 'SETTLEMENT_NOT_FOUND', 404);
+    await (0, admin_market_scope_service_1.assertAdminCountryAccess)(req, settlement.countryCode);
+};
+const getAdminSettlements = async (req, res) => {
     try {
-        const settlements = await (0, settlement_service_1.listSettlements)();
+        const settlements = await (0, settlement_service_1.listSettlements)((0, admin_market_scope_service_1.countryScopeFilter)(await (0, admin_market_scope_service_1.getAdminMarketScope)(req)));
         res.status(200).json({ success: true, settlements });
     }
     catch (error) {
+        if ((0, admin_market_scope_service_1.handleAdminMarketScopeError)(res, error))
+            return;
         handleError(res, error, 'Unable to list settlements.');
     }
 };
@@ -83,6 +96,7 @@ const getTechnicianSettlements = async (req, res) => {
 exports.getTechnicianSettlements = getTechnicianSettlements;
 const approveAdminSettlement = async (req, res) => {
     try {
+        await assertSettlementCountryAccess(req, String(req.params.settlementId || ''));
         const result = await (0, settlement_service_1.approveSettlement)(String(req.params.settlementId || ''), req.user, {
             reason: String(req.body?.reason || req.body?.note || ''),
             idempotencyKey: idempotencyKey(req),
@@ -90,36 +104,47 @@ const approveAdminSettlement = async (req, res) => {
         res.status(200).json({ success: true, duplicate: result.duplicate, settlement: result.settlement, payout: 'payout' in result ? result.payout : null });
     }
     catch (error) {
+        if ((0, admin_market_scope_service_1.handleAdminMarketScopeError)(res, error))
+            return;
         handleError(res, error, 'Unable to approve settlement.');
     }
 };
 exports.approveAdminSettlement = approveAdminSettlement;
 const holdAdminSettlement = async (req, res) => {
     try {
+        await assertSettlementCountryAccess(req, String(req.params.id || req.params.settlementId || ''));
         const settlement = await (0, settlement_service_1.holdSettlement)(String(req.params.id || req.params.settlementId || ''), req.user, String(req.body?.reason || ''), req);
         res.status(200).json({ success: true, settlement });
     }
     catch (error) {
+        if ((0, admin_market_scope_service_1.handleAdminMarketScopeError)(res, error))
+            return;
         handleError(res, error, 'Unable to place settlement hold.');
     }
 };
 exports.holdAdminSettlement = holdAdminSettlement;
 const releaseAdminSettlementHold = async (req, res) => {
     try {
+        await assertSettlementCountryAccess(req, String(req.params.id || req.params.settlementId || ''));
         const settlement = await (0, settlement_service_1.releaseSettlementHold)(String(req.params.id || req.params.settlementId || ''), req.user, String(req.body?.reason || 'Reviewed'));
         res.status(200).json({ success: true, settlement });
     }
     catch (error) {
+        if ((0, admin_market_scope_service_1.handleAdminMarketScopeError)(res, error))
+            return;
         handleError(res, error, 'Unable to release settlement hold.');
     }
 };
 exports.releaseAdminSettlementHold = releaseAdminSettlementHold;
 const retryAdminSettlementPayout = async (req, res) => {
     try {
+        await assertSettlementCountryAccess(req, String(req.params.id || req.params.settlementId || ''));
         const result = await (0, settlement_service_1.retrySettlementPayout)(String(req.params.id || req.params.settlementId || ''), req.user, String(req.body?.reason || 'Retry payout'), req);
         res.status(200).json({ success: true, settlement: result.settlement, payout: 'payout' in result ? result.payout : null });
     }
     catch (error) {
+        if ((0, admin_market_scope_service_1.handleAdminMarketScopeError)(res, error))
+            return;
         handleError(res, error, 'Unable to retry settlement payout.');
     }
 };

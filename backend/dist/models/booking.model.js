@@ -175,6 +175,49 @@ const AppointmentWindowSchema = new mongoose_1.Schema({
         default: null,
     },
 }, { _id: false });
+const DispatchAttemptSchema = new mongoose_1.Schema({
+    technicianId: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+        index: true,
+    },
+    wave: {
+        type: Number,
+        required: true,
+        min: 1,
+        default: 1,
+    },
+    status: {
+        type: String,
+        enum: ['SENT', 'ACCEPTED', 'DECLINED', 'TIMED_OUT', 'SKIPPED'],
+        default: 'SENT',
+        index: true,
+    },
+    distanceKm: {
+        type: Number,
+        min: 0,
+        default: undefined,
+    },
+    score: {
+        type: Number,
+        default: undefined,
+    },
+    reason: {
+        type: String,
+        default: '',
+        trim: true,
+    },
+    sentAt: {
+        type: Date,
+        default: Date.now,
+        index: true,
+    },
+    respondedAt: {
+        type: Date,
+        default: null,
+    },
+}, { _id: false });
 const DispatchSchema = new mongoose_1.Schema({
     status: {
         type: String,
@@ -207,6 +250,20 @@ const DispatchSchema = new mongoose_1.Schema({
         ref: 'User',
         default: null,
         index: true,
+    },
+    currentWave: {
+        type: Number,
+        min: 0,
+        default: 0,
+    },
+    nextRetryAt: {
+        type: Date,
+        default: null,
+        index: true,
+    },
+    attempts: {
+        type: [DispatchAttemptSchema],
+        default: [],
     },
 }, { _id: false });
 const ServiceRecipientSchema = new mongoose_1.Schema({

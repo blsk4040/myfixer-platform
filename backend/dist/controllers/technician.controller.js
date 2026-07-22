@@ -47,17 +47,21 @@ const matching_service_1 = __importDefault(require("../services/matching.service
 const user_model_1 = __importDefault(require("../models/user.model"));
 const email_service_1 = require("../services/email/email.service");
 const media_storage_service_1 = require("../services/media-storage.service");
+const admin_market_scope_service_1 = require("../services/admin-market-scope.service");
 const isApprovalStatus = (value) => typeof value === 'string' &&
     Object.values(technician_model_1.TechnicianApprovalStatus).includes(value);
 const isPhotoReviewStatus = (value) => value === technician_model_1.VerificationStatus.VERIFIED || value === technician_model_1.VerificationStatus.REJECTED;
-const listTechnicianApplications = async (_req, res) => {
+const listTechnicianApplications = async (req, res) => {
     try {
-        const technicians = await technician_model_1.default.find()
+        const scopeFilter = (0, admin_market_scope_service_1.countryScopeFilter)(await (0, admin_market_scope_service_1.getAdminMarketScope)(req));
+        const technicians = await technician_model_1.default.find(scopeFilter)
             .populate('userId', 'name email phone countryCode currency location')
             .sort({ createdAt: -1 });
         res.status(200).json({ success: true, technicians });
     }
     catch (error) {
+        if ((0, admin_market_scope_service_1.handleAdminMarketScopeError)(res, error))
+            return;
         res.status(500).json({ success: false, message: 'Failed to fetch technician applications.' });
     }
 };

@@ -42,6 +42,9 @@ const state = {
   loading: false,
   error: '',
   idleWarning: '',
+  overviewFilters: {
+    countryCode: '',
+  },
   apiHealth: {
     status: 'checking',
     environment: resolveApiEnvironment(),
@@ -120,6 +123,9 @@ const state = {
     statusFilter: '',
     message: '',
     error: '',
+  },
+  adminUsers: {
+    expandedStaffId: '',
   },
   collectionOperationFilters: {
     countryCode: '',
@@ -346,6 +352,15 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
+function initials(value) {
+  const parts = String(value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return 'PA';
+  return parts.slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+}
+
 function formatMoney(amount, currency = '') {
   if (typeof amount !== 'number') return '-';
   try {
@@ -382,6 +397,15 @@ function getCountryOptions() {
       label: `${knownMarkets.get(code)?.name || name} (${code})${knownMarkets.has(code) ? '' : ' - not configured'}`,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function selectedOverviewCountryCode() {
+  if (isSuperAdminUser()) return String(state.overviewFilters.countryCode || '').trim().toUpperCase();
+  return String(state.user?.countryCode || '').trim().toUpperCase();
+}
+
+function scopedQuery(params = {}) {
+  return queryStringFrom({ ...params, countryCode: selectedOverviewCountryCode() });
 }
 
 function countryMetadataList() {
@@ -875,8 +899,11 @@ async function login(event) {
     state.user = result.user;
     localStorage.setItem('myfixer_admin_token', result.token);
     localStorage.setItem('myfixer_admin_user', JSON.stringify(result.user));
-    if (result.user?.mustChangePassword) {
+    if (result.requiresPasswordChange || result.user?.mustChangePassword) {
+      state.user = { ...result.user, mustChangePassword: true };
+      localStorage.setItem('myfixer_admin_user', JSON.stringify(state.user));
       state.authView = 'changePassword';
+      state.loading = false;
       render();
       return;
     }
@@ -977,6 +1004,7 @@ async function changePassword(event) {
     localStorage.setItem('myfixer_admin_user', JSON.stringify(result.user));
     await loadAllData();
     resetIdleTimer();
+    state.loading = false;
     render();
   } catch (error) {
     if (errorBox) errorBox.textContent = error.message;
@@ -1006,26 +1034,26 @@ async function loadAllData() {
 
   try {
     const requests = {
-      overview: hasPermission('overview.read') ? api('/admin/overview') : Promise.resolve({ overview: null }),
+      overview: hasPermission('overview.read') ? api(`/admin/overview${scopedQuery()}`) : Promise.resolve({ overview: null }),
       clients: hasPermission('overview.read')
-        ? api('/admin/clients?limit=200').catch(() => ({ clients: [] }))
+        ? api(`/admin/clients${scopedQuery({ limit: 200 })}`).catch(() => ({ clients: [] }))
         : Promise.resolve({ clients: [] }),
-      technicians: hasPermission('technicians.read') ? api('/admin/technicians') : Promise.resolve({ technicians: [] }),
-      bookings: hasPermission('bookings.read') ? api('/admin/bookings?limit=100') : Promise.resolve({ bookings: [] }),
+      technicians: hasPermission('technicians.read') ? api(`/admin/technicians${scopedQuery()}`) : Promise.resolve({ technicians: [] }),
+      bookings: hasPermission('bookings.read') ? api(`/admin/bookings${scopedQuery({ limit: 100 })}`) : Promise.resolve({ bookings: [] }),
       managedCollections: hasPermission('bookings.read') ? api('/admin/managed-collections') : Promise.resolve({ profiles: [], reminders: [] }),
       collectionOperations: hasPermission('bookings.read') ? api(`/admin/collection-operations${queryStringFrom(state.collectionOperationFilters)}`) : Promise.resolve({ jobs: [], metrics: {}, calendar: {}, meta: {} }),
       notifications: hasPermission('bookings.read') ? api(`/admin/notifications${queryStringFrom(state.notificationFilters)}`) : Promise.resolve({ notifications: [], counts: [], meta: {} }),
-      supportTickets: hasPermission('support.read') ? api(`/admin/support/tickets${queryStringFrom({ status: state.supportDesk.statusFilter })}`) : Promise.resolve({ tickets: [] }),
+      supportTickets: hasPermission('support.read') ? api(`/admin/support/tickets${scopedQuery({ status: state.supportDesk.statusFilter })}`) : Promise.resolve({ tickets: [] }),
       subscriptions: hasPermission('finance.read') ? api('/admin/managed-collection-subscriptions') : Promise.resolve({ plans: [], subscriptions: [], invoices: [], reports: {}, meta: {} }),
-      quotes: hasPermission('bookings.read') ? api('/admin/quotes?limit=100') : Promise.resolve({ quotes: [] }),
-      invoices: hasPermission('finance.read') ? api('/admin/invoices?limit=100') : Promise.resolve({ invoices: [] }),
+      quotes: hasPermission('bookings.read') ? api(`/admin/quotes${scopedQuery({ limit: 100 })}`) : Promise.resolve({ quotes: [] }),
+      invoices: hasPermission('finance.read') ? api(`/admin/invoices${scopedQuery({ limit: 100 })}`) : Promise.resolve({ invoices: [] }),
       settlements: hasPermission('finance.read') ? api('/admin/settlements') : Promise.resolve({ settlements: [] }),
-      promotions: hasPermission('promotions.read') ? api('/admin/promotions') : Promise.resolve({ promotions: [], discountTypes: [], statuses: [] }),
-      promotionSummary: hasPermission('promotions.performance.read') ? api('/admin/promotions/summary') : Promise.resolve({ summary: null }),
-      ledger: hasPermission('finance.read') ? api('/admin/wallet-transactions?limit=100') : Promise.resolve({ transactions: [] }),
+      promotions: hasPermission('promotions.read') ? api(`/admin/promotions${scopedQuery()}`) : Promise.resolve({ promotions: [], discountTypes: [], statuses: [] }),
+      promotionSummary: hasPermission('promotions.performance.read') ? api(`/admin/promotions/summary${scopedQuery()}`) : Promise.resolve({ summary: null }),
+      ledger: hasPermission('finance.read') ? api(`/admin/wallet-transactions${scopedQuery({ limit: 100 })}`) : Promise.resolve({ transactions: [] }),
       markets: hasPermission('markets.read') ? api('/admin/markets') : Promise.resolve({ markets: [], availableStatuses: [], availablePaymentProviders: [], defaultServiceCategories: [], availableMarkets: [] }),
       services: hasPermission('markets.read') ? api('/admin/services') : Promise.resolve({ services: [], statuses: [] }),
-      adminUsers: hasPermission('admins.read') ? api('/admin/users') : Promise.resolve({ admins: [], roles: [], permissionsByRole: {} }),
+      adminUsers: hasPermission('admins.read') ? api(`/admin/users${scopedQuery()}`) : Promise.resolve({ admins: [], roles: [], permissionsByRole: {} }),
       auditLogs: isSuperAdminUser() ? api('/admin/audit-logs?limit=100') : Promise.resolve({ logs: [] }),
     };
 
@@ -1186,10 +1214,11 @@ async function createAdminUser(event) {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    const createForm = event.currentTarget;
     alert(result.onboardingEmailSent
       ? 'User created and onboarding email sent.'
       : 'User created. Onboarding email was not sent; check ADMIN_PORTAL_URL, RESEND_API_KEY, and RESEND_FROM_EMAIL.');
-    event.currentTarget.reset();
+    createForm?.reset?.();
     await refresh();
   } catch (error) {
     alert(error.message);
@@ -1641,6 +1670,13 @@ function getActiveOperatingMarkets() {
     .filter((market) => String(market.status || '').toUpperCase() === 'ACTIVE');
 }
 
+function getOverviewMarkets() {
+  const activeMarkets = getActiveOperatingMarkets();
+  const selectedCountryCode = selectedOverviewCountryCode();
+  if (!selectedCountryCode) return activeMarkets;
+  return activeMarkets.filter((market) => market.countryCode === selectedCountryCode);
+}
+
 function moneyMinorFrom(record = {}, decimalField, minorField) {
   if (typeof record[minorField] === 'number') return record[minorField];
   if (typeof record[decimalField] === 'number') return Math.round(record[decimalField] * 100);
@@ -1689,7 +1725,7 @@ function rowsForActiveMarkets(rows, getCountryCode, activeMarkets) {
 
 function overviewDataset() {
   const overview = state.data.overview || {};
-  const activeMarkets = getActiveOperatingMarkets();
+  const activeMarkets = getOverviewMarkets();
   const activeInvoices = rowsForActiveMarkets(state.data.invoices || [], invoiceCountryCode, activeMarkets);
   const activeBookings = rowsForActiveMarkets(state.data.bookings || [], bookingCountryCode, activeMarkets);
   const primaryCurrency = activeMarkets[0]?.currency || activeInvoices[0]?.currency || 'ZAR';
@@ -1757,14 +1793,48 @@ function buildRevenueTrendRows(invoices, days = 7) {
 }
 
 function renderOverviewFilterBar(data) {
+  const selectedCountryCode = selectedOverviewCountryCode();
+  const allActiveMarkets = getActiveOperatingMarkets();
+  const marketOptions = isSuperAdminUser()
+    ? `<option value="">All active markets</option>${allActiveMarkets.map((market) => `<option value="${escapeHtml(market.countryCode)}" ${selectedCountryCode === market.countryCode ? 'selected' : ''}>${escapeHtml(market.countryName || market.countryCode)}</option>`).join('')}`
+    : allActiveMarkets.map((market) => `<option value="${escapeHtml(market.countryCode)}" selected>${escapeHtml(market.countryName || market.countryCode)}</option>`).join('');
   return `
     <div class="overview-filter-bar">
       <label><span>Date Range</span><select><option>7 Days</option><option>Today</option><option>30 Days</option><option>90 Days</option><option>This Year</option><option>Custom Range</option></select></label>
-      <label><span>Active Market</span><select><option value="">All active markets</option>${data.activeMarkets.map((market) => `<option value="${escapeHtml(market.countryCode)}">${escapeHtml(market.countryName || market.countryCode)}</option>`).join('')}</select></label>
+      <label><span>Active Market</span><select onchange="setOverviewMarket(this.value)" ${isSuperAdminUser() ? '' : 'disabled'}>${marketOptions}</select></label>
       <button class="ghost-button compact" onclick="refresh()">Refresh</button>
       <button class="ghost-button compact" title="TODO: Connect to analytics export endpoint.">Export</button>
     </div>
   `;
+}
+
+async function setOverviewMarket(countryCode) {
+  state.overviewFilters.countryCode = String(countryCode || '').trim().toUpperCase();
+  state.loading = true;
+  render();
+  try {
+    await loadAllData();
+    render();
+  } catch (error) {
+    alert(error.message || 'Unable to load market data.');
+    state.loading = false;
+    render();
+  }
+}
+
+async function deleteAdminUser(id, name = '') {
+  if (!canMutate('admins.update')) {
+    alert('You do not have permission to delete staff accounts.');
+    return;
+  }
+  const label = name || 'this staff member';
+  if (!confirm(`Delete ${label}? This permanently removes the inactive staff login. Audit history remains preserved.`)) return;
+  try {
+    await api(`/admin/users/${id}`, { method: 'DELETE' });
+    await refresh();
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 function renderKpiCard({ label, value, trend = 0, icon = '$', tone = 'blue', spark = [] }) {
@@ -4081,47 +4151,53 @@ function renderLedger() {
 function renderAdminUsers() {
   const roles = state.data.adminMeta.roles.length ? state.data.adminMeta.roles : ['READ_ONLY_ADMIN'];
   const canCreateAdmins = canMutate('admins.create');
-  const canUpdateAdmins = canMutate('admins.update');
+  const activeStaff = state.data.adminUsers.filter((admin) => admin.isActive !== false).length;
+  const selectedCountryCode = selectedOverviewCountryCode();
+  const selectedMarket = getActiveOperatingMarkets().find((market) => market.countryCode === selectedCountryCode);
+  const scopeLabel = selectedCountryCode
+    ? `${selectedMarket?.countryName || selectedCountryCode} staff`
+    : 'All active-market staff';
   return `
-    <div class="two-column admin-users-layout">
-      <section class="panel">
+    <div class="admin-users-shell">
+      <section class="panel admin-users-hero">
         <div class="panel-header">
-          <h2>Internal Staff</h2>
-          <span>${state.data.adminUsers.length} users</span>
+          <div>
+            <h2>Internal Staff</h2>
+            <span>${escapeHtml(scopeLabel)} - manage secure BackOffice access by market.</span>
+          </div>
+          ${renderAdminUsersMarketSelector()}
         </div>
-        ${renderGenericTable(state.data.adminUsers, ['Name', 'Role', 'Status', 'Email', 'Actions'], (admin) => [
-          `<strong>${escapeHtml(admin.name)}</strong><span>${escapeHtml(admin.phone || '-')}</span>`,
-          `<span class="status info">${escapeHtml(admin.adminRole || 'SUPER_ADMIN')}</span>`,
-          admin.isActive === false ? '<span class="status bad">INACTIVE</span>' : '<span class="status good">ACTIVE</span>',
-          escapeHtml(admin.email),
-          canUpdateAdmins
-            ? `
-              <select onchange="updateAdminUser('${admin._id}', { adminRole: this.value })">
-                ${roles.map((role) => `<option value="${role}" ${role === admin.adminRole ? 'selected' : ''}>${role}</option>`).join('')}
-              </select>
-              ${renderServiceActivationToggle(admin)}
-              ${renderClientContactToggle(admin)}
-              <button class="ghost-button compact" onclick="updateAdminUser('${admin._id}', { isActive: ${admin.isActive === false ? 'true' : 'false'} })">${admin.isActive === false ? 'Activate' : 'Deactivate'}</button>
-            `
-            : '<span class="status info">Read only</span>',
-        ])}
+        <div class="staff-summary-grid">
+          <article><span>Visible Staff</span><strong>${state.data.adminUsers.length}</strong><small>In current scope</small></article>
+          <article><span>Active</span><strong>${activeStaff}</strong><small>Can sign in</small></article>
+          <article><span>Inactive</span><strong>${state.data.adminUsers.length - activeStaff}</strong><small>Access suspended</small></article>
+          <article><span>Market Scope</span><strong>${escapeHtml(selectedCountryCode || 'ALL')}</strong><small>${escapeHtml(selectedCountryCode ? 'Country restricted' : 'Super admin view')}</small></article>
+        </div>
       </section>
 
-      <section class="panel">
-        <div class="panel-header"><h2>Create Users</h2><span>${canCreateAdmins ? 'Super admin only' : 'Admin access required'}</span></div>
-        <form class="settings-form" onsubmit="${canCreateAdmins ? 'createAdminUser(event)' : 'event.preventDefault()'}">
+      <div class="admin-users-layout">
+        <section class="panel admin-staff-directory">
+          <div class="panel-header">
+            <div><h2>Staff Directory</h2><span>Role, market and account status</span></div>
+          </div>
+          ${renderAdminStaffCards(roles)}
+        </section>
+
+        <section class="panel admin-create-user-panel">
+          <div class="panel-header"><div><h2>Create Staff</h2><span>${canCreateAdmins ? 'Invite a new BackOffice user' : 'Super admin required'}</span></div></div>
+          <form class="settings-form admin-create-form" onsubmit="${canCreateAdmins ? 'createAdminUser(event)' : 'event.preventDefault()'}">
           <label>Name</label>
           <input name="name" required placeholder="Operations Manager" ${canCreateAdmins ? '' : 'disabled'} />
           <label>Email</label>
-          <input name="email" type="email" required placeholder="ops@myfixer.com" ${canCreateAdmins ? '' : 'disabled'} />
+          <input name="email" type="email" required placeholder="ops@padi.com" ${canCreateAdmins ? '' : 'disabled'} />
           <label>Phone</label>
           <input name="phone" required placeholder="+27000000000" ${canCreateAdmins ? '' : 'disabled'} />
-          <p class="setting-help">A secure temporary password is generated automatically and sent by onboarding email.</p>
+          <p class="setting-help">A temporary password is generated and sent by onboarding email.</p>
           <div class="form-grid">
             <div>
               <label>Role</label>
               <select name="adminRole" ${canCreateAdmins ? '' : 'disabled'}>
-                ${roles.map((role) => `<option value="${role}">${role}</option>`).join('')}
+                ${roles.map((role) => `<option value="${role}">${escapeHtml(roleDisplayName(role))}</option>`).join('')}
               </select>
             </div>
             <div>
@@ -4135,22 +4211,12 @@ function renderAdminUsers() {
           <input name="city" placeholder="Head Office" ${canCreateAdmins ? '' : 'disabled'} />
           <label class="inline-check"><input name="canActivateServices" type="checkbox" ${canCreateAdmins ? '' : 'disabled'} /> Can activate market services</label>
           <label class="inline-check"><input name="canViewClientContact" type="checkbox" ${canCreateAdmins ? '' : 'disabled'} /> Can view client contact details</label>
-          <button class="primary-button" type="submit" ${canCreateAdmins ? '' : 'disabled'}>${canCreateAdmins ? 'Create Users' : 'Create Users (permission required)'}</button>
-          ${canCreateAdmins ? '' : '<p class="empty">Only a super admin or an admin with create permissions can add new internal staff.</p>'}
-        </form>
-      </section>
-    </div>
-    <section class="panel">
-      <div class="panel-header"><h2>Role Access</h2><span>Portal visibility map</span></div>
-      <div class="role-grid">
-        ${roles.map((role) => `
-          <article class="mini-card">
-            <strong>${role}</strong>
-            <p>${escapeHtml((state.data.adminMeta.permissionsByRole[role] || []).join(', ') || 'No permissions assigned')}</p>
-          </article>
-        `).join('')}
+          <button class="primary-button" type="submit" ${canCreateAdmins ? '' : 'disabled'}>${canCreateAdmins ? 'Create Staff' : 'Create Staff (permission required)'}</button>
+          ${canCreateAdmins ? '' : '<p class="empty">Only a super admin can add internal staff.</p>'}
+          </form>
+        </section>
       </div>
-    </section>
+    </div>
   `;
 }
 
@@ -4734,6 +4800,107 @@ function renderCreateServiceGroupForm() {
       </div>
     </form>
   `;
+}
+
+function renderAdminUsersMarketSelector() {
+  const selectedCountryCode = selectedOverviewCountryCode();
+  const activeMarkets = getActiveOperatingMarkets();
+  if (!isSuperAdminUser()) {
+    const market = activeMarkets.find((item) => item.countryCode === selectedCountryCode);
+    return `<span class="status info">${escapeHtml(market?.countryName || selectedCountryCode || 'Assigned market')}</span>`;
+  }
+  return `
+    <label class="staff-market-filter">
+      <span>Market Scope</span>
+      <select onchange="setOverviewMarket(this.value)">
+        <option value="">All active markets</option>
+        ${activeMarkets.map((market) => `<option value="${escapeHtml(market.countryCode)}" ${selectedCountryCode === market.countryCode ? 'selected' : ''}>${escapeHtml(market.countryName || market.countryCode)}</option>`).join('')}
+      </select>
+    </label>
+  `;
+}
+
+function adminMarketLabel(admin = {}) {
+  const code = String(admin.countryCode || '').toUpperCase();
+  const market = getActiveOperatingMarkets().find((item) => item.countryCode === code);
+  return [market?.countryName || code || 'Unassigned', code].filter(Boolean).join(' - ');
+}
+
+function roleDisplayName(role = '') {
+  return String(role || 'ADMIN').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function roleDescription(role = '') {
+  const descriptions = {
+    SUPER_ADMIN: 'Full platform control across every market.',
+    OPERATIONS_MANAGER: 'Operations, bookings, providers and customer support.',
+    DISPATCHER: 'Booking and dispatch operations.',
+    FINANCE_ADMIN: 'Finance, invoices, settlements and promotions.',
+    SUPPORT_AGENT: 'Support desk and limited customer context.',
+    TECHNICIAN_REVIEWER: 'Provider applications and document reviews.',
+    MARKET_MANAGER: 'Countries, cities, areas and catalogue setup.',
+    READ_ONLY_ADMIN: 'View-only access to permitted portal areas.',
+  };
+  return descriptions[role] || 'Internal portal access.';
+}
+
+function renderAdminStaffCards(roles) {
+  const canUpdateAdmins = canMutate('admins.update');
+  if (!state.data.adminUsers.length) return renderEmpty('No staff members match this market scope.');
+  return `
+    <div class="admin-staff-grid">
+      ${state.data.adminUsers.map((admin) => {
+        const expanded = state.adminUsers.expandedStaffId === admin._id;
+        return `
+        <article class="admin-staff-card ${admin.isActive === false ? 'inactive' : ''} ${expanded ? 'expanded' : ''}">
+          <div class="admin-staff-avatar" aria-hidden="true">${escapeHtml(initials(admin.name || admin.email || 'Padi'))}</div>
+          <div class="admin-staff-main">
+            <div class="admin-staff-title">
+              <strong>${escapeHtml(admin.name || 'Unnamed staff')}</strong>
+              ${admin.isActive === false ? '<span class="status bad">INACTIVE</span>' : '<span class="status good">ACTIVE</span>'}
+            </div>
+            <div class="admin-staff-meta">
+              <span>${escapeHtml(roleDisplayName(admin.adminRole || 'SUPER_ADMIN'))}</span>
+              <span>${escapeHtml(adminMarketLabel(admin))}</span>
+            </div>
+            ${expanded ? `
+              <div class="admin-staff-details">
+                <div><span>Email</span><strong>${escapeHtml(admin.email || '-')}</strong></div>
+                <div><span>Phone</span><strong>${escapeHtml(admin.phone || '-')}</strong></div>
+                <div><span>Role</span><strong>${escapeHtml(roleDisplayName(admin.adminRole || 'SUPER_ADMIN'))}</strong><small>${escapeHtml(roleDescription(admin.adminRole || 'SUPER_ADMIN'))}</small></div>
+                <div><span>Access</span><strong>${escapeHtml(adminAccessSummary(admin))}</strong></div>
+              </div>
+            ` : ''}
+          </div>
+          <div class="admin-staff-actions">
+            ${canUpdateAdmins
+              ? `
+                <select aria-label="Staff role" onchange="updateAdminUser('${admin._id}', { adminRole: this.value })">
+                  ${roles.map((role) => `<option value="${role}" ${role === admin.adminRole ? 'selected' : ''}>${escapeHtml(roleDisplayName(role))}</option>`).join('')}
+                </select>
+                <button class="ghost-button compact" onclick="updateAdminUser('${admin._id}', { isActive: ${admin.isActive === false ? 'true' : 'false'} })">${admin.isActive === false ? 'Activate' : 'Deactivate'}</button>
+                ${admin.isActive === false ? `<button class="danger-button compact" onclick="deleteAdminUser('${admin._id}', '${escapeHtml(admin.name || admin.email || 'staff member')}')">Delete</button>` : ''}
+                <button class="icon-button compact staff-details-toggle" type="button" aria-label="${expanded ? 'Hide staff details' : 'Show staff details'}" onclick="toggleStaffDetails('${admin._id}')">${expanded ? '^' : 'v'}</button>
+              `
+              : `<button class="ghost-button compact" type="button" onclick="toggleStaffDetails('${admin._id}')">${expanded ? 'Hide Details' : 'Details'}</button>`}
+          </div>
+        </article>
+      `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function adminAccessSummary(admin = {}) {
+  const access = [];
+  if ((admin.adminPermissions || []).includes(SERVICE_ACTIVATION_PERMISSION)) access.push('Service activation');
+  if ((admin.adminPermissions || []).includes(CLIENT_CONTACT_PERMISSION)) access.push('Client contact');
+  return access.join(', ') || 'Standard role access';
+}
+
+function toggleStaffDetails(adminId) {
+  state.adminUsers.expandedStaffId = state.adminUsers.expandedStaffId === adminId ? '' : adminId;
+  render();
 }
 
 function renderServiceManagementDrawer({ renameGroup, deleteGroup, selectedGroup, renameCategory, deleteCategory } = {}) {
@@ -6040,6 +6207,27 @@ function renderMarketCountryDeleteConfirmation(market) {
   `;
 }
 
+function marketCountryLifecycleActions(marketView = {}) {
+  const status = String(marketView.status || 'DRAFT').toUpperCase();
+  const countryCode = escapeHtml(marketView.countryCode || '');
+  const actions = [
+    `<button type="button" onclick="startEditMarketCountry('${countryCode}')">Edit</button>`,
+  ];
+
+  if (status === 'ACTIVE') {
+    actions.push(`<button type="button" onclick="updateMarketCountryStatus('${countryCode}', 'PAUSED')">Pause</button>`);
+    actions.push(`<button type="button" onclick="updateMarketCountryStatus('${countryCode}', 'DISABLED')">Deactivate</button>`);
+  } else if (['DRAFT', 'COMING_SOON', 'PAUSED', 'DISABLED'].includes(status)) {
+    actions.push(`<button type="button" onclick="updateMarketCountryStatus('${countryCode}', 'ACTIVE')">Activate</button>`);
+  }
+
+  if (status === 'DRAFT') {
+    actions.push(`<button type="button" onclick="startDeleteMarketCountry('${countryCode}')">Delete</button>`);
+  }
+
+  return actions.join('');
+}
+
 function renderMarketCountryCard(market, selectedCountryCode, canUpdateMarkets) {
   const marketView = getMarketView(market);
   const isSelected = marketView.countryCode === selectedCountryCode;
@@ -6061,8 +6249,7 @@ function renderMarketCountryCard(market, selectedCountryCode, canUpdateMarkets) 
           <button class="icon-button" type="button" aria-label="Country actions" onclick="toggleMarketCountryActions('${escapeHtml(marketView.countryCode)}')">...</button>
           ${actionMenuOpen ? `
             <div class="market-country-menu">
-              <button type="button" onclick="startEditMarketCountry('${escapeHtml(marketView.countryCode)}')">Edit</button>
-              <button type="button" onclick="startDeleteMarketCountry('${escapeHtml(marketView.countryCode)}')">Delete</button>
+              ${marketCountryLifecycleActions(marketView)}
             </div>
           ` : ''}
         </div>
@@ -6943,6 +7130,53 @@ async function saveMarketCountry(event, mode = 'create', currentCountryCode = ''
   }
 }
 
+async function updateMarketCountryStatus(countryCode, nextStatus) {
+  if (!canMutate('markets.update')) {
+    alert('You do not have permission to update markets.');
+    return;
+  }
+  const market = (state.data.markets || []).find((item) => getMarketView(item).countryCode === countryCode);
+  const marketView = getMarketView(market || {});
+  if (!marketView.countryCode) {
+    state.marketWorkflow.message = '';
+    state.marketWorkflow.error = 'Select a persisted Country before changing status.';
+    render();
+    return;
+  }
+
+  const countryName = marketView.countryName || countryCode;
+  const actionLabel = nextStatus === 'ACTIVE'
+    ? 'activate'
+    : nextStatus === 'PAUSED'
+      ? 'pause'
+      : nextStatus === 'DISABLED'
+        ? 'deactivate'
+        : `set to ${String(nextStatus || '').toLowerCase()}`;
+  if (!window.confirm(`Are you sure you want to ${actionLabel} ${countryName}?`)) return;
+
+  try {
+    await api(`/admin/markets/${countryCode}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        identity: {
+          status: nextStatus,
+        },
+      }),
+    });
+    await loadAllData();
+    state.activeView = 'settings';
+    state.marketWorkflow.selectedCountryCode = countryCode;
+    state.marketWorkflow.actionMenuCountryCode = '';
+    state.marketWorkflow.message = `${countryName} was ${nextStatus === 'ACTIVE' ? 'activated' : nextStatus === 'PAUSED' ? 'paused' : 'deactivated'}.`;
+    state.marketWorkflow.error = '';
+    render();
+  } catch (error) {
+    state.marketWorkflow.message = '';
+    state.marketWorkflow.error = error.message || `Unable to ${actionLabel} ${countryName}.`;
+    render();
+  }
+}
+
 async function deleteMarketCountry(countryCode) {
   if (!canMutate('markets.update')) {
     alert('You do not have permission to update markets.');
@@ -7163,6 +7397,11 @@ function render() {
     renderLogin();
     return;
   }
+  if (state.user?.mustChangePassword) {
+    state.authView = 'changePassword';
+    renderLogin();
+    return;
+  }
   renderShell();
   if (state.activeView === 'promotions') {
     document.querySelectorAll('form[data-promotion-form]').forEach(updatePromotionFormVisibility);
@@ -7219,8 +7458,10 @@ window.savePromotionDraft = savePromotionDraft;
 window.duplicatePromotion = duplicatePromotion;
 window.runPromotionLifecycle = runPromotionLifecycle;
 window.openPromotionDetails = openPromotionDetails;
+window.setOverviewMarket = setOverviewMarket;
 window.createAdminUser = createAdminUser;
 window.updateAdminUser = updateAdminUser;
+window.deleteAdminUser = deleteAdminUser;
 window.clearAuditLogs = clearAuditLogs;
 window.showTopLevelServiceGroupForm = showTopLevelServiceGroupForm;
 window.cancelTopLevelServiceGroup = cancelTopLevelServiceGroup;
@@ -7282,6 +7523,7 @@ window.saveMarketArea = saveMarketArea;
 window.deleteMarketArea = deleteMarketArea;
 window.syncMarketCountrySelection = syncMarketCountrySelection;
 window.saveMarketCountry = saveMarketCountry;
+window.updateMarketCountryStatus = updateMarketCountryStatus;
 window.deleteMarketCountry = deleteMarketCountry;
 window.state = state;
 window.render = render;

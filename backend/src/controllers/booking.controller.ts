@@ -4,7 +4,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import mongoose from 'mongoose';
 // 1. IMPORT BookingStatus ENUM HERE
 import Booking, { BookingCancellationBy, BookingDispatchStatus, BookingStatus, IBooking } from '../models/booking.model';
-import matchingService, { normalizeDispatchServiceKey } from '../services/matching.service';
+import matchingService, { normalizeDispatchServiceKey, RankedTechnicianCandidate } from '../services/matching.service';
 // 2. UNCOMMENT AND USE YOUR ACTUAL EMAIL SERVICE UTILITY
 import { EmailService } from '../services/email/email.service'; 
 import {
@@ -190,6 +190,10 @@ const normalizeFallbackPreference = (value: unknown): DispatchFallbackPreference
   return normalized === 'SCHEDULED' || normalized === 'WAITLIST' ? normalized : 'STANDBY';
 };
 
+const STANDBY_RETRY_INTERVAL_MS = 60 * 1000;
+const STANDBY_RETRY_WINDOW_MS = 15 * 60 * 1000;
+const DISPATCH_WAVE_SIZE = 3;
+
 const parseDateInput = (value: unknown): Date | null =>
   typeof value === 'string' || value instanceof Date ? new Date(value) : null;
 
@@ -361,6 +365,161 @@ const createTechnicianJobNotification = async (
       currency: booking.currency,
     },
   });
+};
+
+const notifyTechniciansForBooking = async (
+  io: SocketIOServer | undefined,
+  booking: IBooking,
+  technicianIds: string[]
+): Promise<void> => {
+  if (!technicianIds.length) return;
+
+  const incomingRequestPayload = buildIncomingRequestPayload(booking);
+  if (io) {
+    await Promise.all(
+      technicianIds.map((technicianId) =>
+        emitIncomingRequest(io, technicianId, incomingRequestPayload)
+      )
+    );
+    await Promise.all(
+      technicianIds.map(async (technicianId) => {
+        const jobs = await matchingService.findNearbyPendingBookingsForTechnician(technicianId);
+        io.to(`technician:${technicianId}`).emit('available_jobs', jobs);
+      })
+    );
+  }
+
+  await Promise.all(
+    technicianIds.map((technicianId) =>
+      createTechnicianJobNotification(technicianId, booking)
+    )
+  );
+};
+
+const nextDispatchWave = (
+  booking: Pick<IBooking, 'dispatch'>,
+  candidates: RankedTechnicianCandidate[],
+  waveSize = DISPATCH_WAVE_SIZE
+): { wave: number; candidates: RankedTechnicianCandidate[] } => {
+  const alreadyInvited = new Set((booking.dispatch?.sentToTechnicians || []).map((id) => id.toString()));
+  const alreadyAttempted = new Set((booking.dispatch?.attempts || []).map((attempt) => attempt.technicianId.toString()));
+  const declined = new Set((booking.dispatch?.declinedByTechnicians || []).map((id) => id.toString()));
+  const wave = Number(booking.dispatch?.currentWave || 0) + 1;
+  return {
+    wave,
+    candidates: candidates
+      .filter((candidate) =>
+        !alreadyInvited.has(candidate.technicianId) &&
+        !alreadyAttempted.has(candidate.technicianId) &&
+        !declined.has(candidate.technicianId)
+      )
+      .slice(0, waveSize),
+  };
+};
+
+const recordDispatchWave = (
+  booking: IBooking,
+  candidates: RankedTechnicianCandidate[],
+  wave: number,
+  status: BookingDispatchStatus,
+  expiresAt?: Date | null
+): string[] => {
+  const technicianIds = candidates.map((candidate) => candidate.technicianId);
+  const sentToTechnicians = [
+    ...(booking.dispatch?.sentToTechnicians || []),
+    ...technicianIds.map((technicianId) => new mongoose.Types.ObjectId(technicianId)),
+  ];
+  const attempts = [
+    ...(booking.dispatch?.attempts || []),
+    ...candidates.map((candidate) => ({
+      technicianId: new mongoose.Types.ObjectId(candidate.technicianId),
+      wave,
+      status: 'SENT' as const,
+      distanceKm: candidate.distanceKm,
+      score: candidate.score,
+      reason: 'ranked_dispatch_wave',
+      sentAt: new Date(),
+      respondedAt: null,
+    })),
+  ];
+
+  booking.dispatch = {
+    ...(booking.dispatch ?? {
+      declinedByTechnicians: [],
+      preferredTechnicianId: null,
+    }),
+    status,
+    expiresAt: expiresAt ?? booking.dispatch?.expiresAt ?? matchingService.getDispatchExpiry(booking),
+    sentToTechnicians,
+    declinedByTechnicians: booking.dispatch?.declinedByTechnicians || [],
+    acceptedByTechnician: booking.dispatch?.acceptedByTechnician ?? null,
+    preferredTechnicianId: booking.dispatch?.preferredTechnicianId ?? null,
+    currentWave: wave,
+    nextRetryAt: [BookingDispatchStatus.BROADCASTING, BookingDispatchStatus.STANDBY].includes(status)
+      ? new Date(Date.now() + STANDBY_RETRY_INTERVAL_MS)
+      : null,
+    attempts,
+  };
+
+  booking.set('metadata.dispatchEngine', 'RANKED_PROGRESSIVE_WAVES_V1');
+  booking.set('metadata.lastDispatchWave', wave);
+  return technicianIds;
+};
+
+const scheduleStandbyProviderRetries = (
+  bookingId: string,
+  io: SocketIOServer | undefined,
+  retryUntil = new Date(Date.now() + STANDBY_RETRY_WINDOW_MS)
+): void => {
+  if (!mongoose.Types.ObjectId.isValid(bookingId)) return;
+
+  const timer = setTimeout(async () => {
+    try {
+      const booking = await Booking.findById(bookingId);
+      if (!booking) return;
+      if (
+        booking.status !== BookingStatus.PENDING ||
+        ![BookingDispatchStatus.BROADCASTING, BookingDispatchStatus.STANDBY].includes(booking.dispatch?.status as BookingDispatchStatus)
+      ) return;
+      const dispatchExpiry = booking.dispatch?.expiresAt ? new Date(booking.dispatch.expiresAt) : retryUntil;
+      const now = new Date();
+      const stopAt = dispatchExpiry < retryUntil ? dispatchExpiry : retryUntil;
+      if (stopAt.getTime() <= now.getTime()) return;
+
+      const rankedCandidates = await matchingService.rankEligibleOnlineTechniciansForBooking(bookingId);
+      const nextWave = nextDispatchWave(booking, rankedCandidates);
+
+      if (nextWave.candidates.length) {
+        const nextTechnicianIds = recordDispatchWave(
+          booking,
+          nextWave.candidates,
+          nextWave.wave,
+          BookingDispatchStatus.BROADCASTING,
+          dispatchExpiry
+        );
+        booking.set('metadata.standbyProviderFoundAt', now);
+        await booking.save();
+        await notifyTechniciansForBooking(io, booking, nextTechnicianIds);
+        await createCustomerBookingNotification(
+          booking,
+          'PROVIDER_SEARCH_UPDATED',
+          'Provider search updated',
+          `We found nearby ${providerRoleForService(booking.serviceKey)} options for your ${serviceLabelForNotification(booking)} request.`,
+          {
+            dispatchStatus: BookingDispatchStatus.BROADCASTING,
+            matchedCount: nextTechnicianIds.length,
+          }
+        );
+        return;
+      }
+
+      scheduleStandbyProviderRetries(bookingId, io, stopAt);
+    } catch (error) {
+      console.error('Failed to retry standby dispatch:', error);
+    }
+  }, STANDBY_RETRY_INTERVAL_MS);
+
+  timer.unref?.();
 };
 
 const saveCapacityWaitlistEntry = async (input: {
@@ -853,6 +1012,7 @@ export const createBooking = async (
 
     const bookingId = booking.id;
     bookingCreated = true;
+    const io = request.app.get('io') as SocketIOServer | undefined;
 
     await safelyLogAuditEvent(request, {
       action: serviceRecipient.type === 'OTHER' ? 'booking.create.for_other' : 'booking.create.for_self',
@@ -906,39 +1066,41 @@ export const createBooking = async (
       }
     );
     
-    // 2. Broadcast the open request to every eligible online approved technician.
-    const eligibleTechnicianIds =
+    // 2. Broadcast the open request to the best first wave of eligible online approved technicians.
+    const rankedCandidates =
       fallbackPreference === 'SCHEDULED' || isPreBook
         ? []
-        : await matchingService.findEligibleOnlineTechniciansForBooking(bookingId);
+        : await matchingService.rankEligibleOnlineTechniciansForBooking(bookingId);
     const preferredTechnicianUserId = preferredRebooking.preferredTechnicianObjectId?.toString() || '';
-    const orderedEligibleTechnicianIds = preferredTechnicianUserId && eligibleTechnicianIds.includes(preferredTechnicianUserId)
+    const orderedCandidates = preferredTechnicianUserId && rankedCandidates.some((candidate) => candidate.technicianId === preferredTechnicianUserId)
       ? [
-          preferredTechnicianUserId,
-          ...eligibleTechnicianIds.filter((technicianId) => technicianId !== preferredTechnicianUserId),
-        ].filter((technicianId, index, list) => list.indexOf(technicianId) === index)
-      : eligibleTechnicianIds;
+          ...rankedCandidates.filter((candidate) => candidate.technicianId === preferredTechnicianUserId),
+          ...rankedCandidates.filter((candidate) => candidate.technicianId !== preferredTechnicianUserId),
+        ]
+      : rankedCandidates;
+    const firstWave = nextDispatchWave(booking, orderedCandidates);
+    let notifiedTechnicianIds = firstWave.candidates.map((candidate) => candidate.technicianId);
 
     console.info('[dispatch-test] findEligibleTechniciansWithTelemetryPipeline output', {
       bookingId,
       serviceKey: requestedServiceKey,
       customerCoordinates: [longitude, latitude],
-      eligibleTechnicianIds: orderedEligibleTechnicianIds,
+      eligibleTechnicianIds: orderedCandidates.map((candidate) => candidate.technicianId),
+      firstWaveTechnicianIds: notifiedTechnicianIds,
       preferredTechnicianId: preferredTechnicianUserId,
-      matchedCount: orderedEligibleTechnicianIds.length,
+      matchedCount: orderedCandidates.length,
     });
 
-    if (orderedEligibleTechnicianIds.length > 0) {
-      booking.dispatch = {
-        ...(booking.dispatch ?? {
-          status: BookingDispatchStatus.BROADCASTING,
-          expiresAt: matchingService.getDispatchExpiry(booking),
-          sentToTechnicians: [],
-          declinedByTechnicians: [],
-        }),
-        sentToTechnicians: orderedEligibleTechnicianIds.map((technicianId) => new mongoose.Types.ObjectId(technicianId)),
-      };
+    if (firstWave.candidates.length > 0) {
+      notifiedTechnicianIds = recordDispatchWave(
+        booking,
+        firstWave.candidates,
+        firstWave.wave,
+        BookingDispatchStatus.BROADCASTING,
+        matchingService.getDispatchExpiry(booking)
+      );
       await booking.save();
+      scheduleStandbyProviderRetries(bookingId, io);
     } else {
       if (fallbackPreference === 'SCHEDULED' || isPreBook) {
         booking.dispatch = {
@@ -1027,32 +1189,23 @@ export const createBooking = async (
           fallbackPreference,
         };
         await booking.save();
+        scheduleStandbyProviderRetries(bookingId, io);
+        await createCustomerBookingNotification(
+          booking,
+          'PROVIDER_SEARCH_STANDBY',
+          'Still looking for a provider',
+          `We are still looking for a nearby ${providerRoleForService(requestedServiceKey)}. Your request is open and we will notify you when someone accepts.`,
+          {
+            dispatchStatus: BookingDispatchStatus.STANDBY,
+            standbyExpiresAt: booking.dispatch?.expiresAt,
+          }
+        );
       }
     }
 
     // 3. Formulate the precise JSON parameters expected by DashboardScreen.tsx
-    const incomingRequestPayload = buildIncomingRequestPayload(booking);
-
-    const io = request.app.get('io') as SocketIOServer | undefined;
-
-    if (io) {
-      await Promise.all(
-        orderedEligibleTechnicianIds.map((technicianId) =>
-          emitIncomingRequest(io, technicianId, incomingRequestPayload)
-        )
-      );
-      await Promise.all(
-        orderedEligibleTechnicianIds.map((technicianId) =>
-          createTechnicianJobNotification(technicianId, booking)
-        )
-      );
-      await Promise.all(
-        orderedEligibleTechnicianIds.map(async (technicianId) => {
-          const jobs = await matchingService.findNearbyPendingBookingsForTechnician(technicianId);
-          io.to(`technician:${technicianId}`).emit('available_jobs', jobs);
-        })
-      );
-    } else {
+    await notifyTechniciansForBooking(io, booking, notifiedTechnicianIds);
+    if (!io && notifiedTechnicianIds.length) {
       console.warn('Socket.io server instance unavailable; skipped technician broadcasts');
     }
 
@@ -1061,8 +1214,12 @@ export const createBooking = async (
       bookingId,
       fallbackPreference,
       dispatchStatus: booking.dispatch?.status,
+      standbyExpiresAt: booking.dispatch?.status === BookingDispatchStatus.STANDBY ? booking.dispatch.expiresAt : null,
+      message: booking.dispatch?.status === BookingDispatchStatus.STANDBY
+        ? 'We are still looking for a nearby provider. Your request is open and we will notify you when someone accepts.'
+        : undefined,
       preferredTechnicianId: preferredTechnicianUserId || null,
-      notifiedTechnicianIds: orderedEligibleTechnicianIds,
+      notifiedTechnicianIds,
       priceBreakdown,
       promotion: appliedPromotions[0] || null,
       promotions: appliedPromotions,
@@ -1526,6 +1683,18 @@ export const acceptBooking = async (
       return;
     }
 
+    await Booking.updateOne(
+      { _id: booking._id, 'dispatch.attempts.technicianId': acceptedByTechnician },
+      {
+        $set: {
+          'dispatch.attempts.$.status': 'ACCEPTED',
+          'dispatch.attempts.$.respondedAt': now,
+        },
+      }
+    ).catch((error) => {
+      console.warn('Failed to mark accepted dispatch attempt:', error);
+    });
+
     const io = request.app.get('io') as SocketIOServer | undefined;
     io?.to(`booking:${booking.id}`).emit('booking_assigned', {
       bookingId: booking.id,
@@ -1646,6 +1815,18 @@ export const declineBooking = async (
       response.status(404).json({ message: 'Pending booking not found.' });
       return;
     }
+
+    await Booking.updateOne(
+      { _id: booking._id, 'dispatch.attempts.technicianId': technicianObjectId },
+      {
+        $set: {
+          'dispatch.attempts.$.status': 'DECLINED',
+          'dispatch.attempts.$.respondedAt': new Date(),
+        },
+      }
+    ).catch((error) => {
+      console.warn('Failed to mark declined dispatch attempt:', error);
+    });
 
     const io = request.app.get('io') as SocketIOServer | undefined;
     io?.to(`technician:${technicianId}`).emit('job_unavailable', {

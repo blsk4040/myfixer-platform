@@ -67,6 +67,12 @@ import {
   renameCityInCoverage,
 } from '../services/market-city.service';
 import { calculatePriceBreakdown } from '../services/price-breakdown.service';
+import {
+  assertAdminCountryAccess,
+  countryScopeFilter,
+  getAdminMarketScope,
+  handleAdminMarketScopeError,
+} from '../services/admin-market-scope.service';
 
 const parseLimit = (value: unknown, fallback = 50): number => {
   const parsed = Number(value);
@@ -886,8 +892,9 @@ const extractPromotionSnapshots = (metadata: Record<string, any> | undefined, pr
   return candidates.filter((snapshot) => String(snapshot.promotionId || snapshot.id || '') === promotionId);
 };
 
-const sumInvoiceRevenueForPromotion = async (promotionId?: string) => {
+const sumInvoiceRevenueForPromotion = async (promotionId?: string, countryFilter: Record<string, unknown> = {}) => {
   const match: Record<string, unknown> = {
+    ...countryFilter,
     status: 'PAID',
     $or: [
       { 'metadata.promotions.0': { $exists: true } },
@@ -1126,7 +1133,7 @@ const getAvailableMarketOptions = async () => {
     }));
 };
 
-const buildBookingFilter = (query: Request['query']) => {
+const buildBookingFilter = (query: Request['query'], scopeFilter: Record<string, unknown> = {}) => {
   const filter: Record<string, unknown> = {};
 
   if (typeof query.status === 'string' && query.status) {
@@ -1147,11 +1154,13 @@ const buildBookingFilter = (query: Request['query']) => {
     ];
   }
 
-  return filter;
+  return { ...filter, ...scopeFilter };
 };
 
-export const getAdminOverview = async (_req: Request, res: Response): Promise<void> => {
+export const getAdminOverview = async (req: Request, res: Response): Promise<void> => {
   try {
+    const marketScope = await getAdminMarketScope(req);
+    const scopedCountryFilter = countryScopeFilter(marketScope);
     const [
       totalBookings,
       activeBookings,
@@ -1166,8 +1175,9 @@ export const getAdminOverview = async (_req: Request, res: Response): Promise<vo
       walletLedgerRows,
       clients,
     ] = await Promise.all([
-      Booking.countDocuments(),
+      Booking.countDocuments(scopedCountryFilter),
       Booking.countDocuments({
+        ...scopedCountryFilter,
         status: {
           $in: [
             BookingStatus.PENDING,
@@ -1179,16 +1189,16 @@ export const getAdminOverview = async (_req: Request, res: Response): Promise<vo
           ],
         },
       }),
-      Booking.countDocuments({ status: BookingStatus.PENDING }),
-      Booking.countDocuments({ status: BookingStatus.COMPLETED }),
-      Technician.countDocuments(),
-      Technician.countDocuments({ approvalStatus: TechnicianApprovalStatus.PENDING_REVIEW }),
-      Technician.countDocuments({ approvalStatus: TechnicianApprovalStatus.APPROVED }),
-      JobQuote.countDocuments({ status: QuoteStatus.SENT_TO_CLIENT }),
-      JobQuote.countDocuments({ status: QuoteStatus.APPROVED }),
-      Invoice.countDocuments({ status: 'UNPAID' }),
-      WalletTransaction.find().sort({ createdAt: -1 }).limit(500),
-      User.countDocuments({ role: UserRole.CUSTOMER }),
+      Booking.countDocuments({ ...scopedCountryFilter, status: BookingStatus.PENDING }),
+      Booking.countDocuments({ ...scopedCountryFilter, status: BookingStatus.COMPLETED }),
+      Technician.countDocuments(scopedCountryFilter),
+      Technician.countDocuments({ ...scopedCountryFilter, approvalStatus: TechnicianApprovalStatus.PENDING_REVIEW }),
+      Technician.countDocuments({ ...scopedCountryFilter, approvalStatus: TechnicianApprovalStatus.APPROVED }),
+      JobQuote.countDocuments({ ...scopedCountryFilter, status: QuoteStatus.SENT_TO_CLIENT }),
+      JobQuote.countDocuments({ ...scopedCountryFilter, status: QuoteStatus.APPROVED }),
+      Invoice.countDocuments({ ...scopedCountryFilter, status: 'UNPAID' }),
+      WalletTransaction.find(scopedCountryFilter).sort({ createdAt: -1 }).limit(500),
+      User.countDocuments({ ...scopedCountryFilter, role: UserRole.CUSTOMER }),
     ]);
 
     const totalsByCurrency = walletLedgerRows.reduce<Record<string, { commission: number; technicianPending: number; clientDue: number }>>(
@@ -1225,9 +1235,11 @@ export const getAdminOverview = async (_req: Request, res: Response): Promise<vo
         unpaidInvoices,
         clients,
         totalsByCurrency,
+        marketScope,
       },
     });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Failed to load admin overview:', error);
     res.status(500).json({ success: false, message: 'Failed to load admin overview.' });
   }
@@ -1235,8 +1247,9 @@ export const getAdminOverview = async (_req: Request, res: Response): Promise<vo
 
 export const getAdminClients = async (req: Request, res: Response): Promise<void> => {
   try {
+    const scopeFilter = countryScopeFilter(await getAdminMarketScope(req));
     const limit = parseLimit(req.query.limit, 100);
-    const clients = await User.find({ role: UserRole.CUSTOMER })
+    const clients = await User.find({ ...scopeFilter, role: UserRole.CUSTOMER })
       .select('name email phone countryCode accountStatus isEmailVerified profileCompleted location createdAt updatedAt')
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -1253,6 +1266,7 @@ export const getAdminClients = async (req: Request, res: Response): Promise<void
       })),
     });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Failed to load admin clients:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch clients.' });
   }
@@ -1272,8 +1286,9 @@ export const revealAdminClientContact = async (req: Request, res: Response): Pro
       return;
     }
 
-    const client = await User.findOne({ _id: id, role: UserRole.CUSTOMER })
-      .select('name email phone')
+    const scopeFilter = countryScopeFilter(await getAdminMarketScope(req));
+    const client = await User.findOne({ ...scopeFilter, _id: id, role: UserRole.CUSTOMER })
+      .select('name email phone countryCode')
       .lean();
 
     if (!client) {
@@ -1297,6 +1312,7 @@ export const revealAdminClientContact = async (req: Request, res: Response): Pro
       },
     });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Failed to reveal client contact:', error);
     res.status(500).json({ success: false, message: 'Failed to reveal client contact.' });
   }
@@ -1304,13 +1320,15 @@ export const revealAdminClientContact = async (req: Request, res: Response): Pro
 
 export const getAdminBookings = async (req: Request, res: Response): Promise<void> => {
   try {
+    const scopeFilter = countryScopeFilter(await getAdminMarketScope(req));
     const limit = parseLimit(req.query.limit);
-    const bookings = await Booking.find(buildBookingFilter(req.query))
+    const bookings = await Booking.find(buildBookingFilter(req.query, scopeFilter))
       .sort({ updatedAt: -1 })
       .limit(limit);
 
     res.status(200).json({ success: true, bookings });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to fetch bookings.' });
   }
 };
@@ -1337,6 +1355,7 @@ export const getAdminBookingById = async (req: Request, res: Response): Promise<
       res.status(404).json({ message: 'Booking not found.' });
       return;
     }
+    await assertAdminCountryAccess(req, booking.countryCode);
 
     const [customer, technicianUser, technicianProfile] = await Promise.all([
       booking.customerId && mongoose.Types.ObjectId.isValid(booking.customerId)
@@ -1372,6 +1391,7 @@ export const getAdminBookingById = async (req: Request, res: Response): Promise<
       messages,
     });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to fetch booking.' });
   }
 };
@@ -1463,7 +1483,7 @@ export const updateTechnicianCapabilityStatus = async (req: Request, res: Respon
 
 export const getAdminQuotes = async (req: Request, res: Response): Promise<void> => {
   try {
-    const filter: Record<string, unknown> = {};
+    const filter: Record<string, unknown> = countryScopeFilter(await getAdminMarketScope(req));
     if (typeof req.query.status === 'string' && req.query.status) filter.status = req.query.status;
     if (typeof req.query.countryCode === 'string' && req.query.countryCode) filter.countryCode = req.query.countryCode.toUpperCase();
 
@@ -1476,13 +1496,14 @@ export const getAdminQuotes = async (req: Request, res: Response): Promise<void>
 
     res.status(200).json({ success: true, quotes });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to fetch quotes.' });
   }
 };
 
 export const getAdminInvoices = async (req: Request, res: Response): Promise<void> => {
   try {
-    const filter: Record<string, unknown> = {};
+    const filter: Record<string, unknown> = countryScopeFilter(await getAdminMarketScope(req));
     if (typeof req.query.status === 'string' && req.query.status) filter.status = req.query.status;
     if (typeof req.query.countryCode === 'string' && req.query.countryCode) filter.countryCode = req.query.countryCode.toUpperCase();
 
@@ -1495,13 +1516,14 @@ export const getAdminInvoices = async (req: Request, res: Response): Promise<voi
 
     res.status(200).json({ success: true, invoices });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to fetch invoices.' });
   }
 };
 
 export const getAdminWalletTransactions = async (req: Request, res: Response): Promise<void> => {
   try {
-    const filter: Record<string, unknown> = {};
+    const filter: Record<string, unknown> = countryScopeFilter(await getAdminMarketScope(req));
     if (typeof req.query.type === 'string' && req.query.type) filter.type = req.query.type;
     if (typeof req.query.status === 'string' && req.query.status) filter.status = req.query.status;
     if (typeof req.query.countryCode === 'string' && req.query.countryCode) filter.countryCode = req.query.countryCode.toUpperCase();
@@ -1515,23 +1537,35 @@ export const getAdminWalletTransactions = async (req: Request, res: Response): P
 
     res.status(200).json({ success: true, transactions });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to fetch wallet transactions.' });
   }
 };
 
-export const getAdminMarkets = async (_req: Request, res: Response): Promise<void> => {
+export const getAdminMarkets = async (req: Request, res: Response): Promise<void> => {
   try {
+    const marketScope = await getAdminMarketScope(req);
     const serviceDefinitions = await getServiceDefinitions();
+    const markets = await getConfiguredMarkets();
+    const availableMarkets = await getAvailableMarketOptions();
+    const scopedMarkets = marketScope.canViewAllMarkets
+      ? markets
+      : markets.filter((market) => marketScope.allowedCountryCodes.includes(String(market.countryCode || '').toUpperCase()));
+    const scopedAvailableMarkets = marketScope.canViewAllMarkets
+      ? availableMarkets
+      : availableMarkets.filter((market) => marketScope.allowedCountryCodes.includes(String(market.countryCode || '').toUpperCase()));
     res.status(200).json({
       success: true,
-      markets: await getConfiguredMarkets(),
-      availableMarkets: await getAvailableMarketOptions(),
+      markets: scopedMarkets,
+      availableMarkets: scopedAvailableMarkets,
       availableStatuses: Object.values(MarketStatus),
       availablePaymentProviders: ['PAYSTACK', 'FLUTTERWAVE', 'MPESA', 'MTN_MOMO', 'AIRTEL_MONEY', 'YOCO', 'OZOW'],
       defaultServiceCategories: serviceDefinitions,
       serviceDefinitions,
+      marketScope,
     });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to load markets.' });
   }
 };
@@ -2096,6 +2130,7 @@ export const getPublicMarketAvailability = async (req: Request, res: Response): 
 export const updateAdminMarket = async (req: Request, res: Response): Promise<void> => {
   try {
     const countryCode = String(req.params.countryCode || '').toUpperCase() as CountryCode;
+    await assertAdminCountryAccess(req, countryCode);
     const baseMarket = MARKET_CONFIG[countryCode];
     const isKnownMarket = Boolean(baseMarket);
     if (!isKnownMarket && !(await isSuperAdmin(req))) {
@@ -2348,6 +2383,7 @@ export const updateAdminMarket = async (req: Request, res: Response): Promise<vo
 
     res.status(200).json({ success: true, market });
   } catch (error: any) {
+    if (handleAdminMarketScopeError(res, error)) return;
     if (error?.code === 11000) {
       const duplicateKey = JSON.stringify(error.keyValue || {});
       await logAdminAction(req, 'market.update_rejected', 'MarketSetting', String(req.params.countryCode || '').toUpperCase(), {
@@ -2370,6 +2406,7 @@ export const updateAdminMarket = async (req: Request, res: Response): Promise<vo
 export const deleteAdminMarket = async (req: Request, res: Response): Promise<void> => {
   try {
     const countryCode = String(req.params.countryCode || '').trim().toUpperCase();
+    await assertAdminCountryAccess(req, countryCode);
     if (!(await isSuperAdmin(req))) {
       await logAdminAction(req, 'market.delete_rejected', 'MarketSetting', countryCode, {
         countryCode,
@@ -2503,6 +2540,7 @@ export const deleteAdminMarket = async (req: Request, res: Response): Promise<vo
 
     res.status(200).json({ success: true });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Market delete failed:', error);
     res.status(500).json({ success: false, message: 'Failed to delete market.' });
   }
@@ -2511,6 +2549,7 @@ export const deleteAdminMarket = async (req: Request, res: Response): Promise<vo
 export const createAdminMarketCity = async (req: Request, res: Response): Promise<void> => {
   try {
     const countryCode = normalizeIsoCountryCode(req.params.countryCode);
+    await assertAdminCountryAccess(req, countryCode);
     const cityName = normalizeMarketCityName(req.body.cityName ?? req.body.city);
     if (!cityName) {
       res.status(400).json({ message: 'City name is required.' });
@@ -2545,6 +2584,7 @@ export const createAdminMarketCity = async (req: Request, res: Response): Promis
 
     res.status(200).json({ success: true, market: mergeMarketSetting(market.toObject()), cities: cityNamesFromCoverage(market.coverage) });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Market city create failed:', error);
     res.status(500).json({ success: false, message: 'Failed to create city.' });
   }
@@ -2553,6 +2593,7 @@ export const createAdminMarketCity = async (req: Request, res: Response): Promis
 export const updateAdminMarketCity = async (req: Request, res: Response): Promise<void> => {
   try {
     const countryCode = normalizeIsoCountryCode(req.params.countryCode);
+    await assertAdminCountryAccess(req, countryCode);
     const currentCity = normalizeMarketCityName(decodeURIComponent(req.params.cityName || ''));
     const nextCity = normalizeMarketCityName(req.body.cityName ?? req.body.city);
     if (!currentCity || !nextCity) {
@@ -2594,6 +2635,7 @@ export const updateAdminMarketCity = async (req: Request, res: Response): Promis
 
     res.status(200).json({ success: true, market: mergeMarketSetting(market.toObject()), cities: cityNamesFromCoverage(market.coverage) });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Market city rename failed:', error);
     res.status(500).json({ success: false, message: 'Failed to rename city.' });
   }
@@ -2602,6 +2644,7 @@ export const updateAdminMarketCity = async (req: Request, res: Response): Promis
 export const deleteAdminMarketCity = async (req: Request, res: Response): Promise<void> => {
   try {
     const countryCode = normalizeIsoCountryCode(req.params.countryCode);
+    await assertAdminCountryAccess(req, countryCode);
     const cityName = normalizeMarketCityName(decodeURIComponent(req.params.cityName || ''));
     if (!cityName) {
       res.status(400).json({ message: 'City name is required.' });
@@ -2638,6 +2681,7 @@ export const deleteAdminMarketCity = async (req: Request, res: Response): Promis
 
     res.status(200).json({ success: true, market: mergeMarketSetting(market.toObject()), cities: cityNamesFromCoverage(market.coverage) });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Market city delete failed:', error);
     res.status(500).json({ success: false, message: 'Failed to delete city.' });
   }
@@ -2646,6 +2690,7 @@ export const deleteAdminMarketCity = async (req: Request, res: Response): Promis
 export const createAdminMarketArea = async (req: Request, res: Response): Promise<void> => {
   try {
     const countryCode = normalizeIsoCountryCode(req.params.countryCode);
+    await assertAdminCountryAccess(req, countryCode);
     const cityName = normalizeMarketCityName(decodeURIComponent(req.params.cityName || ''));
     const areaName = normalizeMarketAreaName(req.body.areaName ?? req.body.area);
     if (!cityName || !areaName) {
@@ -2674,6 +2719,7 @@ export const createAdminMarketArea = async (req: Request, res: Response): Promis
 
     res.status(200).json({ success: true, market: mergeMarketSetting(market.toObject()), areas: areaNamesFromCity(market.coverage, cityName) });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Market area create failed:', error);
     res.status(500).json({ success: false, message: 'Failed to create area.' });
   }
@@ -2682,6 +2728,7 @@ export const createAdminMarketArea = async (req: Request, res: Response): Promis
 export const updateAdminMarketArea = async (req: Request, res: Response): Promise<void> => {
   try {
     const countryCode = normalizeIsoCountryCode(req.params.countryCode);
+    await assertAdminCountryAccess(req, countryCode);
     const cityName = normalizeMarketCityName(decodeURIComponent(req.params.cityName || ''));
     const currentArea = normalizeMarketAreaName(decodeURIComponent(req.params.areaName || ''));
     const nextArea = normalizeMarketAreaName(req.body.areaName ?? req.body.area);
@@ -2720,6 +2767,7 @@ export const updateAdminMarketArea = async (req: Request, res: Response): Promis
 
     res.status(200).json({ success: true, market: mergeMarketSetting(market.toObject()), areas: areaNamesFromCity(market.coverage, cityName) });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Market area rename failed:', error);
     res.status(500).json({ success: false, message: 'Failed to rename area.' });
   }
@@ -2728,6 +2776,7 @@ export const updateAdminMarketArea = async (req: Request, res: Response): Promis
 export const deleteAdminMarketArea = async (req: Request, res: Response): Promise<void> => {
   try {
     const countryCode = normalizeIsoCountryCode(req.params.countryCode);
+    await assertAdminCountryAccess(req, countryCode);
     const cityName = normalizeMarketCityName(decodeURIComponent(req.params.cityName || ''));
     const areaName = normalizeMarketAreaName(decodeURIComponent(req.params.areaName || ''));
     if (!cityName || !areaName) {
@@ -2761,14 +2810,16 @@ export const deleteAdminMarketArea = async (req: Request, res: Response): Promis
 
     res.status(200).json({ success: true, market: mergeMarketSetting(market.toObject()), areas: areaNamesFromCity(market.coverage, cityName) });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Market area delete failed:', error);
     res.status(500).json({ success: false, message: 'Failed to delete area.' });
   }
 };
 
-export const listAdminUsers = async (_req: Request, res: Response): Promise<void> => {
+export const listAdminUsers = async (req: Request, res: Response): Promise<void> => {
   try {
-    const admins = await User.find({ role: UserRole.ADMIN })
+    const marketScope = await getAdminMarketScope(req);
+    const admins = await User.find({ ...countryScopeFilter(marketScope), role: UserRole.ADMIN })
       .select('-password')
       .sort({ createdAt: -1 });
 
@@ -2777,8 +2828,10 @@ export const listAdminUsers = async (_req: Request, res: Response): Promise<void
       admins,
       roles: Object.values(AdminRole),
       permissionsByRole: ADMIN_ROLE_PERMISSIONS,
+      marketScope,
     });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to fetch admin users.' });
   }
 };
@@ -2903,9 +2956,67 @@ export const updateAdminUser = async (req: Request, res: Response): Promise<void
   }
 };
 
-export const listAdminPromotions = async (_req: Request, res: Response): Promise<void> => {
+export const deleteAdminUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    const promotions = await Promotion.find().sort({ createdAt: -1 }).limit(200).lean();
+    if (!(await isSuperAdmin(req))) {
+      res.status(403).json({ message: 'Only a super admin can delete staff accounts.' });
+      return;
+    }
+
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid admin id.' });
+      return;
+    }
+
+    const actorId = String(getActor(req)?.id || '');
+    if (actorId === id) {
+      res.status(409).json({ message: 'You cannot delete your own staff account.' });
+      return;
+    }
+
+    const targetAdmin = await User.findOne({ _id: id, role: UserRole.ADMIN }).select('name email adminRole isActive');
+    if (!targetAdmin) {
+      res.status(404).json({ message: 'Staff account not found.' });
+      return;
+    }
+
+    if (targetAdmin.isActive !== false) {
+      res.status(409).json({ message: 'Deactivate this staff account before deleting it.' });
+      return;
+    }
+
+    if ((targetAdmin.adminRole || AdminRole.READ_ONLY_ADMIN) === AdminRole.SUPER_ADMIN) {
+      const remainingSuperAdmins = await User.countDocuments({
+        _id: { $ne: targetAdmin._id },
+        role: UserRole.ADMIN,
+        adminRole: AdminRole.SUPER_ADMIN,
+        isActive: { $ne: false },
+      });
+      if (remainingSuperAdmins < 1) {
+        res.status(409).json({ message: 'At least one active super admin must remain.' });
+        return;
+      }
+    }
+
+    await logAdminAction(req, 'admin.delete', 'User', id, {
+      email: targetAdmin.email,
+      adminRole: targetAdmin.adminRole,
+      name: targetAdmin.name,
+    });
+    await User.deleteOne({ _id: id, role: UserRole.ADMIN, isActive: false });
+
+    res.status(200).json({ success: true, message: 'Staff account deleted.' });
+  } catch (error) {
+    console.error('Admin delete failed:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete staff account.' });
+  }
+};
+
+export const listAdminPromotions = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const scopeFilter = countryScopeFilter(await getAdminMarketScope(req));
+    const promotions = await Promotion.find(scopeFilter).sort({ createdAt: -1 }).limit(200).lean();
     res.status(200).json({
       success: true,
       promotions: promotions.map((promotion) => ({
@@ -2920,21 +3031,24 @@ export const listAdminPromotions = async (_req: Request, res: Response): Promise
       stackingPolicies: Object.values(PromotionStackingPolicy),
     });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Failed to load promotions:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch promotions.' });
   }
 };
 
-export const getAdminPromotionsSummary = async (_req: Request, res: Response): Promise<void> => {
+export const getAdminPromotionsSummary = async (req: Request, res: Response): Promise<void> => {
   try {
-    const promotions = await Promotion.find().lean();
-    const revenueInfluencedMinor = await sumInvoiceRevenueForPromotion();
+    const scopeFilter = countryScopeFilter(await getAdminMarketScope(req));
+    const promotions = await Promotion.find(scopeFilter).lean();
+    const revenueInfluencedMinor = await sumInvoiceRevenueForPromotion(undefined, scopeFilter);
     res.status(200).json({
       success: true,
       summary: buildPromotionAnalyticsSummary(promotions, revenueInfluencedMinor),
       definitions: promotionDefinitions,
     });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     console.error('Failed to load promotion summary:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch promotion summary.' });
   }
@@ -2956,6 +3070,7 @@ export const createAdminPromotion = async (req: Request, res: Response): Promise
       return;
     }
 
+    await assertAdminCountryAccess(req, payload.countryCode);
     await assertPromotionCanActivate(payload);
 
     const promotion = await Promotion.create({
@@ -2973,6 +3088,7 @@ export const createAdminPromotion = async (req: Request, res: Response): Promise
 
     res.status(201).json({ success: true, promotion });
   } catch (error: any) {
+    if (handleAdminMarketScopeError(res, error)) return;
     if (error?.code === 11000) {
       res.status(409).json({ message: 'A promotion with this code already exists.' });
       return;
@@ -2993,6 +3109,7 @@ export const getAdminPromotionById = async (req: Request, res: Response): Promis
       res.status(404).json({ message: 'Promotion not found.' });
       return;
     }
+    await assertAdminCountryAccess(req, promotion.countryCode);
     res.status(200).json({
       success: true,
       promotion: {
@@ -3002,6 +3119,7 @@ export const getAdminPromotionById = async (req: Request, res: Response): Promis
       },
     });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to fetch promotion.' });
   }
 };
@@ -3018,7 +3136,8 @@ export const getAdminPromotionPerformance = async (req: Request, res: Response):
       res.status(404).json({ message: 'Promotion not found.' });
       return;
     }
-    const revenueInfluencedMinor = await sumInvoiceRevenueForPromotion(id);
+    await assertAdminCountryAccess(req, promotion.countryCode);
+    const revenueInfluencedMinor = await sumInvoiceRevenueForPromotion(id, countryScopeFilter(await getAdminMarketScope(req)));
     const reservationIds = promotion.metadata?.reservationIds && typeof promotion.metadata.reservationIds === 'object'
       ? Object.values(promotion.metadata.reservationIds as Record<string, any>)
       : [];
@@ -3049,6 +3168,7 @@ export const getAdminPromotionPerformance = async (req: Request, res: Response):
       definitions: promotionDefinitions,
     });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to fetch promotion performance.' });
   }
 };
@@ -3063,7 +3183,14 @@ export const getAdminPromotionRedemptions = async (req: Request, res: Response):
     const limit = parseLimit(req.query.limit, 50);
     const page = Math.max(1, Math.floor(Number(req.query.page || 1)));
     const state = String(req.query.state || '').trim().toUpperCase();
+    const promotion = await Promotion.findById(id).select('countryCode').lean();
+    if (!promotion) {
+      res.status(404).json({ message: 'Promotion not found.' });
+      return;
+    }
+    await assertAdminCountryAccess(req, promotion.countryCode);
     const bookings = await Booking.find({
+      ...countryScopeFilter(await getAdminMarketScope(req)),
       $or: [
         { 'metadata.promotions.promotionId': id },
         { 'metadata.promotion.promotionId': id },
@@ -3094,6 +3221,7 @@ export const getAdminPromotionRedemptions = async (req: Request, res: Response):
 
     res.status(200).json({ success: true, redemptions: records, pagination: { page, limit, count: records.length } });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to fetch promotion redemptions.' });
   }
 };
@@ -3128,6 +3256,7 @@ export const duplicateAdminPromotion = async (req: Request, res: Response): Prom
       res.status(404).json({ message: 'Promotion not found.' });
       return;
     }
+    await assertAdminCountryAccess(req, source.countryCode);
     const duplicate = await Promotion.create({
       code: null,
       name: `${source.name} Copy`.slice(0, 120),
@@ -3167,6 +3296,7 @@ export const duplicateAdminPromotion = async (req: Request, res: Response): Prom
     await logAdminAction(req, 'promotion.duplicate', 'Promotion', duplicate._id.toString(), { sourcePromotionId: id });
     res.status(201).json({ success: true, promotion: duplicate });
   } catch (error: any) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(400).json({ success: false, message: error.message || 'Failed to duplicate promotion.' });
   }
 };
@@ -3184,6 +3314,7 @@ const transitionAdminPromotion = async (req: Request, res: Response, status: Pro
       res.status(404).json({ message: 'Promotion not found.' });
       return;
     }
+    await assertAdminCountryAccess(req, existing.countryCode);
     if (existing.status === PromotionStatus.ARCHIVED && status === PromotionStatus.ACTIVE) {
       res.status(400).json({ message: 'Archived promotions cannot be activated.' });
       return;
@@ -3197,6 +3328,7 @@ const transitionAdminPromotion = async (req: Request, res: Response, status: Pro
     await logAdminAction(req, action, 'Promotion', id, { from: existing.status, to: status });
     res.status(200).json({ success: true, promotion });
   } catch (error: any) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(400).json({ success: false, message: error.message || 'Failed to update promotion status.' });
   }
 };
@@ -3228,6 +3360,8 @@ export const updateAdminPromotion = async (req: Request, res: Response): Promise
       res.status(404).json({ message: 'Promotion not found.' });
       return;
     }
+    await assertAdminCountryAccess(req, existing.countryCode);
+    if (updates.countryCode) await assertAdminCountryAccess(req, updates.countryCode);
     const lockedFields = hasPromotionActivity(existing) ? promotionMaterialFieldsChanged(updates) : [];
     if (lockedFields.length) {
       res.status(409).json({
@@ -3255,6 +3389,7 @@ export const updateAdminPromotion = async (req: Request, res: Response): Promise
     await logAdminAction(req, 'promotion.update', 'Promotion', id, updates);
     res.status(200).json({ success: true, promotion });
   } catch (error: any) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(400).json({ success: false, message: error.message || 'Failed to update promotion.' });
   }
 };

@@ -97,6 +97,8 @@ export default function BookingWizardScreen() {
   const [isSearchingProvider, setIsSearchingProvider] = useState(false);
   const [requestAccepted, setRequestAccepted] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
+  const [dispatchStatus, setDispatchStatus] = useState('');
+  const [standbyMessage, setStandbyMessage] = useState('');
   const [confirmedBreakdown, setConfirmedBreakdown] = useState<PriceBreakdown | null>(null);
   const [confirmedPromotions, setConfirmedPromotions] = useState<any[]>([]);
 
@@ -200,16 +202,21 @@ export default function BookingWizardScreen() {
 
       setIsSubmitting(true);
       setIsSearchingProvider(true);
+      setDispatchStatus('');
+      setStandbyMessage('');
+      setRequestAccepted(false);
 
       if (!serviceKey && !category) {
         Alert.alert('Service unavailable', 'Please choose an available service before booking.');
         setIsSearchingProvider(false);
+        setIsSubmitting(false);
         return;
       }
 
       if (!subCategory) {
         Alert.alert('Service unavailable', 'Please choose an available service option before booking.');
         setIsSearchingProvider(false);
+        setIsSubmitting(false);
         return;
       }
 
@@ -220,6 +227,7 @@ export default function BookingWizardScreen() {
       if (scheduleMode === 'LATER' && selectedDate.getTime() <= Date.now() + 5 * 60 * 1000) {
         Alert.alert('Choose a later time', 'Please schedule at least 5 minutes from now.');
         setIsSearchingProvider(false);
+        setIsSubmitting(false);
         return;
       }
 
@@ -267,12 +275,22 @@ export default function BookingWizardScreen() {
       const backendBreakdown = normalizePriceBreakdown(response);
       setConfirmedBreakdown(backendBreakdown);
       setConfirmedPromotions(promotionSnapshots(response, backendBreakdown));
+      setDispatchStatus(response.dispatchStatus || '');
+      if (response.dispatchStatus === 'STANDBY') {
+        setStandbyMessage(response.message || 'We are still looking for a nearby provider. Your request is open and we will notify you when someone accepts.');
+      }
+      if (response.dispatchStatus === 'SCHEDULED') {
+        setIsSearchingProvider(false);
+        setStandbyMessage('Your request has been scheduled. We will notify you when provider matching starts.');
+      }
 
       socket.once('booking_assigned', (payload: { bookingId?: string; technicianId?: string }) => {
         if (payload.bookingId !== response.bookingId) return;
 
         setRequestAccepted(true);
         setIsSearchingProvider(false);
+        setDispatchStatus('ACCEPTED');
+        setStandbyMessage('');
       });
 
     } catch (err: any) {
@@ -281,6 +299,32 @@ export default function BookingWizardScreen() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleCancelOpenRequest = () => {
+    if (!createdBookingId) return;
+    Alert.alert(
+      'Cancel request?',
+      'This will close your open provider search. You can request the service again later.',
+      [
+        { text: 'Keep Searching', style: 'cancel' },
+        {
+          text: 'Cancel Request',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await apiService.updateBookingStatus(createdBookingId, 'CANCELLED');
+              setIsSearchingProvider(false);
+              setDispatchStatus('CANCELLED');
+              setStandbyMessage('');
+              Alert.alert('Request Cancelled', 'Your provider search has been cancelled.');
+            } catch (error: any) {
+              Alert.alert('Unable to Cancel', error.message || 'Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleUseDifferentAddress = () => {
@@ -338,10 +382,22 @@ export default function BookingWizardScreen() {
           <View style={styles.matchingBox}>
             <ActivityIndicator size="large" color={Colors.primary} />
               <Text style={styles.matchingText}>
-                {scheduleMode === 'LATER'
+                {dispatchStatus === 'STANDBY'
+                  ? 'Still looking for a nearby provider...'
+                  : scheduleMode === 'LATER'
                   ? `Scheduling your request for ${formatScheduledDate(selectedDate)}...`
                   : 'Finding trusted professionals near you...'}
               </Text>
+              {dispatchStatus === 'STANDBY' ? (
+                <>
+                  <Text style={styles.matchingSubText}>
+                    {standbyMessage || 'Your request is open. We will notify you when someone accepts.'}
+                  </Text>
+                  <TouchableOpacity style={styles.cancelSearchButton} onPress={handleCancelOpenRequest} activeOpacity={0.84}>
+                    <Text style={styles.cancelSearchButtonText}>Cancel Search</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
             </View>
           )}
 
@@ -616,6 +672,9 @@ const styles = StyleSheet.create({
   primaryActionText: { color: Colors.background, fontSize: 15, fontWeight: '900' },
   matchingBox: { backgroundColor: Colors.surface, borderRadius: Radius.lg, borderColor: Colors.border, borderWidth: 1, padding: 32, alignItems: 'center', gap: 16, marginTop: 20 },
   matchingText: { color: Colors.text, fontSize: 14, fontWeight: '700', textAlign: 'center', lineHeight: 20 },
+  matchingSubText: { color: Colors.textSubtle, fontSize: 13, fontWeight: '600', textAlign: 'center', lineHeight: 19, marginTop: -6 },
+  cancelSearchButton: { marginTop: 2, paddingHorizontal: 18, height: 40, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.borderStrong, justifyContent: 'center', alignItems: 'center' },
+  cancelSearchButtonText: { color: Colors.text, fontSize: 13, fontWeight: '800' },
   providerCard: { backgroundColor: Colors.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: 20, marginTop: 10 },
   acceptedIconWrap: { width: 62, height: 62, borderRadius: 31, backgroundColor: 'rgba(184, 255, 61, 0.14)', borderWidth: 1, borderColor: Colors.primary, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 },
   providerMeta: { borderBottomWidth: 1, borderColor: Colors.border, paddingBottom: 16 },

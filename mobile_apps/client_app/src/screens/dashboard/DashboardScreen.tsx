@@ -608,7 +608,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
         {!availabilityLoading && !availabilityError && popularServices.length === 0 && (
           <View style={styles.noticeCard}>
             <Text style={styles.noticeTitle}>No services are currently available in your area.</Text>
-            <Text style={styles.noticeText}>Services will appear here when they are published and enabled for your market, city, and area.</Text>
+            <Text style={styles.noticeText}>Services will appear here when they are published and available in your country and city.</Text>
           </View>
         )}
 

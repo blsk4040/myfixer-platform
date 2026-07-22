@@ -9,6 +9,7 @@ import matchingService from '../services/matching.service';
 import User from '../models/user.model';
 import { EmailService } from '../services/email/email.service';
 import { uploadImageToCloudinary } from '../services/media-storage.service';
+import { countryScopeFilter, getAdminMarketScope, handleAdminMarketScopeError } from '../services/admin-market-scope.service';
 
 interface ReviewTechnicianRequestBody {
   status?: unknown;
@@ -27,14 +28,16 @@ const isApprovalStatus = (value: unknown): value is TechnicianApprovalStatus =>
 const isPhotoReviewStatus = (value: unknown): value is VerificationStatus =>
   value === VerificationStatus.VERIFIED || value === VerificationStatus.REJECTED;
 
-export const listTechnicianApplications = async (_req: Request, res: Response): Promise<void> => {
+export const listTechnicianApplications = async (req: Request, res: Response): Promise<void> => {
   try {
-    const technicians = await Technician.find()
+    const scopeFilter = countryScopeFilter(await getAdminMarketScope(req));
+    const technicians = await Technician.find(scopeFilter)
       .populate('userId', 'name email phone countryCode currency location')
       .sort({ createdAt: -1 });
 
     res.status(200).json({ success: true, technicians });
   } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to fetch technician applications.' });
   }
 };

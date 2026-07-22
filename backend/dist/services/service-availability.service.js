@@ -452,14 +452,20 @@ const buildCityAvailability = (row, fallbackServices = []) => {
 };
 exports.buildCityAvailability = buildCityAvailability;
 const statusMessage = (label, status, city = '', area = '') => {
-    const location = area || city;
+    const location = city || area;
     if (status === market_setting_model_1.MarketStatus.ACTIVE)
         return '';
     if (status === market_setting_model_1.MarketStatus.COMING_SOON)
-        return `${label} is coming soon${location ? ` in ${location}` : ''}.`;
+        return location
+            ? `Padi is coming soon to ${location}.`
+            : `${label} is coming soon.`;
     if (status === market_setting_model_1.MarketStatus.PAUSED)
-        return `${label} is temporarily unavailable${location ? ` in ${location}` : ''}.`;
-    return `${label} is not available${location ? ` in ${location}` : ''}.`;
+        return location
+            ? `Padi is temporarily unavailable in ${location}.`
+            : `${label} is temporarily unavailable.`;
+    return location
+        ? `Padi is not available in ${location} yet.`
+        : `${label} is not currently available.`;
 };
 const mergeServiceStatus = (baseServices, overrideServices) => {
     const map = new Map(baseServices.map((service) => [service.serviceKey, service]));

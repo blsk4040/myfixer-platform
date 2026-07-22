@@ -594,11 +594,17 @@ export const buildCityAvailability = (row: unknown, fallbackServices: unknown[] 
 };
 
 const statusMessage = (label: string, status: MarketStatus, city = '', area = ''): string => {
-  const location = area || city;
+  const location = city || area;
   if (status === MarketStatus.ACTIVE) return '';
-  if (status === MarketStatus.COMING_SOON) return `${label} is coming soon${location ? ` in ${location}` : ''}.`;
-  if (status === MarketStatus.PAUSED) return `${label} is temporarily unavailable${location ? ` in ${location}` : ''}.`;
-  return `${label} is not available${location ? ` in ${location}` : ''}.`;
+  if (status === MarketStatus.COMING_SOON) return location
+    ? `Padi is coming soon to ${location}.`
+    : `${label} is coming soon.`;
+  if (status === MarketStatus.PAUSED) return location
+    ? `Padi is temporarily unavailable in ${location}.`
+    : `${label} is temporarily unavailable.`;
+  return location
+    ? `Padi is not available in ${location} yet.`
+    : `${label} is not currently available.`;
 };
 
 const mergeServiceStatus = (
