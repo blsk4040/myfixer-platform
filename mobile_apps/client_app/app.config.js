@@ -24,7 +24,7 @@ module.exports = {
       'expo-location',
       {
         locationWhenInUsePermission:
-          'Allow Paddy to show your position relative to the assigned professional on the live map.',
+          'Allow Padi to show your position relative to the assigned professional on the live map.',
       },
     ],
   ],

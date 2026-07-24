@@ -592,7 +592,7 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
     const resolvedCountryCode = normalizeCountryCode(countryCode ?? location.country);
     const market = await assertActiveMarket(resolvedCountryCode);
     if (!(await isMarketActiveForOnboarding(market.identity.countryCode))) {
-      res.status(409).json({ message: 'Paddy is not accepting new registrations in this market right now.' });
+      res.status(409).json({ message: 'Padi is not accepting new registrations in this market right now.' });
       return;
     }
     const userExists = await User.findOne({ email: normalizedEmail });
