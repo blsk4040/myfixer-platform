@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Colors } from '../theme';
 
-const logoSource = require('../assets/logo/app_logo.pn');
+const logoSource = require('../assets/logo/app_logo.png');
 
 export function BrandLoadingScreen(): React.JSX.Element {
   return (
