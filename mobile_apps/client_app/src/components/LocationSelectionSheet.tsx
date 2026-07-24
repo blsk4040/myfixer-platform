@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  FlatList,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -9,13 +11,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 import { ServiceRecipient } from '../types/booking';
 
 declare const process: {
   env?: {
-    EXPO_PUBLIC_GOOGLE_PLACES_API_KEY?: string;
-    EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?: string;
+    EXPO_PUBLIC_GEOAPIFY_API_KEY?: string;
   };
 };
 
@@ -45,22 +45,29 @@ interface LocationSelectionSheetProps {
   onLocationConfirmed: (payload: LocationConfirmationPayload) => void;
 }
 
-const GOOGLE_PLACES_API_KEY =
-  process.env?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ||
-  process.env?.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
-  '';
+const GEOAPIFY_API_KEY = process.env?.EXPO_PUBLIC_GEOAPIFY_API_KEY || '';
 
 const normalizeCountryFilter = (countryCode?: string): string => {
   const normalized = (countryCode || '').trim().toLowerCase();
-  return normalized ? `country:${normalized}` : '';
+  return normalized ? `countrycode:${normalized}` : '';
 };
 
-const getAddressPart = (components: any[] | undefined, types: string[]): string => {
-  if (!Array.isArray(components)) return '';
-  const component = components.find((item) =>
-    Array.isArray(item.types) && types.some((type) => item.types.includes(type))
-  );
-  return String(component?.long_name || '').trim();
+type GeoapifyFeature = {
+  type: 'Feature';
+  geometry?: {
+    type?: string;
+    coordinates?: [number, number];
+  };
+  properties?: {
+    formatted?: string;
+    address_line1?: string;
+    address_line2?: string;
+    city?: string;
+    suburb?: string;
+    district?: string;
+    postcode?: string;
+    state?: string;
+  };
 };
 
 export default function LocationSelectionSheet({
@@ -89,8 +96,47 @@ export default function LocationSelectionSheet({
   const [area, setArea] = useState('');
   const [postalCode, setPostalCode] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [suggestions, setSuggestions] = useState<GeoapifyFeature[]>([]);
+  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
 
   const countryFilter = useMemo(() => normalizeCountryFilter(countryCode), [countryCode]);
+
+  useEffect(() => {
+    const query = fullAddress.trim();
+    if (!GEOAPIFY_API_KEY || query.length < 3 || latitude !== null || longitude !== null) {
+      setSuggestions([]);
+      setIsSearchingAddress(false);
+      return undefined;
+    }
+
+    let isCurrent = true;
+    const handle = setTimeout(async () => {
+      setIsSearchingAddress(true);
+      try {
+        const params = new URLSearchParams({
+          text: query,
+          limit: '6',
+          format: 'geojson',
+          apiKey: GEOAPIFY_API_KEY,
+        });
+        if (countryFilter) params.set('filter', countryFilter);
+
+        const response = await fetch(`https://api.geoapify.com/v1/geocode/autocomplete?${params.toString()}`);
+        const payload = await response.json();
+        if (!isCurrent) return;
+        setSuggestions(Array.isArray(payload?.features) ? payload.features : []);
+      } catch {
+        if (isCurrent) setSuggestions([]);
+      } finally {
+        if (isCurrent) setIsSearchingAddress(false);
+      }
+    }, 280);
+
+    return () => {
+      isCurrent = false;
+      clearTimeout(handle);
+    };
+  }, [countryFilter, fullAddress, latitude, longitude]);
 
   const canConfirm =
     fullAddress.trim().length > 0 &&
@@ -111,7 +157,7 @@ export default function LocationSelectionSheet({
       setErrorMessage(
         isForSomeoneElse
           ? 'Choose an address and add the on-site contact details.'
-          : 'Choose an address from the search results.'
+          : 'Please enter your service address.'
       );
       return;
     }
@@ -159,54 +205,62 @@ export default function LocationSelectionSheet({
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheet}>
-      <GooglePlacesAutocomplete
-        placeholder="Search for service address"
-        fetchDetails
-        enablePoweredByContainer={false}
-        keyboardShouldPersistTaps="handled"
-        minLength={2}
-        debounce={250}
-        onPress={(data, details = null) => {
-          const location = details?.geometry?.location;
-          const nextFullAddress = details?.formatted_address || data.description || '';
-          const nextLatitude = Number(location?.lat);
-          const nextLongitude = Number(location?.lng);
+      <View style={styles.autocompleteContainer}>
+        <View style={styles.searchInputWrap}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Enter your service address"
+            placeholderTextColor="#64748B"
+            value={fullAddress}
+            onChangeText={(text: string) => {
+              setFullAddress(text);
+              setLatitude(null);
+              setLongitude(null);
+              setErrorMessage('');
+            }}
+          />
+          {isSearchingAddress ? <ActivityIndicator color="#B8FF3D" size="small" /> : null}
+        </View>
 
-          setFullAddress(nextFullAddress);
-          if (Number.isFinite(nextLatitude)) setLatitude(nextLatitude);
-          if (Number.isFinite(nextLongitude)) setLongitude(nextLongitude);
-          setCity(getAddressPart(details?.address_components, ['locality', 'administrative_area_level_2']));
-          setArea(getAddressPart(details?.address_components, ['sublocality', 'sublocality_level_1', 'neighborhood']));
-          setPostalCode(getAddressPart(details?.address_components, ['postal_code']));
-          setErrorMessage('');
-        }}
-        query={{
-          key: GOOGLE_PLACES_API_KEY,
-          language: 'en',
-          ...(countryFilter ? { components: countryFilter } : {}),
-        }}
-        textInputProps={{
-          placeholderTextColor: '#64748B',
-          value: fullAddress,
-          onChangeText: (text: string) => {
-            setFullAddress(text);
-            setLatitude(null);
-            setLongitude(null);
-          },
-        }}
-        styles={{
-          container: styles.autocompleteContainer,
-          textInput: styles.searchInput,
-          listView: styles.resultsList,
-          row: styles.resultRow,
-          description: styles.resultDescription,
-          separator: styles.resultSeparator,
-        }}
-      />
+        {suggestions.length ? (
+          <FlatList
+            data={suggestions}
+            keyExtractor={(item, index) => `${item.properties?.formatted || 'address'}-${index}`}
+            keyboardShouldPersistTaps="handled"
+            style={styles.resultsList}
+            ItemSeparatorComponent={() => <View style={styles.resultSeparator} />}
+            renderItem={({ item }) => {
+              const coordinates = item.geometry?.coordinates;
+              const props = item.properties || {};
+              const formatted = props.formatted || [props.address_line1, props.address_line2].filter(Boolean).join(', ');
+              return (
+                <TouchableOpacity
+                  style={styles.resultRow}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    const nextLongitude = Number(coordinates?.[0]);
+                    const nextLatitude = Number(coordinates?.[1]);
+                    setFullAddress(formatted);
+                    if (Number.isFinite(nextLatitude)) setLatitude(nextLatitude);
+                    if (Number.isFinite(nextLongitude)) setLongitude(nextLongitude);
+                    setCity(props.city || props.district || '');
+                    setArea(props.suburb || props.district || props.state || '');
+                    setPostalCode(props.postcode || '');
+                    setSuggestions([]);
+                    setErrorMessage('');
+                  }}
+                >
+                  <Text style={styles.resultDescription}>{formatted}</Text>
+                </TouchableOpacity>
+              );
+            }}
+          />
+        ) : null}
+      </View>
 
       <View style={styles.selectedAddressBox}>
         <Text style={styles.selectedLabel}>Selected address</Text>
-        <Text style={styles.selectedAddress}>{fullAddress || 'Choose an address from Google Places'}</Text>
+        <Text style={styles.selectedAddress}>{fullAddress || 'Please enter your service address.'}</Text>
       </View>
 
       <TouchableOpacity
@@ -303,12 +357,21 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     backgroundColor: '#0B1220',
+    color: '#FFFFFF',
+    flex: 1,
+    fontSize: 14,
+    height: 50,
+    paddingHorizontal: 0,
+  },
+  searchInputWrap: {
+    alignItems: 'center',
+    backgroundColor: '#0B1220',
     borderColor: '#334155',
     borderRadius: 12,
     borderWidth: 1,
-    color: '#FFFFFF',
-    fontSize: 14,
-    height: 50,
+    flexDirection: 'row',
+    gap: 10,
+    minHeight: 50,
     paddingHorizontal: 14,
   },
   resultsList: {

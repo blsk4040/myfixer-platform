@@ -46,8 +46,17 @@ type ExpoConstantsLike = {
 
 const warnedKeys = new Set<string>();
 
+const EXPO_ENV = {
+  EXPO_PUBLIC_API_BASE_URL: process.env?.EXPO_PUBLIC_API_BASE_URL,
+  EXPO_PUBLIC_API_URL: process.env?.EXPO_PUBLIC_API_URL,
+  EXPO_PUBLIC_SOCKET_URL: process.env?.EXPO_PUBLIC_SOCKET_URL,
+  EXPO_PUBLIC_SOCKET_DEBUG: process.env?.EXPO_PUBLIC_SOCKET_DEBUG,
+  EXPO_PUBLIC_APP_ENV: process.env?.EXPO_PUBLIC_APP_ENV,
+  EXPO_PUBLIC_EAS_PROJECT_ID: process.env?.EXPO_PUBLIC_EAS_PROJECT_ID,
+};
+
 function getEnvValue(key: keyof NonNullable<typeof process.env>): string {
-  const value = process.env?.[key];
+  const value = EXPO_ENV[key as keyof typeof EXPO_ENV];
   return typeof value === 'string' ? value.trim() : '';
 }
 

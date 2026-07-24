@@ -196,7 +196,7 @@ export default function BookingWizardScreen() {
       }
 
       if (!selectedLocation?.fullAddress || !Number.isFinite(selectedLocation.latitude) || !Number.isFinite(selectedLocation.longitude)) {
-        Alert.alert('Address Required', 'Please choose and confirm a service address from Google Places.');
+        Alert.alert('Address Required', 'Please enter your service address.');
         return;
       }
 
