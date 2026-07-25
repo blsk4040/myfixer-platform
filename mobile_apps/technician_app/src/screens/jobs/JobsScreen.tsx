@@ -31,8 +31,6 @@ export function JobsScreen(): React.JSX.Element {
       setIsConnected(state.isConnected);
 
       if (state.isConnected && queue.length > 0) {
-        console.log(`Connection restored. Syncing ${queue.length} saved job updates.`);
-
         queue.forEach((action: OfflineAction) => {
           advanceJobStatus(action.jobId);
           if (socket && typeof socket.emit === 'function') {

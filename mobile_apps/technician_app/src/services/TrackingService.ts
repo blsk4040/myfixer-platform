@@ -7,12 +7,9 @@ import { BRAND } from '../config/brand';
 const BACKGROUND_TRACKING_TASK = 'MYFIXER_TECH_BACKGROUND_TRACKING';
 let currentActiveBookingId: string | null = null;
 
-/**
- * Global Task Manager System Hook Definition
- */
 TaskManager.defineTask(BACKGROUND_TRACKING_TASK, async ({ data, error }: any) => {
   if (error) {
-    console.error('[Tracking Task Error]:', error.message);
+    console.error('Live tracking task failed:', error.message);
     return;
   }
 
@@ -24,18 +21,15 @@ TaskManager.defineTask(BACKGROUND_TRACKING_TASK, async ({ data, error }: any) =>
     const { latitude, longitude, heading, speed } = freshGpsFrame.coords;
 
     try {
-      // Stream calculations directly down the primary websocket pipeline
       techSocketService.emitTelemetryUpdate({
         bookingId: currentActiveBookingId,
         latitude,
         longitude,
         heading: heading ?? 0,
-        speed: speed ?? 0
+        speed: speed ?? 0,
       });
-
-      console.log(`📡 [BG-Telemetry] Lat: ${latitude.toFixed(5)}, Lng: ${longitude.toFixed(5)} -> Shared via Unified Engine Socket`);
     } catch (err) {
-      console.warn('[Tracking Task Error] Engine websocket was uninitialized when position ticked.', err);
+      console.warn('Live location update could not be sent.', err);
     }
   }
 });
@@ -47,13 +41,12 @@ export const TrackingService = {
     try {
       const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
       const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-      
+
       if (fgStatus !== 'granted' || bgStatus !== 'granted') {
-        console.warn('Location lookup access permissions were rejected.');
+        console.warn('Location permission was not granted.');
         return false;
       }
 
-      // Ensure core socket instance connection context is fully populated
       techSocketService.initializeConnection(technicianId);
       techSocketService.joinBookingRoom(bookingId);
 
@@ -63,15 +56,14 @@ export const TrackingService = {
         distanceInterval: 5,
         foregroundService: {
           notificationTitle: `${BRAND.displayName} Dispatch Active`,
-          notificationBody: "Routing real-time updates safely to the customer map viewport.",
-          notificationColor: "#0B0B0D"
-        }
+          notificationBody: 'Sharing your live job location with the customer.',
+          notificationColor: '#0B0B0D',
+        },
       });
 
-      console.info(`✅ High frequency background tracking engine safely launched for Booking: ${bookingId}`);
       return true;
     } catch (err) {
-      console.error('Fatal failure launching background location loops:', err);
+      console.error('Could not start live job tracking:', err);
       return false;
     }
   },
@@ -83,9 +75,8 @@ export const TrackingService = {
         await Location.stopLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
       }
       currentActiveBookingId = null;
-      console.log('🛑 Background spatial tracking service paused safely.');
     } catch (err) {
-      console.error('Error disabling location lookup frames safely:', err);
+      console.error('Could not stop live job tracking:', err);
     }
-  }
+  },
 };

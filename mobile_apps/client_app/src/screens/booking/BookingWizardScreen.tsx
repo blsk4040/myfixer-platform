@@ -155,7 +155,7 @@ export default function BookingWizardScreen() {
           setLongitude(String(currentLoc.coords.longitude));
         }
       } catch {
-        console.log("Fallback location coordinates generated.");
+        // Location fallback stays silent so the booking form remains calm for users.
       } finally {
         if (isMounted) setIsLocating(false);
       }
