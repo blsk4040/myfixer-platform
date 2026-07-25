@@ -62,7 +62,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
-      Alert.alert('Missing Fields', 'Please enter your technician email and password.');
+      Alert.alert('Missing Fields', 'Please enter your service provider email and password.');
       return;
     }
 
@@ -72,7 +72,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
       const role = session.user.role.toUpperCase();
 
       if (role !== 'TECHNICIAN' && role !== 'ADMIN') {
-        throw new Error('This account is not registered as a technician.');
+        throw new Error('This account is not registered as a service provider.');
       }
 
       authService.setSession(session);
@@ -120,8 +120,8 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
 
       if (result.status === 'profile_required') {
         Alert.alert(
-          'Technician application required',
-          'This Google account is not registered as an approved technician yet. Please submit a technician application.',
+          'Service provider application required',
+          'This Google account is not registered as an approved service provider yet. Please submit a service provider application.',
           [{ text: 'Apply Now', onPress: onRegisterPress }]
         );
         return;
@@ -139,7 +139,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
       const role = result.user.role.toUpperCase();
 
       if (role !== 'TECHNICIAN' && role !== 'ADMIN') {
-        throw new Error('This Google account is not registered as a technician.');
+        throw new Error('This Google account is not registered as a service provider.');
       }
 
       const session = { token: result.token, user: result.user, technician: result.technician };

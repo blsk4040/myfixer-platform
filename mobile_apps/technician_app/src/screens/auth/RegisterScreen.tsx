@@ -242,7 +242,7 @@ export function RegisterScreen({
         return;
       }
       if (!activeMarketCodes.includes(selectedCountry)) {
-        Alert.alert('Market Unavailable', 'Technician registration is not available in this market right now.');
+        Alert.alert('Market Unavailable', 'Service provider registration is not available in this market right now.');
         return;
       }
     }
@@ -276,7 +276,7 @@ export function RegisterScreen({
     }
 
     if (!activeMarketCodes.includes(formData.countryCode.trim().toUpperCase())) {
-      Alert.alert('Market Unavailable', 'Technician registration is not available in this market right now.');
+      Alert.alert('Market Unavailable', 'Service provider registration is not available in this market right now.');
       return;
     }
 

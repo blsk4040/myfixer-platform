@@ -48,6 +48,8 @@ export function DashboardScreen(): React.JSX.Element {
     status: 'In Progress',
     distance: currentActiveTarget.distance || 'Nearby',
     fullAddress: currentActiveTarget.fullAddress || '',
+    latitude: Number(currentActiveTarget.latitude),
+    longitude: Number(currentActiveTarget.longitude),
     complexDetails: currentActiveTarget.complexDetails,
   } : null;
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -11,13 +11,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as Location from 'expo-location';
+import { isExpoGoRuntime } from '../config/runtimeEnvironment';
+import { getGeoapifyApiKey } from '../config/runtime.config';
 import { ServiceRecipient } from '../types/booking';
 
-declare const process: {
-  env?: {
-    EXPO_PUBLIC_GEOAPIFY_API_KEY?: string;
-  };
-};
+declare const require: any;
+
+type StyleSpecification = any;
 
 export interface LocationConfirmationPayload {
   fullAddress: string;
@@ -43,9 +44,35 @@ interface LocationSelectionSheetProps {
   ownerName?: string;
   ownerPhone?: string;
   onLocationConfirmed: (payload: LocationConfirmationPayload) => void;
+  onLocationInvalidated?: () => void;
 }
 
-const GEOAPIFY_API_KEY = process.env?.EXPO_PUBLIC_GEOAPIFY_API_KEY || '';
+const GEOAPIFY_API_KEY = getGeoapifyApiKey();
+
+const MapLibreNative = (() => {
+  if (isExpoGoRuntime) return null;
+  try {
+    return require('@maplibre/maplibre-react-native');
+  } catch {
+    return null;
+  }
+})();
+
+const OSM_RASTER_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '(c) OpenStreetMap contributors',
+    },
+  },
+  layers: [
+    { id: 'background', type: 'background', paint: { 'background-color': '#0B0B0D' } },
+    { id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.9 } },
+  ],
+};
 
 const normalizeCountryFilter = (countryCode?: string): string => {
   const normalized = (countryCode || '').trim().toLowerCase();
@@ -70,6 +97,13 @@ type GeoapifyFeature = {
   };
 };
 
+const getFeatureLabel = (feature: GeoapifyFeature): string => {
+  const props = feature.properties || {};
+  return props.formatted || [props.address_line1, props.address_line2].filter(Boolean).join(', ');
+};
+
+const toLngLat = (longitude: number, latitude: number): [number, number] => [longitude, latitude];
+
 export default function LocationSelectionSheet({
   countryCode,
   initialFullAddress = '',
@@ -78,7 +112,9 @@ export default function LocationSelectionSheet({
   ownerName = '',
   ownerPhone = '',
   onLocationConfirmed,
+  onLocationInvalidated,
 }: LocationSelectionSheetProps) {
+  const hasAutoLocated = useRef(false);
   const [fullAddress, setFullAddress] = useState(initialFullAddress);
   const [latitude, setLatitude] = useState<number | null>(
     typeof initialLatitude === 'number' ? initialLatitude : null
@@ -98,8 +134,14 @@ export default function LocationSelectionSheet({
   const [errorMessage, setErrorMessage] = useState('');
   const [suggestions, setSuggestions] = useState<GeoapifyFeature[]>([]);
   const [isSearchingAddress, setIsSearchingAddress] = useState(false);
+  const [isLocatingCurrentAddress, setIsLocatingCurrentAddress] = useState(false);
 
   const countryFilter = useMemo(() => normalizeCountryFilter(countryCode), [countryCode]);
+  const hasSelectedCoordinates =
+    typeof latitude === 'number' &&
+    Number.isFinite(latitude) &&
+    typeof longitude === 'number' &&
+    Number.isFinite(longitude);
 
   useEffect(() => {
     const query = fullAddress.trim();
@@ -140,10 +182,7 @@ export default function LocationSelectionSheet({
 
   const canConfirm =
     fullAddress.trim().length > 0 &&
-    typeof latitude === 'number' &&
-    Number.isFinite(latitude) &&
-    typeof longitude === 'number' &&
-    Number.isFinite(longitude) &&
+    hasSelectedCoordinates &&
     (!isForSomeoneElse ||
       (
         contactName.trim().length > 0 &&
@@ -152,14 +191,9 @@ export default function LocationSelectionSheet({
         city.trim().length > 0
       ));
 
-  const handleConfirm = () => {
+  const buildConfirmationPayload = useCallback((): LocationConfirmationPayload | null => {
     if (!canConfirm || latitude === null || longitude === null) {
-      setErrorMessage(
-        isForSomeoneElse
-          ? 'Choose an address and add the on-site contact details.'
-          : 'Please enter your service address.'
-      );
-      return;
+      return null;
     }
 
     const serviceRecipient: ServiceRecipient = isForSomeoneElse
@@ -185,8 +219,7 @@ export default function LocationSelectionSheet({
           streetAddress: fullAddress.trim(),
         };
 
-    setErrorMessage('');
-    onLocationConfirmed({
+    return {
       fullAddress: fullAddress.trim(),
       latitude,
       longitude,
@@ -200,11 +233,201 @@ export default function LocationSelectionSheet({
       city: city.trim() || undefined,
       area: area.trim() || undefined,
       postalCode: postalCode.trim() || undefined,
-    });
+    };
+  }, [
+    area,
+    canConfirm,
+    city,
+    contactName,
+    contactPhone,
+    countryCode,
+    fullAddress,
+    isForSomeoneElse,
+    latitude,
+    longitude,
+    ownerName,
+    ownerPhone,
+    postalCode,
+    recipientEmail,
+    recipientNotes,
+    relationship,
+  ]);
+
+  const handleConfirm = () => {
+    const payload = buildConfirmationPayload();
+    if (!payload) {
+      setErrorMessage(
+        isForSomeoneElse
+          ? 'Choose an address and add the on-site contact details.'
+          : 'Please enter your service address.'
+      );
+      return;
+    }
+
+    setErrorMessage('');
+    onLocationConfirmed(payload);
   };
+
+  const applySelectedAddress = useCallback((payload: {
+    formatted: string;
+    latitude: number;
+    longitude: number;
+    city?: string;
+    area?: string;
+    postalCode?: string;
+  }) => {
+    setFullAddress(payload.formatted);
+    setLatitude(payload.latitude);
+    setLongitude(payload.longitude);
+    setCity(payload.city || '');
+    setArea(payload.area || '');
+    setPostalCode(payload.postalCode || '');
+    setSuggestions([]);
+    setErrorMessage('');
+
+    if (!isForSomeoneElse) {
+      onLocationConfirmed({
+        fullAddress: payload.formatted.trim(),
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        isForSomeoneElse: false,
+        serviceRecipient: {
+          type: 'SELF',
+          fullName: ownerName.trim() || 'Client',
+          phoneNumber: ownerPhone.trim(),
+          countryCode: countryCode?.trim() || undefined,
+          country: countryCode?.trim() || undefined,
+          city: payload.city?.trim() || undefined,
+          streetAddress: payload.formatted.trim(),
+        },
+        city: payload.city?.trim() || undefined,
+        area: payload.area?.trim() || undefined,
+        postalCode: payload.postalCode?.trim() || undefined,
+      });
+    }
+  }, [countryCode, isForSomeoneElse, onLocationConfirmed, ownerName, ownerPhone]);
+
+  const applyGeoapifyFeature = useCallback((feature: GeoapifyFeature) => {
+    const coordinates = feature.geometry?.coordinates;
+    const props = feature.properties || {};
+    const formatted = getFeatureLabel(feature);
+    const nextLongitude = Number(coordinates?.[0]);
+    const nextLatitude = Number(coordinates?.[1]);
+
+    if (!formatted || !Number.isFinite(nextLatitude) || !Number.isFinite(nextLongitude)) {
+      setErrorMessage('Please choose an address from the search results.');
+      return;
+    }
+
+    applySelectedAddress({
+      formatted,
+      latitude: nextLatitude,
+      longitude: nextLongitude,
+      city: props.city || props.district || '',
+      area: props.suburb || props.district || props.state || '',
+      postalCode: props.postcode || '',
+    });
+  }, [applySelectedAddress]);
+
+  const applyCoordinateFallback = useCallback((nextLatitude: number, nextLongitude: number) => {
+    applySelectedAddress({
+      formatted: `Pinned location (${nextLatitude.toFixed(5)}, ${nextLongitude.toFixed(5)})`,
+      latitude: nextLatitude,
+      longitude: nextLongitude,
+    });
+  }, [applySelectedAddress]);
+
+  const reverseGeocode = useCallback(async (nextLatitude: number, nextLongitude: number) => {
+    if (!GEOAPIFY_API_KEY) {
+      applyCoordinateFallback(nextLatitude, nextLongitude);
+      return;
+    }
+
+    const params = new URLSearchParams({
+      lat: String(nextLatitude),
+      lon: String(nextLongitude),
+      format: 'geojson',
+      apiKey: GEOAPIFY_API_KEY,
+    });
+    const response = await fetch(`https://api.geoapify.com/v1/geocode/reverse?${params.toString()}`);
+    const payload = await response.json();
+    const feature = Array.isArray(payload?.features) ? payload.features[0] : null;
+    if (feature) {
+      applyGeoapifyFeature(feature);
+      return;
+    }
+
+    applyCoordinateFallback(nextLatitude, nextLongitude);
+  }, [applyCoordinateFallback, applyGeoapifyFeature]);
+
+  const useCurrentLocation = useCallback(async () => {
+    setIsLocatingCurrentAddress(true);
+    setErrorMessage('');
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== Location.PermissionStatus.GRANTED) {
+        setErrorMessage('Location permission is needed to use your current location.');
+        return;
+      }
+
+      const currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      await reverseGeocode(currentLocation.coords.latitude, currentLocation.coords.longitude);
+    } catch {
+      setErrorMessage('Unable to detect your current location. Please enter your service address.');
+    } finally {
+      setIsLocatingCurrentAddress(false);
+    }
+  }, [reverseGeocode]);
+
+  useEffect(() => {
+    if (hasAutoLocated.current || initialFullAddress.trim()) return;
+    hasAutoLocated.current = true;
+    void useCurrentLocation();
+  }, [initialFullAddress, useCurrentLocation]);
+
+  const handleRecipientToggle = useCallback((nextValue: boolean) => {
+    setIsForSomeoneElse(nextValue);
+    onLocationInvalidated?.();
+  }, [onLocationInvalidated]);
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheet}>
+      <View style={styles.mapCard}>
+        {MapLibreNative && hasSelectedCoordinates ? (
+          <MapLibreNative.Map mapStyle={OSM_RASTER_STYLE} style={styles.map} logoEnabled={false} attributionEnabled={false}>
+            <MapLibreNative.Camera center={toLngLat(longitude, latitude)} zoom={15} />
+            <MapLibreNative.Marker lngLat={toLngLat(longitude, latitude)}>
+              <View style={styles.mapPinOuter}>
+                <View style={styles.mapPinInner} />
+              </View>
+            </MapLibreNative.Marker>
+          </MapLibreNative.Map>
+        ) : (
+          <View style={styles.mapFallback}>
+            <Text style={styles.mapFallbackTitle}>
+              {isLocatingCurrentAddress ? 'Finding your location...' : 'Set your service address'}
+            </Text>
+            <Text style={styles.mapFallbackText}>
+              Search for an address or use your current location to pin where the provider should arrive.
+            </Text>
+          </View>
+        )}
+        <TouchableOpacity
+          style={styles.currentLocationButton}
+          activeOpacity={0.84}
+          onPress={useCurrentLocation}
+          disabled={isLocatingCurrentAddress}
+        >
+          {isLocatingCurrentAddress ? (
+            <ActivityIndicator color="#0B0B0D" size="small" />
+          ) : (
+            <Text style={styles.currentLocationButtonText}>Use current location</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.autocompleteContainer}>
         <View style={styles.searchInputWrap}>
           <TextInput
@@ -217,6 +440,7 @@ export default function LocationSelectionSheet({
               setLatitude(null);
               setLongitude(null);
               setErrorMessage('');
+              onLocationInvalidated?.();
             }}
           />
           {isSearchingAddress ? <ActivityIndicator color="#B8FF3D" size="small" /> : null}
@@ -230,25 +454,12 @@ export default function LocationSelectionSheet({
             style={styles.resultsList}
             ItemSeparatorComponent={() => <View style={styles.resultSeparator} />}
             renderItem={({ item }) => {
-              const coordinates = item.geometry?.coordinates;
-              const props = item.properties || {};
-              const formatted = props.formatted || [props.address_line1, props.address_line2].filter(Boolean).join(', ');
+              const formatted = getFeatureLabel(item);
               return (
                 <TouchableOpacity
                   style={styles.resultRow}
                   activeOpacity={0.8}
-                  onPress={() => {
-                    const nextLongitude = Number(coordinates?.[0]);
-                    const nextLatitude = Number(coordinates?.[1]);
-                    setFullAddress(formatted);
-                    if (Number.isFinite(nextLatitude)) setLatitude(nextLatitude);
-                    if (Number.isFinite(nextLongitude)) setLongitude(nextLongitude);
-                    setCity(props.city || props.district || '');
-                    setArea(props.suburb || props.district || props.state || '');
-                    setPostalCode(props.postcode || '');
-                    setSuggestions([]);
-                    setErrorMessage('');
-                  }}
+                  onPress={() => applyGeoapifyFeature(item)}
                 >
                   <Text style={styles.resultDescription}>{formatted}</Text>
                 </TouchableOpacity>
@@ -259,19 +470,19 @@ export default function LocationSelectionSheet({
       </View>
 
       <View style={styles.selectedAddressBox}>
-        <Text style={styles.selectedLabel}>Selected address</Text>
+        <Text style={styles.selectedLabel}>Service address</Text>
         <Text style={styles.selectedAddress}>{fullAddress || 'Please enter your service address.'}</Text>
       </View>
 
       <TouchableOpacity
         activeOpacity={0.8}
         style={styles.someoneElseRow}
-        onPress={() => setIsForSomeoneElse((current) => !current)}
+        onPress={() => handleRecipientToggle(!isForSomeoneElse)}
       >
         <Text style={styles.someoneElseText}>Ordering for someone else?</Text>
         <Switch
           value={isForSomeoneElse}
-          onValueChange={setIsForSomeoneElse}
+          onValueChange={handleRecipientToggle}
           trackColor={{ false: '#334155', true: '#00A86B' }}
           thumbColor={isForSomeoneElse ? '#00FF87' : '#94A3B8'}
         />
@@ -350,6 +561,72 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 14,
     zIndex: 20,
+  },
+  mapCard: {
+    backgroundColor: '#0B0B0D',
+    borderColor: '#1F2937',
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 240,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  map: {
+    flex: 1,
+  },
+  mapFallback: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    padding: 22,
+  },
+  mapFallbackTitle: {
+    color: '#F7F7F5',
+    fontSize: 15,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  mapFallbackText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 18,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  mapPinOuter: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184, 255, 61, 0.22)',
+    borderColor: '#B8FF3D',
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  mapPinInner: {
+    backgroundColor: '#B8FF3D',
+    borderColor: '#0B0B0D',
+    borderRadius: 7,
+    borderWidth: 2,
+    height: 14,
+    width: 14,
+  },
+  currentLocationButton: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF3D',
+    borderRadius: 999,
+    bottom: 12,
+    justifyContent: 'center',
+    minHeight: 38,
+    paddingHorizontal: 16,
+    position: 'absolute',
+    right: 12,
+  },
+  currentLocationButtonText: {
+    color: '#0B0B0D',
+    fontSize: 12,
+    fontWeight: '900',
   },
   autocompleteContainer: {
     flex: 0,

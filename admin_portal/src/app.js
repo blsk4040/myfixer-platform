@@ -210,7 +210,7 @@ const state = {
 const views = [
   { id: 'overview', label: 'Overview', icon: 'O', permission: 'overview.read' },
   { id: 'clients', label: 'Clients', icon: 'C', permission: 'overview.read' },
-  { id: 'technicians', label: 'Technicians', icon: 'T', permission: 'technicians.read' },
+  { id: 'technicians', label: 'Service Providers', icon: 'P', permission: 'technicians.read' },
   { id: 'bookings', label: 'Bookings', icon: 'B', permission: 'bookings.read' },
   { id: 'managedCollections', label: 'Recurring Customers', icon: 'R', permission: 'bookings.read' },
   { id: 'collectionOperations', label: 'Recurring Operations', icon: 'O', permission: 'bookings.read' },
@@ -1145,10 +1145,10 @@ async function refresh() {
 
 async function reviewTechnician(id, status) {
   if (!canMutate('technicians.review')) {
-    alert('You do not have permission to review technicians.');
+    alert('You do not have permission to review service providers.');
     return;
   }
-  if (!confirm(`Confirm technician status change to ${status}?`)) return;
+  if (!confirm(`Confirm service provider status change to ${status}?`)) return;
   const rejectionReason = status === 'REJECTED' ? prompt('Reason for rejection?') || '' : '';
   try {
     await api(`/admin/technicians/${id}/review`, {
@@ -1163,11 +1163,11 @@ async function reviewTechnician(id, status) {
 
 async function reviewTechnicianProfilePhoto(id, status) {
   if (!canMutate('technicians.review')) {
-    alert('You do not have permission to review technician photos.');
+    alert('You do not have permission to review service provider photos.');
     return;
   }
   const rejectionReason = status === 'REJECTED' ? prompt('Reason for photo rejection?') || '' : '';
-  if (!confirm(`Confirm technician profile photo status change to ${status}?`)) return;
+  if (!confirm(`Confirm service provider profile photo status change to ${status}?`)) return;
   try {
     await api(`/admin/technicians/${id}/profile-photo`, {
       method: 'PATCH',
@@ -1307,7 +1307,7 @@ function renderLogin() {
             <div class="login-heading">
               <span class="eyebrow">Admin access</span>
               <h2>Sign in to operations</h2>
-              <p>Internal staff only. Customer and technician accounts are blocked from this portal.</p>
+              <p>Internal staff only. Customer and service provider accounts are blocked from this portal.</p>
             </div>
 
             <label>Email</label>
@@ -1859,7 +1859,7 @@ function renderBusinessKpis(data) {
   const cards = [
     { label: 'Gross Revenue', value: moneyFromMinor(data.grossRevenueMinor, data.primaryCurrency), icon: 'R', tone: 'green', spark: revenueSpark },
     { label: 'Platform Fees', value: moneyFromMinor(data.platformFeesMinor, data.primaryCurrency), icon: '%', tone: 'blue', spark: revenueSpark },
-    { label: 'Technician Payouts', value: moneyFromMinor(data.technicianPayoutsMinor, data.primaryCurrency), icon: 'P', tone: 'purple', spark: revenueSpark },
+    { label: 'Service Provider Payouts', value: moneyFromMinor(data.technicianPayoutsMinor, data.primaryCurrency), icon: 'P', tone: 'purple', spark: revenueSpark },
     { label: 'Pending Payments', value: moneyFromMinor(data.pendingPaymentsMinor, data.primaryCurrency), icon: '!', tone: 'amber', spark: revenueSpark },
     { label: 'Active Bookings', value: data.activeBookings.length, icon: 'B', tone: 'blue', spark: bookingSpark },
     { label: 'Active Providers', value: data.activeProviderCount, icon: 'T', tone: 'green', spark: [0, 0, data.activeProviderCount] },
@@ -1967,7 +1967,7 @@ function renderFinancialDistribution(data) {
   return `
     <div class="overview-grid two">
       <section class="panel business-panel"><div class="panel-header"><div><h2>Platform Fees</h2><span>Commission retained by MyFixer</span></div></div><div class="financial-total">${moneyFromMinor(data.platformFeesMinor, data.primaryCurrency)}</div>${sparklineSvg(buildRevenueTrendRows(data.paidInvoices).map((row) => row.totalMinor), 'blue')}<p class="business-note">TODO: Replace with finance analytics endpoint for period-over-period growth.</p></section>
-      <section class="panel business-panel"><div class="panel-header"><div><h2>Technician Payouts</h2><span>Net earnings owed or paid to providers</span></div></div><div class="financial-total">${moneyFromMinor(data.technicianPayoutsMinor, data.primaryCurrency)}</div>${sparklineSvg(buildRevenueTrendRows(data.paidInvoices).map((row) => row.totalMinor), 'purple')}<p class="business-note">TODO: Connect settlement analytics for paid vs pending payout timing.</p></section>
+      <section class="panel business-panel"><div class="panel-header"><div><h2>Service Provider Payouts</h2><span>Net earnings owed or paid to providers</span></div></div><div class="financial-total">${moneyFromMinor(data.technicianPayoutsMinor, data.primaryCurrency)}</div>${sparklineSvg(buildRevenueTrendRows(data.paidInvoices).map((row) => row.totalMinor), 'purple')}<p class="business-note">TODO: Connect settlement analytics for paid vs pending payout timing.</p></section>
     </div>
   `;
 }
@@ -2026,7 +2026,7 @@ function topTechnicians(data) {
   const rows = new Map();
   data.completedBookings.forEach((booking) => {
     const id = booking.technicianId?._id || booking.technicianId || booking.assignedTechnicianId || 'unassigned';
-    const name = booking.technicianName || booking.technicianId?.name || (id === 'unassigned' ? 'Unassigned' : 'Technician');
+    const name = booking.technicianName || booking.technicianId?.name || (id === 'unassigned' ? 'Unassigned' : 'Service Provider');
     const current = rows.get(String(id)) || { label: name, count: 0, amountMinor: 0 };
     current.count += 1;
     current.amountMinor += bookingValueMinor(booking);
@@ -2074,7 +2074,7 @@ function renderOverview() {
       <div class="overview-grid two">${renderPaymentHealth(data)}${renderRevenueFunnel(data)}</div>
       <div class="overview-grid two">
         <section class="panel business-panel"><div class="panel-header"><div><h2>Top Services</h2><span>Ranked by booking value</span></div></div>${renderRankedList(topServices(data), data.primaryCurrency, 'No service performance data yet.')}</section>
-        <section class="panel business-panel"><div class="panel-header"><div><h2>Top Technicians</h2><span>Completed jobs and revenue</span></div></div>${renderRankedList(topTechnicians(data), data.primaryCurrency, 'No technician revenue ranking yet.')}</section>
+        <section class="panel business-panel"><div class="panel-header"><div><h2>Top Service Providers</h2><span>Completed jobs and revenue</span></div></div>${renderRankedList(topTechnicians(data), data.primaryCurrency, 'No service provider revenue ranking yet.')}</section>
       </div>
       ${renderAiInsights(data)}
     </div>
@@ -2155,7 +2155,7 @@ function renderCurrencyTotals(totals) {
         <div class="currency-row">
           <strong>${currency}</strong>
           <span>Commission ${getMoney(total, 'commission', 'commissionMinor', currency)}</span>
-          <span>Tech pending ${getMoney(total, 'technicianPending', 'technicianPendingMinor', currency)}</span>
+          <span>Provider pending ${getMoney(total, 'technicianPending', 'technicianPendingMinor', currency)}</span>
           <span>Client due ${getMoney(total, 'clientDue', 'clientDueMinor', currency)}</span>
         </div>
       `).join('')}
@@ -2169,7 +2169,7 @@ function renderTechnicians() {
   return `
     <section class="panel">
       <div class="panel-header">
-        <h2>Technician Applications</h2>
+        <h2>Service Provider Applications</h2>
         <span>${rows.length} records</span>
       </div>
       <div class="card-list">
@@ -2189,7 +2189,7 @@ function renderTechnicians() {
               <div class="technician-review-main">
                 <a class="technician-photo" href="${escapeHtml(photoUrl || '#')}" target="_blank" rel="noopener noreferrer">
                   ${photoUrl
-                    ? `<img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(user.name || 'Technician')} profile photo" />`
+                    ? `<img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(user.name || 'Service Provider')} profile photo" />`
                     : '<span>No photo</span>'}
                 </a>
                 <div>
@@ -2226,7 +2226,7 @@ function renderTechnicians() {
               ` : '<span class="status info">Read only</span>'}
             </article>
           `;
-        }).join('') || renderEmpty('No technician applications yet.')}
+        }).join('') || renderEmpty('No service provider applications yet.')}
       </div>
     </section>
   `;
@@ -3004,7 +3004,7 @@ function renderNotifications() {
               <label>Audience</label>
               <select name="audience" required>
                 <option value="CLIENTS">Clients</option>
-                <option value="TECHNICIANS">Padi Pro Providers</option>
+                <option value="TECHNICIANS">Service Providers</option>
                 <option value="ALL">Everyone</option>
               </select>
             </div>
@@ -3320,7 +3320,7 @@ function renderQuotes() {
   return `
     <section class="panel">
       <div class="panel-header"><h2>Quotes & Work Orders</h2><span>${quotes.length} latest</span></div>
-      ${renderGenericTable(quotes, ['Quote', 'Status', 'Booking', 'Technician', 'Total', 'Sent'], (quote) => [
+      ${renderGenericTable(quotes, ['Quote', 'Status', 'Booking', 'Service Provider', 'Total', 'Sent'], (quote) => [
         escapeHtml(quote.quoteNumber || quote._id || '-'),
         `<span class="status ${statusClass(quote.status)}">${escapeHtml(quote.status)}</span>`,
         escapeHtml(quote.bookingId?.applianceType || quote.bookingId || '-'),
@@ -3337,7 +3337,7 @@ function renderInvoices() {
   return `
     <section class="panel">
       <div class="panel-header"><h2>Payments & Invoices</h2><span>${invoices.length} latest</span></div>
-      ${renderGenericTable(invoices, ['Invoice', 'Status', 'Total', 'Commission', 'Tech Net', 'Created'], (invoice) => [
+      ${renderGenericTable(invoices, ['Invoice', 'Status', 'Total', 'Commission', 'Provider Net', 'Created'], (invoice) => [
         escapeHtml(invoice.invoiceNumber),
         `<span class="status ${statusClass(invoice.status)}">${escapeHtml(invoice.status)}</span>`,
         getMoney(invoice, 'totalAmount', 'totalAmountMinor', invoice.currency),
@@ -3890,7 +3890,7 @@ function renderPromotionWizard() {
         ` : ''}
         ${step === 3 ? `
           <label>Funding Source</label><select onchange="setPromotionDraftField('fundingSource', this.value)">${['MYFIXER', 'PROVIDER', 'PARTNER', 'SHARED'].map((source) => `<option value="${source}" ${draft.fundingSource === source ? 'selected' : ''}>${source}</option>`).join('')}</select>
-          ${draft.fundingSource === 'MYFIXER' ? '<p class="setting-help">Technician earnings are not reduced by this promotion.</p>' : ''}
+          ${draft.fundingSource === 'MYFIXER' ? '<p class="setting-help">Service provider earnings are not reduced by this promotion.</p>' : ''}
           ${draft.fundingSource === 'PROVIDER' ? '<p class="setting-help">The provider-funded portion may reduce provider earnings.</p>' : ''}
           ${draft.fundingSource === 'PARTNER' ? `<label>Partner Reference</label><input value="${escapeHtml(draft.partnerReference)}" oninput="setPromotionDraftField('partnerReference', this.value)" />` : ''}
           ${draft.fundingSource === 'SHARED' ? `<div class="form-grid"><div><label>MyFixer %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.platformFundingPercent)}" oninput="setPromotionDraftField('platformFundingPercent', this.value)" /></div><div><label>Provider %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.technicianFundingPercent)}" oninput="setPromotionDraftField('technicianFundingPercent', this.value)" /></div><div><label>Partner %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.partnerFundingPercent)}" oninput="setPromotionDraftField('partnerFundingPercent', this.value)" /></div></div><p class="setting-help tight">Shared funding splits must total 100%.</p>` : ''}
@@ -3904,7 +3904,7 @@ function renderPromotionWizard() {
         ` : ''}
         ${step === 5 ? `
           <div class="metric-grid"><article class="metric-card"><span>Original amount</span><strong>Not available yet</strong></article><article class="metric-card"><span>Promotion discount</span><strong>${promotionOffer(buildPromotionPayload('DRAFT'))}</strong></article><article class="metric-card"><span>Service fee</span><strong>Backend preview</strong></article><article class="metric-card"><span>Tax</span><strong>Backend preview</strong></article><article class="metric-card"><span>Total</span><strong>Backend approved at pricing</strong></article></div>
-          <div class="metric-grid"><article class="metric-card"><span>MyFixer contribution</span><strong>${draft.platformFundingPercent || 0}%</strong></article><article class="metric-card"><span>Provider contribution</span><strong>${draft.technicianFundingPercent || 0}%</strong></article><article class="metric-card"><span>Partner contribution</span><strong>${draft.partnerFundingPercent || 0}%</strong></article><article class="metric-card"><span>Estimated technician impact</span><strong>${['MYFIXER', 'PARTNER'].includes(draft.fundingSource) ? 'No reduction' : 'Provider portion only'}</strong></article></div>
+          <div class="metric-grid"><article class="metric-card"><span>MyFixer contribution</span><strong>${draft.platformFundingPercent || 0}%</strong></article><article class="metric-card"><span>Provider contribution</span><strong>${draft.technicianFundingPercent || 0}%</strong></article><article class="metric-card"><span>Partner contribution</span><strong>${draft.partnerFundingPercent || 0}%</strong></article><article class="metric-card"><span>Estimated provider impact</span><strong>${['MYFIXER', 'PARTNER'].includes(draft.fundingSource) ? 'No reduction' : 'Provider portion only'}</strong></article></div>
           <div class="mini-card"><strong>Activation Readiness</strong><p>${issues.length ? escapeHtml(issues.join(', ')) : 'Ready for lifecycle validation.'}</p></div>
         ` : ''}
         <div class="action-cluster">
@@ -4136,7 +4136,7 @@ function renderLedger() {
   return `
     <section class="panel">
       <div class="panel-header"><h2>Wallet Ledger</h2><span>${rows.length} latest</span></div>
-      ${renderGenericTable(rows, ['Type', 'Status', 'Technician', 'Amount', 'Description', 'Created'], (row) => [
+      ${renderGenericTable(rows, ['Type', 'Status', 'Service Provider', 'Amount', 'Description', 'Created'], (row) => [
         escapeHtml(row.type),
         `<span class="status ${statusClass(row.status)}">${escapeHtml(row.status)}</span>`,
         escapeHtml(row.technicianId?.name || '-'),
@@ -4827,6 +4827,7 @@ function adminMarketLabel(admin = {}) {
 }
 
 function roleDisplayName(role = '') {
+  if (role === 'TECHNICIAN_REVIEWER') return 'Service Provider Reviewer';
   return String(role || 'ADMIN').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
@@ -6286,7 +6287,7 @@ function renderMarketCityDeleteConfirmation(market, cityName) {
   return `
     <div class="market-city-confirm">
       <strong>Delete ${escapeHtml(cityName)}?</strong>
-      <p>This is permanent and only allowed when the backend confirms the city has no service availability, areas, bookings, technicians, promotions, or operational history.</p>
+      <p>This is permanent and only allowed when the backend confirms the city has no service availability, areas, bookings, service providers, promotions, or operational history.</p>
       <div class="form-actions">
         <button class="danger-button compact" type="button" onclick="deleteMarketCity('${escapeHtml(marketView.countryCode)}', '${escapeHtml(cityName)}')">Delete City</button>
         <button class="ghost-button compact" type="button" onclick="cancelMarketCityForm()">Cancel</button>
@@ -6379,7 +6380,7 @@ function renderMarketAreaDeleteConfirmation(market, cityName, areaName) {
     <div class="market-area-confirm">
       <strong>Delete ${escapeHtml(areaName)}?</strong>
       <p>This action cannot be undone.</p>
-      <p>The Area can only be deleted if it is not currently being used by any services, technicians, bookings, promotions or other operational records.</p>
+      <p>The Area can only be deleted if it is not currently being used by any services, service providers, bookings, promotions or other operational records.</p>
       <div class="form-actions">
         <button class="danger-button compact" type="button" onclick="deleteMarketArea('${escapeHtml(marketView.countryCode)}', '${escapeHtml(cityName)}', '${escapeHtml(areaName)}')">Delete Area</button>
         <button class="ghost-button compact" type="button" onclick="cancelMarketAreaForm()">Cancel</button>
@@ -6444,7 +6445,7 @@ function renderMarketAreasCard(selectedMarket, canUpdateMarkets) {
             )}
         </div>
       ` : ''}
-      ${selectedArea ? `<div class="market-step-note inline"><strong>${escapeHtml(selectedArea.name)} selected</strong><p>Areas are optional administrative labels. They are not required for service availability or technician dispatch.</p></div>` : ''}
+      ${selectedArea ? `<div class="market-step-note inline"><strong>${escapeHtml(selectedArea.name)} selected</strong><p>Areas are optional administrative labels. They are not required for service availability or service provider dispatch.</p></div>` : ''}
     </div>
   `;
 }
@@ -7359,9 +7360,9 @@ function renderBookingDrawer() {
             </div>
           </article>
           <article class="participant-card">
-            <div class="participant-avatar">${technician.profilePhotoUrl ? `<img src="${escapeHtml(technician.profilePhotoUrl)}" alt="Technician" />` : 'T'}</div>
+            <div class="participant-avatar">${technician.profilePhotoUrl ? `<img src="${escapeHtml(technician.profilePhotoUrl)}" alt="Service Provider" />` : 'P'}</div>
             <div>
-              <strong>${escapeHtml(technician.name || 'Assigned technician')}</strong>
+              <strong>${escapeHtml(technician.name || 'Assigned service provider')}</strong>
               <p>${escapeHtml(technician.email || '')}</p>
               <p>${escapeHtml(technician.phone || '')}</p>
               <span class="status ${technician.photoStatus === 'VERIFIED' ? 'success' : 'info'}">Photo ${escapeHtml(technician.photoStatus || 'NOT_SUBMITTED')}</span>

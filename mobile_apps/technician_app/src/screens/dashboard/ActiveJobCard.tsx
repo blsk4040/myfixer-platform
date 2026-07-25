@@ -1,6 +1,7 @@
 // src/screens/dashboard/ActiveJobCard.tsx
 import React from 'react';
 import { Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 
 import { ActiveJob } from './types/dashboard';
 
@@ -9,6 +10,8 @@ interface ActiveJobCardProps {
 }
 
 export function ActiveJobCard({ job }: ActiveJobCardProps): React.JSX.Element {
+  const navigation = useNavigation<any>();
+
   if (!job) {
     return (
       <View style={[styles.container, styles.emptyState]}>
@@ -17,9 +20,22 @@ export function ActiveJobCard({ job }: ActiveJobCardProps): React.JSX.Element {
     );
   }
 
-  const handleOpenNavigation = () => {
-    const encodedAddress = encodeURIComponent(job.fullAddress || '');
-    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
+  const hasGps = Number.isFinite(Number(job.latitude)) && Number.isFinite(Number(job.longitude));
+
+  const handleOpenRouteMap = () => {
+    if (!hasGps) {
+      Alert.alert('Route unavailable', 'This job does not have valid GPS coordinates yet.');
+      return;
+    }
+
+    navigation.navigate('JobMap', { jobId: job.id });
+  };
+
+  const handleOpenPhoneMaps = () => {
+    const query = hasGps
+      ? `${job.latitude},${job.longitude}`
+      : job.fullAddress || '';
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 
     Linking.canOpenURL(mapsUrl)
       .then((supported) => {
@@ -42,8 +58,11 @@ export function ActiveJobCard({ job }: ActiveJobCardProps): React.JSX.Element {
       <Text style={styles.customerText}>Client: {job.customerName} • {job.distance}</Text>
       <Text style={styles.addressText}>{job.fullAddress}</Text>
 
-      <TouchableOpacity style={styles.actionButton} onPress={handleOpenNavigation}>
-        <Text style={styles.actionButtonText}>Open Map</Text>
+      <TouchableOpacity style={styles.actionButton} onPress={handleOpenRouteMap}>
+        <Text style={styles.actionButtonText}>Open Padi Route</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.secondaryButton} onPress={handleOpenPhoneMaps}>
+        <Text style={styles.secondaryButtonText}>Open in Phone Maps</Text>
       </TouchableOpacity>
     </View>
   );
@@ -119,5 +138,18 @@ const styles = StyleSheet.create({
     color: '#111922',
     fontWeight: '800',
     fontSize: 14,
+  },
+  secondaryButton: {
+    borderColor: '#303036',
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 10,
+    padding: 13,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: '#94A3B8',
+    fontWeight: '800',
+    fontSize: 13,
   },
 });

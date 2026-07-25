@@ -32,7 +32,7 @@ export function ApplicationStatusScreen({
   const Icon = isVerified ? MailCheck : Clock;
   const title = isVerified ? 'Email verified' : 'Application submitted';
   const message = isVerified
-    ? 'Your email is verified. Your technician application still needs approval before you can access the dashboard.'
+    ? 'Your email is verified. Your service provider application still needs approval before you can access the dashboard.'
     : verificationEmailSent === false
       ? 'Your application is under review, but we could not send the verification email. Please contact support if it does not arrive.'
       : `We sent a verification link${email ? ` to ${email}` : ''}. Please verify your email while our team reviews your application.`;
@@ -48,7 +48,7 @@ export function ApplicationStatusScreen({
         <View style={styles.reviewBox}>
           <Text style={styles.reviewTitle}>What happens next</Text>
           <Text style={styles.reviewText}>1. Verify your email.</Text>
-          <Text style={styles.reviewText}>2. {BRAND.displayName} reviews your technician profile.</Text>
+          <Text style={styles.reviewText}>2. {BRAND.displayName} reviews your service provider profile.</Text>
           <Text style={styles.reviewText}>3. Once approved, sign in to start receiving jobs.</Text>
         </View>
         <TouchableOpacity style={styles.primaryButton} onPress={onBackToLogin}>

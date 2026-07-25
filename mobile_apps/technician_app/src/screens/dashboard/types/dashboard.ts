@@ -27,6 +27,8 @@ export interface ActiveJob {
   status: 'In Progress' | 'En Route' | 'Arrived';
   distance: string;
   fullAddress: string;        // Synchronized perfectly with handleAcceptJob
+  latitude?: number;
+  longitude?: number;
   complexDetails?: string;    
 }
 

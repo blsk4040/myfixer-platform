@@ -1,6 +1,6 @@
 // src/screens/map/MapScreen.tsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import { Alert, Linking, Platform, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, Map as MapLibreMap, Marker, UserLocation, type StyleSpecification } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
@@ -54,13 +54,24 @@ const toLngLat = (latitude: number, longitude: number): [number, number] => [lon
 const ARRIVAL_RADIUS_METERS = 100;
 const MAX_ARRIVAL_ACCURACY_METERS = 50;
 
-export function MapScreen(): React.JSX.Element {
+interface MapScreenProps {
+  route?: {
+    params?: {
+      jobId?: string;
+    };
+  };
+}
+
+export function MapScreen({ route }: MapScreenProps): React.JSX.Element {
   const { isOnDuty, toggleDutyStatus } = useSocketConnection();
   const incomingJobs = useJobStore((state) => state.incomingJobs || []);
   const activeJobs = useJobStore((state) => state.activeJobs || []);
   const updateJobStatus = useJobStore((state) => state.updateJobStatus);
+  const requestedJobId = route?.params?.jobId ? String(route.params.jobId) : '';
 
-  const [selectedJob, setSelectedJob] = useState<any | null>(activeJobs[0] || null);
+  const [selectedJob, setSelectedJob] = useState<any | null>(
+    requestedJobId ? activeJobs.find((job: any) => String(job.id) === requestedJobId) || null : activeJobs[0] || null
+  );
   const [technicianLocation, setTechnicianLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
   const [lastLocationRecordedAt, setLastLocationRecordedAt] = useState<string | null>(null);
@@ -129,6 +140,39 @@ export function MapScreen(): React.JSX.Element {
   useEffect(() => {
     setHasShownArrivalPrompt(false);
   }, [bookingId]);
+
+  useEffect(() => {
+    if (!activeJobs.length) {
+      setSelectedJob(null);
+      return;
+    }
+
+    const requestedJob = requestedJobId
+      ? activeJobs.find((job: any) => String(job.id) === requestedJobId)
+      : null;
+    const selectedStillExists = selectedJob
+      ? activeJobs.find((job: any) => String(job.id) === String(selectedJob.id))
+      : null;
+    setSelectedJob(requestedJob || selectedStillExists || activeJobs[0]);
+  }, [activeJobs, requestedJobId]);
+
+  const handleOpenPhoneMaps = () => {
+    if (!destination || !selectedJob) {
+      Alert.alert('Navigation unavailable', 'This job does not have valid GPS coordinates yet.');
+      return;
+    }
+
+    const label = encodeURIComponent(selectedJob.fullAddress || selectedJob.applianceType || 'Client location');
+    const latLng = `${destination.latitude},${destination.longitude}`;
+    const url = Platform.select({
+      ios: `maps:0,0?q=${label}@${latLng}`,
+      android: `geo:0,0?q=${latLng}(${label})`,
+    });
+
+    if (url) {
+      Linking.openURL(url).catch(() => Alert.alert('Navigation unavailable', 'Unable to open your maps app.'));
+    }
+  };
 
   const isInArrivalArea = Boolean(
     technicianLocation &&
@@ -294,6 +338,9 @@ export function MapScreen(): React.JSX.Element {
                   <Text style={styles.btnPrimaryText}>Recenter</Text>
                 </TouchableOpacity>
               </View>
+              <TouchableOpacity style={styles.btnPhoneMaps} onPress={handleOpenPhoneMaps}>
+                <Text style={styles.btnPhoneMapsText}>Open in phone maps</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.noSelectionCard}>
@@ -334,6 +381,8 @@ const styles = StyleSheet.create({
   btnPrimaryText: { color: Colors.background, fontWeight: '900', fontSize: 14 },
   btnSecondary: { flex: 1, backgroundColor: Colors.surfaceRaised, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderRadius: 10, borderWidth: 1, borderColor: Colors.borderStrong },
   btnSecondaryText: { color: Colors.text, fontWeight: '800', fontSize: 14 },
+  btnPhoneMaps: { marginTop: 10, backgroundColor: Colors.background, paddingVertical: 12, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: Colors.borderStrong },
+  btnPhoneMapsText: { color: Colors.textMuted, fontWeight: '800', fontSize: 13 },
   noSelectionCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
   noSelectionText: { color: Colors.textMuted, fontSize: 13, fontWeight: '700' },
 });

@@ -20,6 +20,7 @@ import { ProfilePictureUploadScreen } from '../screens/profile/ProfilePictureUpl
 import { SecurityScreen } from '../screens/profile/SecurityScreen';
 import { SupportScreen } from '../screens/profile/SupportScreen';
 import TechnicianInboxScreen, { TechnicianAlertsScreen } from '../screens/notifications/NotificationFeedScreen';
+import { MapScreen } from '../map/MapScreen';
 
 const HomeIcon = Home as any;
 const BriefcaseIcon = Briefcase as any;
@@ -156,6 +157,7 @@ export function AppNavigator({ setIsAuthenticated }: AppNavigatorProps) {
           {() => <MainTabs setIsAuthenticated={setIsAuthenticated} />}
         </RootStack.Screen>
         <RootStack.Screen name="Alerts" component={TechnicianAlertsScreen} />
+        <RootStack.Screen name="JobMap" component={MapScreen} />
       </RootStack.Navigator>
     </NavigationContainer>
   );

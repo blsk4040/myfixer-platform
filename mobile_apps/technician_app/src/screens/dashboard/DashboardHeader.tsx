@@ -19,7 +19,7 @@ export function DashboardHeader({
   isOnline,
   isLoading,
   onStatusChange,
-  technicianName = 'Technician',
+  technicianName = 'Service Provider',
 }: DashboardHeaderProps): React.JSX.Element {
   return (
     <View style={styles.container}>

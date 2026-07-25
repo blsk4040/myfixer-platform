@@ -12,6 +12,7 @@ declare const process: {
     EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?: string;
     EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?: string;
     EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?: string;
+    EXPO_PUBLIC_GEOAPIFY_API_KEY?: string;
     NODE_ENV?: string;
   };
 };
@@ -25,6 +26,7 @@ type ExpoConstantsLike = {
       API_BASE_URL?: string;
       SOCKET_URL?: string;
       APP_ENV?: string;
+      GEOAPIFY_API_KEY?: string;
       eas?: {
         projectId?: string;
       };
@@ -38,6 +40,7 @@ type ExpoConstantsLike = {
           API_BASE_URL?: string;
           SOCKET_URL?: string;
           APP_ENV?: string;
+          GEOAPIFY_API_KEY?: string;
           eas?: {
             projectId?: string;
           };
@@ -56,6 +59,7 @@ const EXPO_ENV = {
   EXPO_PUBLIC_SOCKET_URL: process.env?.EXPO_PUBLIC_SOCKET_URL,
   EXPO_PUBLIC_APP_ENV: process.env?.EXPO_PUBLIC_APP_ENV,
   EXPO_PUBLIC_EAS_PROJECT_ID: process.env?.EXPO_PUBLIC_EAS_PROJECT_ID,
+  EXPO_PUBLIC_GEOAPIFY_API_KEY: process.env?.EXPO_PUBLIC_GEOAPIFY_API_KEY,
 };
 
 function getEnvValue(key: keyof NonNullable<typeof process.env>): string {
@@ -63,7 +67,7 @@ function getEnvValue(key: keyof NonNullable<typeof process.env>): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function getExpoExtraValue(key: 'API_BASE_URL' | 'SOCKET_URL' | 'APP_ENV'): string {
+function getExpoExtraValue(key: 'API_BASE_URL' | 'SOCKET_URL' | 'APP_ENV' | 'GEOAPIFY_API_KEY'): string {
   const constants = Constants as ExpoConstantsLike;
   const value =
     constants.expoConfig?.extra?.[key] ||
@@ -119,6 +123,10 @@ export function getSocketUrl(): string {
 
   const apiBaseUrl = getApiBaseUrl();
   return apiBaseUrl ? normalizeUrl(apiBaseUrl.replace(/\/api\/v1$/, '')) : '';
+}
+
+export function getGeoapifyApiKey(): string {
+  return getEnvValue('EXPO_PUBLIC_GEOAPIFY_API_KEY') || getExpoExtraValue('GEOAPIFY_API_KEY');
 }
 
 export function getExpoProjectId(constants?: ExpoConstantsLike): string {

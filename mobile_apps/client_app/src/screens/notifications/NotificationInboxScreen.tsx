@@ -65,7 +65,7 @@ const statusLabelForNotification = (notification: NotificationRecord): string =>
     BOOKING_CREATED: 'Finding provider',
     TECHNICIAN_ACCEPTED: 'Provider found',
     TECHNICIAN_EN_ROUTE: 'On the way',
-    TECHNICIAN_ARRIVED: 'Arrived',
+    TECHNICIAN_ARRIVED: 'Service provider arrived',
     JOB_STARTED: 'In progress',
     BOOKING_COMPLETED: 'Completed',
     BOOKING_CANCELLED: 'Cancelled',

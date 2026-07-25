@@ -87,6 +87,7 @@ export default function BookingWizardScreen() {
   const [suburb, setSuburb] = useState('');
   const [city, setCity] = useState('');
   const [postalCode, setPostalCode] = useState('');
+  const [complexDetails, setComplexDetails] = useState('');
   const [selectedLocation, setSelectedLocation] = useState<LocationConfirmationPayload | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -251,6 +252,7 @@ export default function BookingWizardScreen() {
         streetAddress: streetAddress.trim() || readableAddress,
         suburb: selectedLocation.area || suburb.trim(),
         postalCode: selectedLocation.postalCode || postalCode.trim(),
+        complexDetails: complexDetails.trim() || undefined,
         generalArea: selectedLocation.area || suburb.trim() || readableAddress,
         city: selectedLocation.city || city.trim() || profile?.location?.city,
         area: selectedLocation.area || suburb.trim() || profile?.location?.area,
@@ -472,7 +474,19 @@ export default function BookingWizardScreen() {
                 ownerName={profile?.name || authService.getSession()?.user.name || 'Client'}
                 ownerPhone={profile?.phone || authService.getSession()?.user.phone || ''}
                 onLocationConfirmed={handleLocationConfirmed}
+                onLocationInvalidated={() => setSelectedLocation(null)}
               />
+              <View style={styles.accessDetailsBox}>
+                <Text style={styles.microLabel}>COMPLEX OR ACCESS DETAILS</Text>
+                <TextInput
+                  style={styles.accessDetailsInput}
+                  value={complexDetails}
+                  onChangeText={setComplexDetails}
+                  placeholder="Optional: unit number, complex name, gate code, floor or access notes"
+                  placeholderTextColor={Colors.textSubtle}
+                  multiline
+                />
+              </View>
               {useDifferentAddress ? (
                 <TouchableOpacity
                   style={styles.saveDefaultToggle}
@@ -572,7 +586,11 @@ export default function BookingWizardScreen() {
               <View style={styles.locationSummaryBox}>
                 <MapPin color={Colors.textSubtle} size={16} />
                 <Text style={styles.locationSummaryText}>
-                  {isLocating ? 'Locating your address coordinates...' : `Lat: ${Number(latitude).toFixed(4)}, Lon: ${Number(longitude).toFixed(4)}`}
+                  {isLocating
+                    ? 'Finding your service area...'
+                    : selectedLocation?.fullAddress
+                    ? 'Service address confirmed'
+                    : 'Enter your address to confirm where the provider should arrive'}
                 </Text>
               </View>
               </View>
@@ -588,6 +606,9 @@ export default function BookingWizardScreen() {
                       : 'You'}
                   </Text>
                   <Text style={styles.reviewLine}>Service address: {selectedLocation.fullAddress}</Text>
+                  {complexDetails.trim() ? (
+                    <Text style={styles.reviewLine}>Access details: {complexDetails.trim()}</Text>
+                  ) : null}
                   <Text style={styles.reviewLine}>
                     Who receives service: {selectedLocation.serviceRecipient.type === 'OTHER' ? 'Someone else' : 'Booking owner'}
                   </Text>
@@ -662,6 +683,8 @@ const styles = StyleSheet.create({
   pickerSelectorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surfaceRaised, height: 44, borderRadius: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: Colors.borderStrong },
   pickerSelectorText: { color: Colors.text, fontSize: 13, fontWeight: '700' },
 
+  accessDetailsBox: { backgroundColor: Colors.input, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: 12, gap: 8 },
+  accessDetailsInput: { color: Colors.text, fontSize: 13, fontWeight: '600', minHeight: 64, padding: 0, textAlignVertical: 'top' },
   locationSummaryBox: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   locationSummaryText: { color: Colors.textSubtle, fontSize: 12 },
   reviewBox: { backgroundColor: Colors.surface, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.lg, padding: Spacing.lg, gap: 6 },

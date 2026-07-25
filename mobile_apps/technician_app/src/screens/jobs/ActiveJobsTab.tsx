@@ -19,6 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import { useNavigation } from '@react-navigation/native';
 
 import { JobPayload, JobStatus, useJobStore } from '../../store/useJobStore';
 import apiService, { BookingChatMessage, JobMediaRecord } from '../../services/api.service';
@@ -99,6 +100,7 @@ const getStageBlockReason = (job: JobPayload, quoteApproved: boolean): string =>
 };
 
 export function ActiveJobsTab(): React.JSX.Element {
+  const navigation = useNavigation<any>();
   const activeJobs = useJobStore((state) => state.activeJobs);
   const advanceJobStatus = useJobStore((state) => state.advanceJobStatus);
   const patchJob = useJobStore((state) => state.patchJob);
@@ -292,7 +294,19 @@ export function ActiveJobsTab(): React.JSX.Element {
       .catch((err) => console.error(err));
   };
 
-  const handleNavigate = (job: JobPayload) => {
+  const handleOpenRouteMap = (job: JobPayload) => {
+    const latitude = Number(job.latitude);
+    const longitude = Number(job.longitude);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      Alert.alert('Route unavailable', 'This job does not have valid GPS coordinates yet.');
+      return;
+    }
+
+    navigation.navigate('JobMap', { jobId: job.id });
+  };
+
+  const handleOpenPhoneMaps = (job: JobPayload) => {
     const latitude = Number(job.latitude);
     const longitude = Number(job.longitude);
 
@@ -308,7 +322,9 @@ export function ActiveJobsTab(): React.JSX.Element {
       android: `geo:0,0?q=${latLng}(${label})`,
     });
 
-    if (url) Linking.openURL(url);
+    if (url) {
+      Linking.openURL(url).catch(() => Alert.alert('Navigation unavailable', 'Unable to open your maps app.'));
+    }
   };
 
   const openChatModal = (job: JobPayload) => {
@@ -709,10 +725,18 @@ export function ActiveJobsTab(): React.JSX.Element {
                 >
                   <Text style={[styles.commsBtnText, { color: Colors.info }]}>Call</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.commsBtn, { borderColor: 'rgba(184, 255, 61, 0.35)' }]} onPress={() => handleNavigate(job)}>
-                  <Text style={styles.commsBtnText}>Navigate</Text>
+                <TouchableOpacity style={[styles.commsBtn, { borderColor: 'rgba(184, 255, 61, 0.35)' }]} onPress={() => handleOpenRouteMap(job)}>
+                  <Text style={styles.commsBtnText}>Route</Text>
                 </TouchableOpacity>
               </View>
+
+              <TouchableOpacity style={styles.mapHeroButton} onPress={() => handleOpenRouteMap(job)}>
+                <Text style={styles.mapHeroTitle}>Open Padi route map</Text>
+                <Text style={styles.mapHeroText}>Live route, ETA, distance and arrival confirmation.</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.phoneMapsButton} onPress={() => handleOpenPhoneMaps(job)}>
+                <Text style={styles.phoneMapsText}>Open in phone maps</Text>
+              </TouchableOpacity>
 
               <Text style={[styles.metaLabel, { marginTop: 10 }]}>ADDRESS</Text>
               <Text style={styles.metaValue}>{job.fullAddress || 'Address will appear after acceptance'}</Text>
@@ -971,6 +995,11 @@ const styles = StyleSheet.create({
   commsRow: { flexDirection: 'row', gap: 10, marginTop: 8, marginBottom: 4 },
   commsBtn: { flex: 1, paddingVertical: 8, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderRadius: 8, alignItems: 'center' },
   commsBtnText: { color: Colors.primary, fontSize: 12, fontWeight: '800' },
+  mapHeroButton: { marginTop: 10, backgroundColor: 'rgba(184, 255, 61, 0.08)', borderWidth: 1, borderColor: 'rgba(184, 255, 61, 0.28)', borderRadius: 12, padding: 13 },
+  mapHeroTitle: { color: Colors.primary, fontSize: 13, fontWeight: '900' },
+  mapHeroText: { color: Colors.textMuted, fontSize: 12, fontWeight: '600', lineHeight: 17, marginTop: 3 },
+  phoneMapsButton: { marginTop: 8, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  phoneMapsText: { color: Colors.textMuted, fontSize: 12, fontWeight: '800' },
   receiptImagePreview: { width: '100%', height: 160, borderRadius: 8, marginTop: 6, borderWidth: 1, borderColor: 'rgba(184, 255, 61, 0.28)' },
   actionRow: { marginTop: 16 },
   btnAction: { paddingVertical: 14, alignItems: 'center', borderRadius: 10 },

@@ -57,7 +57,7 @@ const finiteNumber = (value: unknown, fallback = 0): number => {
 export const getTechnicianIdentity = (session: AuthSession | null = authService.getSession()): TechnicianIdentity => {
   const user = session?.user;
   const profile = session?.technician;
-  const displayName = clean(user?.name) || 'Technician';
+  const displayName = clean(user?.name) || 'Service Provider';
   const countryCode = clean(profile?.countryCode) || clean(user?.countryCode) || 'ZA';
   const currency = clean(profile?.currency) || clean(user?.currency) || 'ZAR';
   const city = clean(profile?.city) || clean(user?.location?.city) || 'City not set';

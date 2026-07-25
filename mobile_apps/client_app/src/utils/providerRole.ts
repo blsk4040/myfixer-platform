@@ -22,7 +22,7 @@ export const getProviderRoleForService = (serviceKey: unknown, serviceName?: unk
   else if (source.includes('garden')) singular = 'gardener';
   else if (source.includes('paint')) singular = 'painter';
   else if (source.includes('auto') || source.includes('mechanic') || source.includes('vehicle') || source.includes('car')) singular = 'mechanic';
-  else if (source.includes('appliance') || source.includes('repair') || source.includes('maintenance')) singular = 'technician';
+  else if (source.includes('appliance') || source.includes('repair') || source.includes('maintenance')) singular = 'service provider';
 
   return {
     singular,

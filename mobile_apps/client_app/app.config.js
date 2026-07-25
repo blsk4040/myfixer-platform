@@ -39,6 +39,7 @@ module.exports = {
     SOCKET_URL: config.SOCKET_URL,
     ADMIN_PORTAL_URL: config.ADMIN_PORTAL_URL,
     APP_ENV: config.APP_ENV,
+    GEOAPIFY_API_KEY: process.env.EXPO_PUBLIC_GEOAPIFY_API_KEY || '',
     EAS_PROJECT_ID: process.env.EXPO_PUBLIC_EAS_PROJECT_ID || process.env.EAS_PROJECT_ID || '',
     eas: {
       ...(appJson.expo.extra?.eas || {}),
