@@ -1727,14 +1727,22 @@ function overviewDataset() {
   const overview = state.data.overview || {};
   const activeMarkets = getOverviewMarkets();
   const activeInvoices = rowsForActiveMarkets(state.data.invoices || [], invoiceCountryCode, activeMarkets);
-  const activeBookings = rowsForActiveMarkets(state.data.bookings || [], bookingCountryCode, activeMarkets);
+  const marketBookings = rowsForActiveMarkets(state.data.bookings || [], bookingCountryCode, activeMarkets);
+  const activeBookings = marketBookings.filter((booking) => [
+    'PENDING',
+    'ACCEPTED',
+    'IN_ROUTE',
+    'ARRIVED',
+    'IN_PROGRESS',
+    'DIAGNOSTIC_DONE',
+  ].includes(String(booking.status || '').toUpperCase()));
   const primaryCurrency = activeMarkets[0]?.currency || activeInvoices[0]?.currency || 'ZAR';
   const paidInvoices = activeInvoices.filter((invoice) => String(invoice.status || '').toUpperCase() === 'PAID');
   const unpaidInvoices = activeInvoices.filter((invoice) => String(invoice.status || '').toUpperCase() === 'UNPAID');
   const refundedInvoices = activeInvoices.filter((invoice) => String(invoice.status || '').toUpperCase().includes('REFUND'));
   const failedInvoices = activeInvoices.filter((invoice) => String(invoice.status || '').toUpperCase().includes('FAIL'));
-  const completedBookings = activeBookings.filter((booking) => String(booking.status || '').toUpperCase() === 'COMPLETED');
-  const acceptedBookings = activeBookings.filter((booking) => ['ACCEPTED', 'IN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'DIAGNOSTIC_DONE', 'COMPLETED'].includes(String(booking.status || '').toUpperCase()));
+  const completedBookings = marketBookings.filter((booking) => String(booking.status || '').toUpperCase() === 'COMPLETED');
+  const acceptedBookings = activeBookings.filter((booking) => ['ACCEPTED', 'IN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'DIAGNOSTIC_DONE'].includes(String(booking.status || '').toUpperCase()));
   const approvedQuotes = (state.data.quotes || []).filter((quote) => String(quote.status || '').toUpperCase().includes('APPROVED'));
   const escrowMinor = (state.data.ledger || [])
     .filter((row) => ['CLIENT_PAYMENT', 'TECHNICIAN_EARNING_PENDING'].includes(String(row.type || '').toUpperCase()))
