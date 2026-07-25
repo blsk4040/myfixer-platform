@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Switch,
@@ -39,6 +40,7 @@ const StarIcon = Star as any;
 const TrendingUpIcon = TrendingUp as any;
 const WifiIcon = Wifi as any;
 const WifiOffIcon = WifiOff as any;
+const appLogo = require('../../../assets/logo/app_logo.png');
 
 const formatMoney = (amount = 0, currency = 'ZAR') => {
   const roundedAmount = Math.round(Number(amount) || 0);
@@ -179,13 +181,7 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.headerRow}>
           <View style={styles.headerTextBlock}>
-            <View style={styles.wordmark} accessibilityLabel="Padi">
-              <Text style={styles.wordmarkText}>Pad</Text>
-              <View style={styles.wordmarkI}>
-                <View style={styles.wordmarkDot} />
-                <View style={styles.wordmarkStem} />
-              </View>
-            </View>
+            <Image source={appLogo} style={styles.headerLogo} resizeMode="contain" accessibilityLabel="Padi Pro logo" />
             <Text style={styles.welcomeLabel}>Welcome back</Text>
             <Text style={styles.technicianName} numberOfLines={1}>
               {technicianIdentity.displayName}
@@ -424,11 +420,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   headerTextBlock: { flex: 1 },
-  wordmark: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 5 },
-  wordmarkText: { color: '#F7F7F5', fontSize: 17, fontWeight: '900', letterSpacing: 0, lineHeight: 19 },
-  wordmarkI: { width: 6, height: 17, alignItems: 'center', justifyContent: 'flex-end', marginLeft: 1, marginBottom: 3 },
-  wordmarkDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#B8FF3D', marginBottom: 1 },
-  wordmarkStem: { width: 3, height: 11, borderRadius: 2, backgroundColor: '#F7F7F5' },
+  headerLogo: { width: 92, height: 40, marginBottom: 6 },
   welcomeLabel: { color: '#A7A7AD', fontSize: 13, fontWeight: '700' },
   technicianName: { color: '#F7F7F5', fontSize: 24, fontWeight: '900', marginTop: 2 },
   headerActions: {
