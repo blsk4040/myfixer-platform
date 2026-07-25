@@ -43,11 +43,11 @@ export function ForgotPasswordScreen({ navigation }: any): React.JSX.Element {
 
       Alert.alert(
         'Reset Link Sent', 
-        'If an account exists with that email, a recovery link has been dispatched.',
+        'If an account exists with that email, we have sent a password reset link.',
         [{ text: 'Back to Login', onPress: () => navigation.navigate('Login') }]
       );
     } catch (error: any) {
-      Alert.alert('Request Failed', error.message || 'Network transport failure.');
+      Alert.alert('Request Failed', error.message || 'Please check your internet connection and try again.');
     } finally {
       setIsLoading(false);
     }

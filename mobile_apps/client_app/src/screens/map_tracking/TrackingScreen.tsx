@@ -259,9 +259,9 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
       ) : (
         <View style={styles.mapFallback}>
           <MapPin color={Colors.primary} size={28} />
-          <Text style={styles.mapFallbackTitle}>Live map unavailable in this runtime</Text>
+          <Text style={styles.mapFallbackTitle}>Live map unavailable</Text>
           <Text style={styles.mapFallbackBody}>
-            Rebuild and launch the Padi dev app to load native MapLibre tracking.
+            Please install the latest Padi app build to view live tracking.
           </Text>
         </View>
       )}

@@ -5,6 +5,28 @@ import { AppliedPromotionSnapshot, PriceBreakdown } from '../utils/financialDisp
 
 const API_BASE_URL = getApiBaseUrl();
 
+const friendlyApiErrorMessage = (message: string, status: number): string => {
+  const normalized = message.trim().toLowerCase();
+  if (
+    normalized.includes('no token provided') ||
+    normalized.includes('token is required') ||
+    normalized.includes('invalid token') ||
+    normalized.includes('unauthorized') ||
+    normalized.includes('session has expired')
+  ) {
+    return 'Please sign in again to continue.';
+  }
+  if (normalized.includes('network request failed') || normalized.includes('failed to fetch')) {
+    return 'Please check your internet connection and try again.';
+  }
+  if (normalized.includes('request failed with status') || normalized.includes('internal server error')) {
+    return 'Something went wrong. Please try again.';
+  }
+  if (status === 401 || status === 403) return 'Please sign in again to continue.';
+  if (status >= 500) return 'Something went wrong. Please try again.';
+  return message.trim() || 'Something went wrong. Please try again.';
+};
+
 export interface Coordinate {
   latitude: number;
   longitude: number;
@@ -838,13 +860,13 @@ class ApiService {
       const body = (await response.json()) as { message?: unknown };
 
       if (typeof body.message === 'string' && body.message.trim().length > 0) {
-        return body.message;
+        return friendlyApiErrorMessage(body.message, response.status);
       }
     } catch {
       // Fall through to a status-based message when the backend returns no JSON body.
     }
 
-    return `Request failed with status ${response.status}`;
+    return friendlyApiErrorMessage('', response.status);
   }
 }
 

@@ -53,7 +53,7 @@ export function ManagedCollectionScreen({ navigation }: any): React.JSX.Element 
         }
       })
       .catch(() => {
-        Alert.alert('Service Check Failed', 'Unable to confirm Managed Collection availability right now.', [
+        Alert.alert('Service unavailable', 'We could not confirm this service right now.', [
           { text: 'OK', onPress: () => navigation.goBack() },
         ]);
       });

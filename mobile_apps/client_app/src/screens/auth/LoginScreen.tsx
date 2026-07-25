@@ -102,7 +102,7 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
       }
       navigation?.replace('MainTabs');
     } catch (error: any) {
-      Alert.alert('Access Denied', error.message || 'Network transport failure. Check host connection rules.');
+      Alert.alert('Sign in failed', error.message || 'Please check your internet connection and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -110,7 +110,7 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
 
   const handleGoogleSignIn = async () => {
     if (!isGoogleConfigured) {
-      Alert.alert('Configuration Unavailable', 'Google Web Client ID is missing.');
+      Alert.alert('Google Sign-In Unavailable', 'Google sign-in is not ready on this app build.');
       return;
     }
 
@@ -119,7 +119,7 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
     try {
       const GoogleSignin = await loadGoogleSignin();
       if (!GoogleSignin) {
-        throw new Error('Google Sign-In native module is not available in this runtime. Rebuild and launch the Padi dev app, not Expo Go.');
+        throw new Error('Please install the latest Padi app build to use Google sign-in.');
       }
 
       await GoogleSignin.hasPlayServices({
@@ -131,7 +131,7 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
       const idToken = userInfo.data?.idToken;
 
       if (!idToken) {
-        throw new Error('Google did not return an ID token.');
+        throw new Error('Google sign-in could not be completed. Please try again.');
       }
 
       await processGoogleAuthentication(idToken);
@@ -144,7 +144,7 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
 
       Alert.alert(
         'Google Sign-In Failed',
-        error.message || 'Unable to complete Google sign-in.'
+        error.message || 'Unable to complete Google sign-in right now.'
       );
     }
   };
@@ -165,7 +165,7 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
       }
 
       if (!result.token || !result.user) {
-        throw new Error(result.message || 'Google session exchange was missing session details.');
+        throw new Error(result.message || 'Google sign-in could not be completed. Please try again.');
       }
 
       await authService.persistSession({ token: result.token, user: result.user });
@@ -175,7 +175,7 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
       }
       navigation?.replace('MainTabs');
     } catch (error: any) {
-      Alert.alert('Google Sign-In Failed', error.message || 'Unable to synchronize session with the server.');
+      Alert.alert('Google Sign-In Failed', error.message || 'Unable to sign you in with Google right now.');
     } finally {
       setIsGoogleLoading(false);
     }

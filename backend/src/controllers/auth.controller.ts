@@ -970,10 +970,6 @@ export const verifyEmail = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    user.emailVerified = true;
-    user.isEmailVerified = true;
-    user.emailVerificationToken = '';
-    await user.save();
     const verifiedRole = normalizeUserRole(user.role);
     const openAppUrl = verifiedRole === UserRole.TECHNICIAN
       ? process.env.TECHNICIAN_APP_DEEP_LINK || 'myfixertechnician://email-verified'
@@ -983,6 +979,12 @@ export const verifyEmail = async (req: Request, res: Response): Promise<void> =>
       : 'Your Padi email is verified. You can return to the app and continue booking services.';
     const openAppLabel = verifiedRole === UserRole.TECHNICIAN ? 'Open Padi Pro' : 'Open Padi';
     const returnAppLabel = verifiedRole === UserRole.TECHNICIAN ? 'Padi Pro' : 'Padi';
+
+    if (!(user.emailVerified || user.isEmailVerified)) {
+      user.emailVerified = true;
+      user.isEmailVerified = true;
+      await user.save();
+    }
 
     if (shouldReturnJson) {
       res.status(200).json({ status: 'success', message: 'Email verified successfully.' });

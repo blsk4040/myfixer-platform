@@ -17,6 +17,7 @@ import { CheckCircle2 as LucideCheckCircle, FileText as LucideFileText, X as Luc
 import apiService, { BookingHistoryItem } from '../../services/api.service';
 import { formatBookingStatus } from '../../types/booking';
 import { Colors, Radius, Spacing } from '../../theme';
+import { customerErrorMessage } from '../../utils/userFacingErrors';
 import {
   PriceBreakdown,
   formatMinorMoney,
@@ -45,8 +46,8 @@ export function BookingHistoryScreen(): React.JSX.Element {
         setLoading(true);
         const response = await apiService.getMyBookingHistory();
         setBookings(response.bookings || []);
-      } catch {
-        Alert.alert('Error', 'Could not synchronize account history logs.');
+      } catch (error) {
+        Alert.alert('History', customerErrorMessage(error, 'Unable to load your booking history right now.'));
       } finally {
         setLoading(false);
       }

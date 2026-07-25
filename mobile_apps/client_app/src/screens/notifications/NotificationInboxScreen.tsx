@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Archive, Bell, CheckCircle2, MailOpen } from 'lucide-react-native';
 import apiService, { NotificationRecord } from '../../services/api.service';
+import { customerErrorMessage } from '../../utils/userFacingErrors';
 
 const getNotificationTime = (notification: NotificationRecord): number =>
   new Date(notification.sentAt || notification.scheduledAt || Date.now()).getTime();
@@ -143,16 +144,16 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
 
   useEffect(() => {
     loadNotifications()
-      .catch((error: Error) => Alert.alert('Notifications', error.message))
+      .catch((error: Error) => Alert.alert(copy.title, customerErrorMessage(error, `Unable to load your ${copy.title.toLowerCase()} right now.`)))
       .finally(() => setLoading(false));
-  }, [loadNotifications]);
+  }, [copy.title, loadNotifications]);
 
   const refresh = async () => {
     setRefreshing(true);
     try {
       await loadNotifications();
     } catch (error) {
-      Alert.alert('Notifications', error instanceof Error ? error.message : 'Unable to refresh notifications.');
+      Alert.alert(copy.title, customerErrorMessage(error, `Unable to refresh your ${copy.title.toLowerCase()} right now.`));
     } finally {
       setRefreshing(false);
     }
@@ -163,7 +164,7 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
       await apiService.updateNotification(id, action);
       await loadNotifications();
     } catch (error) {
-      Alert.alert('Notifications', error instanceof Error ? error.message : 'Unable to update notification.');
+      Alert.alert(copy.title, customerErrorMessage(error, 'Unable to update this item right now.'));
     }
   };
 

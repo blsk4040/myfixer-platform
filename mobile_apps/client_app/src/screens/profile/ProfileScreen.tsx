@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import authService from '../../services/auth.service';
 import apiService, { CustomerProfile } from '../../services/api.service';
 import { Colors, Radius } from '../../theme';
+import { customerErrorMessage } from '../../utils/userFacingErrors';
 
 interface ProfileOption {
   title: string;
@@ -29,7 +30,7 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
   useEffect(() => {
     apiService.getMyProfile()
       .then((response) => setProfile(response.profile))
-      .catch((error: Error) => Alert.alert('Account', error.message))
+      .catch((error: Error) => Alert.alert('Account', customerErrorMessage(error, 'Unable to load your account right now.')))
       .finally(() => setLoading(false));
   }, []);
 

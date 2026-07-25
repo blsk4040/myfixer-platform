@@ -1,15 +1,19 @@
 import React from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Colors } from '../theme';
 
-const logoSource = require('../assets/logo/app_logo.png');
+const logoSource = require('../assets/logo/trans.png');
 
 export function BrandLoadingScreen(): React.JSX.Element {
+  const { width, height } = useWindowDimensions();
+  const logoWidth = Math.min(width * 0.84, 420);
+  const logoHeight = Math.min(height * 0.62, 640);
+
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.logoFrame}>
+      <View style={[styles.logoFrame, { width: logoWidth, height: logoHeight }]}>
         <Image source={logoSource} style={styles.logo} resizeMode="contain" />
       </View>
     </SafeAreaView>
@@ -24,8 +28,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   logoFrame: {
-    width: 132,
-    height: 132,
     alignItems: 'center',
     justifyContent: 'center',
   },

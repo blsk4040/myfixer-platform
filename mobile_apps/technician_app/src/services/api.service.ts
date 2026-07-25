@@ -5,6 +5,28 @@ import { AppliedPromotionSnapshot, PriceBreakdown } from '../utils/financialDisp
 
 const API_BASE_URL = getApiBaseUrl();
 
+const friendlyApiErrorMessage = (message: string, status: number): string => {
+  const normalized = message.trim().toLowerCase();
+  if (
+    normalized.includes('no token provided') ||
+    normalized.includes('token is required') ||
+    normalized.includes('invalid token') ||
+    normalized.includes('unauthorized') ||
+    normalized.includes('session has expired')
+  ) {
+    return 'Please sign in again to continue.';
+  }
+  if (normalized.includes('network request failed') || normalized.includes('failed to fetch')) {
+    return 'Please check your internet connection and try again.';
+  }
+  if (normalized.includes('request failed with status') || normalized.includes('internal server error')) {
+    return 'Something went wrong. Please try again.';
+  }
+  if (status === 401 || status === 403) return 'Please sign in again to continue.';
+  if (status >= 500) return 'Something went wrong. Please try again.';
+  return message.trim() || 'Something went wrong. Please try again.';
+};
+
 type BookingStatus = Exclude<JobStatus, 'IDLE'> | 'CANCELLED';
 
 export type QuoteLineItemType =
@@ -745,12 +767,12 @@ class ApiService {
     try {
       const body = (await response.json()) as { message?: unknown; error?: unknown };
       const message = body.message ?? body.error;
-      if (typeof message === 'string' && message.trim()) return message;
+      if (typeof message === 'string' && message.trim()) return friendlyApiErrorMessage(message, response.status);
     } catch {
       // Use status fallback below.
     }
 
-    return `Request failed with status ${response.status}`;
+    return friendlyApiErrorMessage('', response.status);
   }
 }
 

@@ -296,7 +296,7 @@ export default function BookingWizardScreen() {
       });
 
     } catch (err: any) {
-      Alert.alert('Booking Failure', err.message || 'System issues encountered.');
+      Alert.alert('Booking failed', err.message || 'We could not create your booking right now. Please try again.');
       setIsSearchingProvider(false);
     } finally {
       setIsSubmitting(false);

@@ -179,8 +179,8 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
   const handleGoogleSignIn = async () => {
     if (!isGoogleConfigured) {
       Alert.alert(
-        'Configuration Unavailable',
-        'Google Web Client ID is missing.'
+        'Google Sign-In Unavailable',
+        'Google sign-in is not ready on this app build.'
       );
       return;
     }
@@ -189,7 +189,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
     try {
       const GoogleSignin = await loadGoogleSignin();
       if (!GoogleSignin) {
-        throw new Error('Google Sign-In native module is not available in this runtime. Rebuild and launch the Padi dev app, not Expo Go.');
+        throw new Error('Please install the latest Padi app build to use Google sign-in.');
       }
 
       await GoogleSignin.hasPlayServices({
@@ -201,7 +201,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
       const idToken = userInfo.data?.idToken;
 
       if (!idToken) {
-        throw new Error('Google did not return an ID token.');
+        throw new Error('Google sign-in could not be completed. Please try again.');
       }
 
       await processGoogleAuthentication(idToken);
@@ -230,7 +230,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
       }
 
       if (!result.token || !result.user) {
-        throw new Error(result.message || 'Google session exchange was missing session details.');
+        throw new Error(result.message || 'Google registration could not be completed. Please try again.');
       }
 
       await authService.persistSession({ token: result.token, user: result.user });
@@ -240,7 +240,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
       }
       navigation.replace('MainTabs');
     } catch (error: any) {
-      Alert.alert('Google Sign-In Failed', error.message || 'Unable to authenticate registration details over host services.');
+      Alert.alert('Google Sign-In Failed', error.message || 'Unable to complete Google registration right now.');
     } finally {
       setIsGoogleLoading(false);
     }

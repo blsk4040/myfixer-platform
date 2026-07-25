@@ -26,7 +26,7 @@ export function PaymentScreen(): React.JSX.Element {
         <View style={styles.infoCard}>
           <Text style={styles.infoTitle}>Booking-based checkout</Text>
           <Text style={styles.infoText}>
-            MyFixer uses the booking market to choose the currency, payment provider, and available payment methods.
+            Padi uses the booking market to choose the currency, payment provider, and available payment methods.
           </Text>
           <Text style={styles.infoText}>
             Cards and payment authorizations are handled securely by the active provider during checkout.
@@ -38,7 +38,7 @@ export function PaymentScreen(): React.JSX.Element {
 
         <View style={styles.complianceBox}>
           <Text style={styles.complianceText}>
-            MyFixer does not let customers manually override booking currency or payment providers.
+            Padi does not let customers manually override booking currency or payment providers.
           </Text>
         </View>
       </ScrollView>

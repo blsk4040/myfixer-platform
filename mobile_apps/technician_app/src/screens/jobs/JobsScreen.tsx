@@ -41,7 +41,7 @@ export function JobsScreen(): React.JSX.Element {
         });
 
         clearQueue();
-        Alert.alert('Updates synced', 'Your saved job updates are now up to date.');
+        Alert.alert('Updates saved', 'Your job updates are now up to date.');
       }
     });
 
@@ -72,7 +72,7 @@ export function JobsScreen(): React.JSX.Element {
         <Text style={styles.headerSubtitle}>Incoming requests, active work, scheduled visits, and completed jobs.</Text>
         {!isConnected && (
           <View style={styles.offlineBanner}>
-            <Text style={styles.offlineBannerText}>Offline mode: job updates will save and sync later</Text>
+            <Text style={styles.offlineBannerText}>Offline mode: job updates will be saved and sent later.</Text>
           </View>
         )}
       </View>

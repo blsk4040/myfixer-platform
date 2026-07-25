@@ -7,7 +7,7 @@ import { Linking, Alert, Platform } from 'react-native';
  */
 export const initiateNativeCall = (phoneNumber: unknown): void => {
   if (typeof phoneNumber !== 'string' || !phoneNumber.trim()) {
-    Alert.alert('Error', 'No valid communication number mapped for this specialist.');
+    Alert.alert('Call unavailable', 'We do not have a phone number for this provider yet.');
     return;
   }
 
@@ -18,7 +18,7 @@ export const initiateNativeCall = (phoneNumber: unknown): void => {
   Linking.canOpenURL(dialerUrl)
     .then((supported) => {
       if (!supported) {
-        Alert.alert('Device Restriction', 'Telephony framework operations are unavailable on this device environment.');
+        Alert.alert('Call unavailable', 'This device cannot start a phone call from the app.');
       } else {
         return Linking.openURL(dialerUrl);
       }

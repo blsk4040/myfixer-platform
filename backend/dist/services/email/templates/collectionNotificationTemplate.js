@@ -8,7 +8,7 @@ const generateCollectionNotificationHtml = (args) => `
     <p>${args.message}</p>
     ${args.collectionDate ? `<p><strong>Collection date:</strong> ${args.collectionDate}</p>` : ''}
     ${args.address ? `<p><strong>Address:</strong> ${args.address}</p>` : ''}
-    <p style="margin-top: 24px;">Thank you for using MyFixer Managed Collection Services.</p>
+    <p style="margin-top: 24px;">Thank you for using Padi recurring services.</p>
   </div>
 `;
 exports.generateCollectionNotificationHtml = generateCollectionNotificationHtml;

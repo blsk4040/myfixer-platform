@@ -854,7 +854,7 @@ export function ActiveJobsTab(): React.JSX.Element {
               />
             </View>
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Technical observations</Text>
+              <Text style={styles.inputLabel}>Job observations</Text>
               <TextInput
                 value={technicalObservations}
                 onChangeText={setTechnicalObservations}

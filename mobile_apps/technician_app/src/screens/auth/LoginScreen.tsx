@@ -91,12 +91,12 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
 
   const handleGoogleSignIn = async () => {
     if (!hasGoogleNativeModule) {
-      Alert.alert('Google Sign-In Unavailable', 'Google Sign-In requires the Android native build or a custom development client.');
+      Alert.alert('Google Sign-In Unavailable', 'Please install the latest Padi Pro app build to use Google sign-in.');
       return;
     }
 
     if (!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) {
-      Alert.alert('Configuration Unavailable', 'Google Web Client ID is missing.');
+      Alert.alert('Google Sign-In Unavailable', 'Google sign-in is not ready on this app build.');
       return;
     }
 
@@ -113,7 +113,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
       const idToken = userInfo.data?.idToken;
 
       if (!idToken) {
-        throw new Error('Google did not return an ID token.');
+        throw new Error('Google sign-in could not be completed. Please try again.');
       }
 
       const result = await apiService.signInWithGoogle(idToken);
@@ -133,7 +133,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
       }
 
       if (!result.token || !result.user) {
-        throw new Error(result.message || 'Google session exchange was missing session details.');
+        throw new Error(result.message || 'Google sign-in could not be completed. Please try again.');
       }
 
       const role = result.user.role.toUpperCase();
@@ -150,7 +150,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
         return;
       }
 
-      Alert.alert('Google Sign-In Failed', error.message || 'Unable to complete Google sign-in.');
+      Alert.alert('Google Sign-In Failed', error.message || 'Unable to complete Google sign-in right now.');
     } finally {
       setIsGoogleLoading(false);
     }
@@ -168,19 +168,6 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
               accessible
               accessibilityLabel={`${BRAND.platformName} logo`}
             />
-            <View
-              style={styles.logoWordmark}
-              accessible
-              accessibilityRole="text"
-              accessibilityLabel={BRAND.platformName}
-            >
-              <Text style={styles.logoText}>Pad</Text>
-              <View style={styles.logoLetterI} accessible={false}>
-                <View style={styles.logoDot} />
-                <View style={styles.logoStem} />
-              </View>
-              <Text style={styles.logoText}> Pro</Text>
-            </View>
             <Text style={styles.subtitleText}>Professional workspace for trusted service providers.</Text>
             <View style={styles.signalRow}>
               {trustSignals.map((signal) => (
@@ -306,41 +293,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   logoImage: {
-    width: 96,
-    height: 96,
-    marginBottom: 14,
-  },
-  logoWordmark: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-  },
-  logoText: { 
-    fontSize: 32, 
-    fontWeight: '700', 
-    color: Colors.text
-  },
-  logoLetterI: {
-    width: 13,
-    height: 31,
-    marginLeft: 1,
-    marginBottom: 4,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingBottom: 4,
-  },
-  logoDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: Colors.primary,
-    marginBottom: 4,
-  },
-  logoStem: {
-    width: 5,
-    height: 15,
-    borderRadius: 999,
-    backgroundColor: Colors.text,
+    width: 180,
+    height: 86,
+    marginBottom: 8,
   },
   subtitleText: {
     fontSize: 14,

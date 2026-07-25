@@ -1476,8 +1476,8 @@ const updateBookingStatus = async (request, response) => {
             },
             [booking_model_1.BookingStatus.ARRIVED]: {
                 type: 'TECHNICIAN_ARRIVED',
-                title: `${providerRoleForService(booking.serviceKey)} arrived`,
-                message: `Your ${providerRoleForService(booking.serviceKey)} has arrived for ${serviceLabelForNotification(booking)}.`,
+                title: 'Service provider has arrived',
+                message: `Your service provider has arrived for ${serviceLabelForNotification(booking)}.`,
             },
             [booking_model_1.BookingStatus.IN_PROGRESS]: {
                 type: 'JOB_STARTED',
@@ -1780,7 +1780,7 @@ const confirmArrival = async (request, response) => {
             io,
         });
         const providerRole = providerRoleForService(booking.serviceKey);
-        await createCustomerBookingNotification(booking, 'TECHNICIAN_ARRIVED', `${providerRole} has arrived`, `Your ${providerRole} has arrived for ${booking.applianceType}. Padi keeps job communication, approvals and payment steps together.`);
+        await createCustomerBookingNotification(booking, 'TECHNICIAN_ARRIVED', 'Service provider has arrived', `Your service provider has arrived for ${booking.applianceType}. Padi keeps job communication, approvals and payment steps together.`);
         response.status(200).json({
             success: true,
             bookingId: booking.id,

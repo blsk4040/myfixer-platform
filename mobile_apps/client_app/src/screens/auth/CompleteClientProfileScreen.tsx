@@ -97,7 +97,7 @@ export function CompleteClientProfileScreen({ route, navigation }: any): React.J
       });
 
       if (!result.token || !result.user) {
-        throw new Error(result.message || 'Profile completion did not return a session.');
+        throw new Error(result.message || 'We could not finish your profile right now. Please try again.');
       }
 
       await authService.persistSession({ token: result.token, user: result.user });
@@ -149,7 +149,7 @@ export function CompleteClientProfileScreen({ route, navigation }: any): React.J
           <TextInput style={styles.input} value={form.postalCode} onChangeText={(value) => updateField('postalCode', value)} keyboardType="number-pad" placeholder="2191" placeholderTextColor="#64748B" />
 
           <View style={styles.consentRow}>
-            <Text style={styles.consentText}>I agree that MyFixer may use these details to create my customer profile and match service providers.</Text>
+            <Text style={styles.consentText}>I agree that Padi may use these details to create my customer profile and match service providers.</Text>
             <Switch value={consent} onValueChange={setConsent} thumbColor={consent ? '#00FF87' : '#64748B'} />
           </View>
 

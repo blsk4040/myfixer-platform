@@ -564,7 +564,7 @@ const registerUser = async (req, res) => {
         const resolvedCountryCode = (0, market_config_1.normalizeCountryCode)(countryCode ?? location.country);
         const market = await (0, market_finance_guard_service_2.assertActiveMarket)(resolvedCountryCode);
         if (!(await isMarketActiveForOnboarding(market.identity.countryCode))) {
-            res.status(409).json({ message: 'Paddy is not accepting new registrations in this market right now.' });
+            res.status(409).json({ message: 'Padi is not accepting new registrations in this market right now.' });
             return;
         }
         const userExists = await user_model_1.default.findOne({ email: normalizedEmail });
@@ -889,10 +889,6 @@ const verifyEmail = async (req, res) => {
             }));
             return;
         }
-        user.emailVerified = true;
-        user.isEmailVerified = true;
-        user.emailVerificationToken = '';
-        await user.save();
         const verifiedRole = (0, user_model_1.normalizeUserRole)(user.role);
         const openAppUrl = verifiedRole === user_model_1.UserRole.TECHNICIAN
             ? process.env.TECHNICIAN_APP_DEEP_LINK || 'myfixertechnician://email-verified'
@@ -902,6 +898,11 @@ const verifyEmail = async (req, res) => {
             : 'Your Padi email is verified. You can return to the app and continue booking services.';
         const openAppLabel = verifiedRole === user_model_1.UserRole.TECHNICIAN ? 'Open Padi Pro' : 'Open Padi';
         const returnAppLabel = verifiedRole === user_model_1.UserRole.TECHNICIAN ? 'Padi Pro' : 'Padi';
+        if (!(user.emailVerified || user.isEmailVerified)) {
+            user.emailVerified = true;
+            user.isEmailVerified = true;
+            await user.save();
+        }
         if (shouldReturnJson) {
             res.status(200).json({ status: 'success', message: 'Email verified successfully.' });
             return;

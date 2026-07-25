@@ -78,11 +78,8 @@ interface SendTechnicianReviewEmailArgs {
 }
 
 const padiWordmarkHtml = `
-  <span style="display:inline-flex;align-items:flex-end;color:#FFFFFF;font-size:34px;line-height:1;font-weight:900;letter-spacing:0;">
-    <span>Pad</span><span style="display:inline-flex;width:13px;height:31px;margin-left:1px;padding-bottom:2px;align-items:center;justify-content:flex-start;flex-direction:column;">
-      <span style="display:block;width:6px;height:6px;margin-bottom:4px;border-radius:999px;background:#B8FF3D;"></span>
-      <span style="display:block;width:5px;height:18px;border-radius:999px;background:#FFFFFF;"></span>
-    </span>
+  <span style="display:inline-block;color:#FFFFFF;font-size:34px;line-height:1;font-weight:900;letter-spacing:0;">
+    Pad<span style="position:relative;display:inline-block;color:#FFFFFF;vertical-align:baseline;top:-0.05em;">i<span style="position:absolute;left:50%;top:-0.12em;display:block;width:0.18em;height:0.18em;margin-left:-0.09em;border-radius:999px;background:#B8FF3D;font-size:1em;line-height:1;">&nbsp;</span></span>
   </span>
 `;
 
@@ -338,7 +335,7 @@ export class EmailService {
       const { error } = await resend.emails.send({
         from: process.env.RESEND_FROM_EMAIL,
         to: args.recipientEmail,
-        subject: `MyFixer quote for booking #${args.bookingId}`,
+        subject: `Padi quote for booking #${args.bookingId}`,
         html: `
           <p>Hello ${args.customerName || 'Client'},</p>
           <p>Your technician sent a quote for approval.</p>
@@ -347,7 +344,7 @@ export class EmailService {
             <tbody>${rows}</tbody>
           </table>
           <p><strong>Total: ${args.currency} ${args.totalAmount.toFixed(2)}</strong></p>
-          <p>Please open MyFixer to approve or reject this quote.</p>
+          <p>Please open Padi to approve or reject this quote.</p>
         `,
       });
 
