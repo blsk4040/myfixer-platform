@@ -7,6 +7,11 @@ const formatMoney = (amount, currency) => new Intl.NumberFormat('en', {
     currency,
     currencyDisplay: 'narrowSymbol',
 }).format(amount);
+const padiWordmarkHtml = `
+  <span style="display:inline-block;color:#F7F7F5;font-size:30px;line-height:1;font-weight:900;letter-spacing:0;">
+    Pad<span style="position:relative;display:inline-block;color:#F7F7F5;vertical-align:baseline;top:-0.05em;">i<span style="position:absolute;left:50%;top:-0.12em;display:block;width:0.18em;height:0.18em;margin-left:-0.09em;border-radius:999px;background:#B8FF3D;font-size:1em;line-height:1;">&nbsp;</span></span>
+  </span>
+`;
 function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLabor, partsAmount, discountAmount = 0, promoCode = '', promotionLabel = '', clientServiceFee = 0, taxAmount = 0, subtotalAmount, totalAmount, currency, }) {
     const displayPromotion = promotionLabel || promoCode || 'Promotion';
     return `
@@ -14,13 +19,13 @@ function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLa
     <html>
     <head>
       <meta charset="utf-8">
-      <title>Tax Invoice - MyFixer</title>
+      <title>Tax Invoice - Padi</title>
       <style>
         body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #F8FAFC; color: #1E293B; margin: 0; padding: 0; }
         .wrapper { width: 100%; table-layout: fixed; background-color: #F8FAFC; padding: 40px 0; }
         .container { max-width: 600px; margin: 0 auto; background-color: #FFFFFF; border-radius: 12px; border: 1px solid #E2E8F0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
         .header { background-color: #090D14; padding: 32px; text-align: center; }
-        .logo { color: #00FF87; font-size: 24px; font-weight: 800; letter-spacing: -0.5px; }
+        .logo { color: #F7F7F5; font-size: 30px; font-weight: 900; letter-spacing: 0; line-height: 1; }
         .content { padding: 32px; }
         h1 { font-size: 20px; font-weight: 700; margin-top: 0; color: #0F172A; }
         .meta-box { background-color: #F1F5F9; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-size: 14px; }
@@ -35,12 +40,12 @@ function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLa
       <div class="wrapper">
         <div class="container">
           <div class="header">
-            <div class="logo">MyFixer</div>
+            <div class="logo">${padiWordmarkHtml}</div>
           </div>
           <div class="content">
             <h1>Tax Invoice</h1>
             <p>Hi ${customerName},</p>
-            <p>Thank you for using MyFixer. Your appliance repair job is complete. Please find your official breakdown summary listed below.</p>
+            <p>Thank you for using Padi. Your service booking is complete. Please find your official breakdown summary listed below.</p>
             
             <div class="meta-box">
               <strong>Invoice ID:</strong> #INV-${bookingId}<br />
@@ -98,7 +103,7 @@ function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLa
             </table>
           </div>
           <div class="footer">
-            MyFixer Appliance Repairs &bull; Support: support@myfixer.co.za
+            Padi &bull; Support: support@myfixer.co.za
           </div>
         </div>
       </div>
