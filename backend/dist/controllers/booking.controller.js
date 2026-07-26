@@ -36,10 +36,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.finalizeJobInvoice = exports.confirmArrival = exports.completeInspection = exports.startInspection = exports.startJob = exports.startRoute = exports.updateBookingStatus = exports.declineBooking = exports.acceptBooking = exports.getMyBookingHistory = exports.getMyActiveBooking = exports.getBookingById = exports.createBooking = void 0;
+exports.finalizeJobInvoice = exports.confirmArrival = exports.completeInspection = exports.startInspection = exports.startJob = exports.startRoute = exports.updateBookingStatus = exports.declineBooking = exports.acceptBooking = exports.submitBookingReview = exports.getBookingReview = exports.getMyBookingHistory = exports.getMyActiveBooking = exports.getBookingById = exports.createBooking = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
 // 1. IMPORT BookingStatus ENUM HERE
 const booking_model_1 = __importStar(require("../models/booking.model"));
+const booking_review_model_1 = __importStar(require("../models/booking-review.model"));
 const matching_service_1 = __importStar(require("../services/matching.service"));
 // 2. UNCOMMENT AND USE YOUR ACTUAL EMAIL SERVICE UTILITY
 const email_service_1 = require("../services/email/email.service");
@@ -65,6 +66,9 @@ const inspection_workflow_service_1 = require("../services/inspection-workflow.s
 const booking_recipient_service_1 = require("../services/booking-recipient.service");
 const booking_privacy_service_1 = require("../services/booking-privacy.service");
 const market_finance_guard_service_1 = require("../services/market-finance-guard.service");
+const provider_referral_service_1 = require("../services/provider-referral.service");
+const customer_referral_service_1 = require("../services/customer-referral.service");
+const provider_reputation_service_1 = require("../services/provider-reputation.service");
 const toFiniteNumber = (value) => {
     const parsed = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(parsed) ? parsed : null;
@@ -72,6 +76,20 @@ const toFiniteNumber = (value) => {
 const decimalFromMinor = (valueMinor) => valueMinor / 100;
 const normalizePromoCode = (value) => typeof value === 'string' ? value.trim().toUpperCase().replace(/\s+/g, '') : '';
 const isBookingStatus = (value) => typeof value === 'string' && Object.values(booking_model_1.BookingStatus).includes(value);
+const toReviewBoolean = (value) => typeof value === 'boolean' ? value : null;
+const serializeBookingReview = (review) => review ? {
+    id: String(review._id),
+    bookingId: String(review.bookingId),
+    rating: Number(review.rating || 0),
+    professional: Boolean(review.professional),
+    onTime: Boolean(review.onTime),
+    qualityWork: Boolean(review.qualityWork),
+    communication: Boolean(review.communication),
+    comment: review.comment || '',
+    wouldBookAgain: Boolean(review.wouldBookAgain),
+    status: review.status,
+    createdAt: review.createdAt,
+} : null;
 const normalizeFallbackPreference = (value) => {
     const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
     return normalized === 'SCHEDULED' || normalized === 'WAITLIST' ? normalized : 'STANDBY';
@@ -455,14 +473,16 @@ const createBooking = async (request, response) => {
     const scheduledAt = parseDateInput(scheduledAtInput);
     const scheduledEndAt = parseDateInput(body.scheduledEndTime ?? body.scheduled_end_time);
     const isPreBook = isValidDate(scheduledAt) && scheduledAt.getTime() > Date.now();
-    const promoCode = normalizePromoCode(body.promoCode ?? body.promo_code);
+    const manualPromoCode = normalizePromoCode(body.promoCode ?? body.promo_code);
+    let promoCode = manualPromoCode;
+    let autoReferralPromoCode = '';
     const latitude = toFiniteNumber(body.latitude);
     const longitude = toFiniteNumber(body.longitude);
     let countryCode = '';
     let customer = null;
     if (mongoose_1.default.Types.ObjectId.isValid(customerId)) {
         customer = await user_model_2.default.findById(customerId)
-            .select('name phone role countryCode location defaultServiceAddress profileCompleted isEmailVerified emailVerified')
+            .select('name phone role countryCode location defaultServiceAddress profileCompleted isEmailVerified emailVerified metadata')
             .lean();
         countryCode = (0, market_config_1.normalizeCountryCode)(body.country_code ?? customer?.countryCode ?? customer?.location?.country);
     }
@@ -559,33 +579,43 @@ const createBooking = async (request, response) => {
         originalPriceMinor = availability.service.calloutFeeMinor;
         priceMinor = originalPriceMinor;
     }
+    if (!promoCode) {
+        autoReferralPromoCode = normalizePromoCode(customer?.metadata?.customerReferralFriendDiscountCode);
+        promoCode = autoReferralPromoCode;
+    }
     if (body.call_out_fee !== undefined && Math.round(Number(body.call_out_fee) * 100) !== originalPriceMinor) {
         response.status(400).json({
             message: 'Call-out fee must match the active market service configuration.',
         });
         return;
     }
+    const promotionContext = {
+        promoCode,
+        customerId,
+        amountMinor: originalPriceMinor,
+        countryCode: market.countryCode,
+        currency: market.currency,
+        city,
+        area,
+        serviceKey: requestedServiceKey,
+        subcategoryKey: requestedSubcategoryKey,
+    };
     try {
-        const promotionResolution = await (0, promotion_campaign_service_1.resolvePromotionsForPricing)({
-            promoCode,
-            customerId,
-            amountMinor: originalPriceMinor,
-            countryCode: market.countryCode,
-            currency: market.currency,
-            city,
-            area,
-            serviceKey: requestedServiceKey,
-            subcategoryKey: requestedSubcategoryKey,
-        });
+        const promotionResolution = await (0, promotion_campaign_service_1.resolvePromotionsForPricing)(promotionContext);
         promotionDiscountMinor = promotionResolution.promotionDiscountMinor;
         appliedPromotions = promotionResolution.promotions;
     }
     catch (error) {
-        if (error instanceof promotion_campaign_service_1.PromotionCampaignError || promoCode) {
+        if (manualPromoCode || !(error instanceof promotion_campaign_service_1.PromotionCampaignError) || !autoReferralPromoCode) {
             response.status(400).json({ message: error.message || 'Promotion could not be applied.' });
             return;
         }
-        throw error;
+        const fallbackPromotionResolution = await (0, promotion_campaign_service_1.resolvePromotionsForPricing)({
+            ...promotionContext,
+            promoCode: '',
+        });
+        promotionDiscountMinor = fallbackPromotionResolution.promotionDiscountMinor;
+        appliedPromotions = fallbackPromotionResolution.promotions;
     }
     const promotionTechnicianFundedMinor = appliedPromotions.reduce((sum, promotion) => sum + Math.round((promotion.discountMinor * (promotion.fundingSplitBps.technician || 0)) / 10000), 0);
     const promotionPartnerFundedMinor = appliedPromotions.reduce((sum, promotion) => sum + Math.round((promotion.discountMinor * (promotion.fundingSplitBps.partner || 0)) / 10000), 0);
@@ -696,6 +726,14 @@ const createBooking = async (request, response) => {
         });
         const bookingId = booking.id;
         bookingCreated = true;
+        await (0, provider_referral_service_1.markReferralFirstBookingCreated)({
+            customerId: booking.customerId,
+            bookingId: booking._id,
+        });
+        await (0, customer_referral_service_1.markCustomerReferralFirstBookingCreated)({
+            customerId: booking.customerId,
+            bookingId: booking._id,
+        });
         const io = request.app.get('io');
         await safelyLogAuditEvent(request, {
             action: serviceRecipient.type === 'OTHER' ? 'booking.create.for_other' : 'booking.create.for_self',
@@ -934,7 +972,7 @@ const getBookingById = async (request, response) => {
             ? await user_model_2.default.findById(booking.technicianId).select('name phone profilePhotoUrl').lean()
             : null;
         const technicianProfile = booking.technicianId && mongoose_1.default.Types.ObjectId.isValid(booking.technicianId)
-            ? await technician_model_1.default.findOne({ userId: booking.technicianId }).select('lastLocation documents.profilePhotoUrl documents.profilePhotoStatus updatedAt').lean()
+            ? await technician_model_1.default.findOne({ userId: booking.technicianId }).select('approvalStatus stats lastLocation documents.profilePhotoUrl documents.profilePhotoStatus updatedAt').lean()
             : null;
         const approvedTechnicianPhotoUrl = technicianProfile?.documents?.profilePhotoStatus === technician_model_1.VerificationStatus.VERIFIED
             ? technicianProfile.documents.profilePhotoUrl
@@ -987,6 +1025,7 @@ const getBookingById = async (request, response) => {
                     latitude: technicianProfile.lastLocation.coordinates[1],
                 } : null,
                 lastGpsUpdate: technicianProfile?.updatedAt ?? null,
+                reputation: (0, provider_reputation_service_1.getProviderReputation)(technicianProfile),
             } : null,
             createdAt: booking.createdAt,
             updatedAt: booking.updatedAt,
@@ -1029,7 +1068,7 @@ const getMyActiveBooking = async (request, response) => {
             ? await user_model_2.default.findById(booking.technicianId).select('name phone profilePhotoUrl').lean()
             : null;
         const technicianProfile = booking.technicianId && mongoose_1.default.Types.ObjectId.isValid(booking.technicianId)
-            ? await technician_model_1.default.findOne({ userId: booking.technicianId }).select('lastLocation documents.profilePhotoUrl documents.profilePhotoStatus updatedAt').lean()
+            ? await technician_model_1.default.findOne({ userId: booking.technicianId }).select('approvalStatus stats lastLocation documents.profilePhotoUrl documents.profilePhotoStatus updatedAt').lean()
             : null;
         const approvedTechnicianPhotoUrl = technicianProfile?.documents?.profilePhotoStatus === technician_model_1.VerificationStatus.VERIFIED
             ? technicianProfile.documents.profilePhotoUrl
@@ -1063,6 +1102,7 @@ const getMyActiveBooking = async (request, response) => {
                         latitude: technicianProfile.lastLocation.coordinates[1],
                     } : null,
                     lastGpsUpdate: technicianProfile?.updatedAt ?? null,
+                    reputation: (0, provider_reputation_service_1.getProviderReputation)(technicianProfile),
                 } : null,
                 createdAt: booking.createdAt,
                 updatedAt: booking.updatedAt,
@@ -1108,8 +1148,12 @@ const getMyBookingHistory = async (request, response) => {
             .limit(100)
             .lean();
         const bookingIds = bookings.map((booking) => booking._id);
-        const invoices = await billing_model_1.Invoice.find({ bookingId: { $in: bookingIds } }).lean();
+        const [invoices, reviews] = await Promise.all([
+            billing_model_1.Invoice.find({ bookingId: { $in: bookingIds } }).lean(),
+            booking_review_model_1.default.find({ bookingId: { $in: bookingIds }, customerId }).lean(),
+        ]);
         const invoiceByBookingId = new Map(invoices.map((invoice) => [String(invoice.bookingId), invoice]));
+        const reviewByBookingId = new Map(reviews.map((review) => [String(review.bookingId), review]));
         const technicianUserIds = Array.from(new Set(bookings
             .map((booking) => booking.technicianId)
             .filter((id) => Boolean(id && mongoose_1.default.Types.ObjectId.isValid(id)))
@@ -1117,7 +1161,7 @@ const getMyBookingHistory = async (request, response) => {
         const [technicianUsers, technicianProfiles] = await Promise.all([
             user_model_2.default.find({ _id: { $in: technicianUserIds } }).select('name phone profilePhotoUrl').lean(),
             technician_model_1.default.find({ userId: { $in: technicianUserIds } })
-                .select('userId documents.profilePhotoUrl documents.profilePhotoStatus')
+                .select('userId approvalStatus stats documents.profilePhotoUrl documents.profilePhotoStatus')
                 .lean(),
         ]);
         const technicianUserById = new Map(technicianUsers.map((user) => [String(user._id), user]));
@@ -1126,6 +1170,7 @@ const getMyBookingHistory = async (request, response) => {
             success: true,
             bookings: bookings.map((booking) => {
                 const invoice = invoiceByBookingId.get(String(booking._id));
+                const review = reviewByBookingId.get(String(booking._id));
                 const technicianUserId = booking.technicianId ? String(booking.technicianId) : '';
                 const technicianUser = technicianUserById.get(technicianUserId);
                 const technicianProfile = technicianProfileByUserId.get(technicianUserId);
@@ -1152,11 +1197,14 @@ const getMyBookingHistory = async (request, response) => {
                     cancelledAt: booking.cancelledAt,
                     createdAt: booking.createdAt,
                     updatedAt: booking.updatedAt,
+                    canReview: booking.status === booking_model_1.BookingStatus.COMPLETED && Boolean(booking.technicianId) && !review,
+                    review: serializeBookingReview(review),
                     technician: technicianUser ? {
                         id: technicianUserId,
                         name: technicianUser.name,
                         phone: technicianUser.phone,
                         profilePhotoUrl: technicianUser.profilePhotoUrl || approvedTechnicianPhotoUrl || '',
+                        reputation: (0, provider_reputation_service_1.getProviderReputation)(technicianProfile),
                     } : null,
                     invoice: invoice ? {
                         id: String(invoice._id),
@@ -1184,6 +1232,118 @@ const getMyBookingHistory = async (request, response) => {
     }
 };
 exports.getMyBookingHistory = getMyBookingHistory;
+const getBookingReview = async (request, response) => {
+    const { bookingId } = request.params;
+    const authUser = getAuthenticatedUser(request);
+    const customerId = String(authUser?.id ?? authUser?._id ?? '').trim();
+    if (!customerId || !mongoose_1.default.Types.ObjectId.isValid(customerId)) {
+        response.status(401).json({ message: 'Please sign in again to continue.' });
+        return;
+    }
+    if (!mongoose_1.default.Types.ObjectId.isValid(bookingId)) {
+        response.status(400).json({ message: 'Invalid booking id.' });
+        return;
+    }
+    try {
+        const review = await booking_review_model_1.default.findOne({ bookingId, customerId }).lean();
+        response.status(200).json({ success: true, review: serializeBookingReview(review) });
+    }
+    catch (error) {
+        console.error('Failed to fetch booking review:', error);
+        response.status(500).json({ message: 'Unable to load this review right now.' });
+    }
+};
+exports.getBookingReview = getBookingReview;
+const submitBookingReview = async (request, response) => {
+    const { bookingId } = request.params;
+    const body = request.body;
+    const authUser = getAuthenticatedUser(request);
+    const customerId = String(authUser?.id ?? authUser?._id ?? '').trim();
+    if (!customerId || !mongoose_1.default.Types.ObjectId.isValid(customerId)) {
+        response.status(401).json({ message: 'Please sign in again to continue.' });
+        return;
+    }
+    if (!mongoose_1.default.Types.ObjectId.isValid(bookingId)) {
+        response.status(400).json({ message: 'Invalid booking id.' });
+        return;
+    }
+    const rating = Math.round(Number(body.rating));
+    const professional = toReviewBoolean(body.professional);
+    const onTime = toReviewBoolean(body.onTime);
+    const qualityWork = toReviewBoolean(body.qualityWork);
+    const communication = toReviewBoolean(body.communication);
+    const wouldBookAgain = typeof body.wouldBookAgain === 'boolean' ? body.wouldBookAgain : true;
+    const comment = typeof body.comment === 'string' ? body.comment.trim().slice(0, 1200) : '';
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+        response.status(400).json({ message: 'Choose a rating from 1 to 5 stars.' });
+        return;
+    }
+    if ([professional, onTime, qualityWork, communication].some((value) => value === null)) {
+        response.status(400).json({ message: 'Please answer each review question.' });
+        return;
+    }
+    try {
+        const booking = await booking_model_1.default.findOne({
+            _id: bookingId,
+            customerId: new mongoose_1.default.Types.ObjectId(customerId),
+        })
+            .select('_id customerId technicianId serviceKey applianceType status countryCode city generalArea fullAddress completedAt')
+            .lean();
+        if (!booking) {
+            response.status(404).json({ message: 'Booking not found.' });
+            return;
+        }
+        if (booking.status !== booking_model_1.BookingStatus.COMPLETED) {
+            response.status(409).json({ message: 'You can review this booking after it is completed.' });
+            return;
+        }
+        if (!booking.technicianId || !mongoose_1.default.Types.ObjectId.isValid(booking.technicianId)) {
+            response.status(409).json({ message: 'This booking does not have an assigned provider to review.' });
+            return;
+        }
+        const existing = await booking_review_model_1.default.findOne({ bookingId: booking._id }).lean();
+        if (existing) {
+            response.status(409).json({ message: 'You have already reviewed this booking.' });
+            return;
+        }
+        const review = await booking_review_model_1.default.create({
+            bookingId: booking._id,
+            customerId: new mongoose_1.default.Types.ObjectId(customerId),
+            technicianId: booking.technicianId,
+            serviceKey: String(booking.serviceKey || ''),
+            serviceName: booking.applianceType,
+            countryCode: String(booking.countryCode || '').toUpperCase(),
+            city: String(booking.city || booking.generalArea || ''),
+            rating,
+            professional,
+            onTime,
+            qualityWork,
+            communication,
+            comment,
+            wouldBookAgain,
+            status: booking_review_model_1.BookingReviewStatus.PUBLISHED,
+            metadata: {
+                completedAt: booking.completedAt ?? null,
+                fullAddress: booking.fullAddress ? 'captured' : '',
+            },
+        });
+        await (0, provider_reputation_service_1.refreshProviderReputationStats)(booking.technicianId);
+        response.status(201).json({
+            success: true,
+            review: serializeBookingReview(review),
+            message: 'Thank you for helping keep Padi trusted.',
+        });
+    }
+    catch (error) {
+        if (error?.code === 11000) {
+            response.status(409).json({ message: 'You have already reviewed this booking.' });
+            return;
+        }
+        console.error('Failed to submit booking review:', error);
+        response.status(500).json({ message: 'Unable to save your review right now.' });
+    }
+};
+exports.submitBookingReview = submitBookingReview;
 const acceptBooking = async (request, response) => {
     const { id } = request.params;
     const body = request.body;

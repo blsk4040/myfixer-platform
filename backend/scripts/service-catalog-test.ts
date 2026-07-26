@@ -184,10 +184,38 @@ async function run() {
     assert.strictEqual(availability.services[0].calloutFeeMinor, 48000);
     assert.strictEqual(availability.services[0].subcategories?.[0]?.calloutFeeMinor, 49000);
     assert.strictEqual(availability.services[0].subcategories?.[0]?.pricingSource, 'MARKET_SUBCATEGORY_OVERRIDE');
+    assert.deepStrictEqual(availability.services[0].socialProof, {
+      averageRating: null,
+      reviewCount: 0,
+      completedJobs: 0,
+      countryCode: 'ZA',
+      city: 'Pretoria',
+    });
     assert.strictEqual(availability.services[0].subcategories?.some((subcategory) => subcategory.subcategoryKey === 'expired_option'), false);
     assert.strictEqual(availability.services[0].canBook, true);
     assert.strictEqual(availability.groups.length, 1);
     assert.strictEqual(availability.groups[0].groupKey, 'home_services');
+    assert.deepStrictEqual(availability.groups[0].socialProof, {
+      averageRating: null,
+      reviewCount: 0,
+      completedJobs: 0,
+      countryCode: 'ZA',
+      city: 'Pretoria',
+    });
+    assert.deepStrictEqual(availability.groups[0].categories[0].socialProof, {
+      averageRating: null,
+      reviewCount: 0,
+      completedJobs: 0,
+      countryCode: 'ZA',
+      city: 'Pretoria',
+    });
+    assert.deepStrictEqual(availability.groups[0].categories[0].services[0].socialProof, {
+      averageRating: null,
+      reviewCount: 0,
+      completedJobs: 0,
+      countryCode: 'ZA',
+      city: 'Pretoria',
+    });
     assert.strictEqual(availability.groups[0].categories[0].categoryKey, 'electrical');
     assert.strictEqual(availability.groups[0].categories[0].services[0].serviceKey, 'fault_finding');
     assert.strictEqual(availability.groups[0].categories[0].services[0].canBook, true);

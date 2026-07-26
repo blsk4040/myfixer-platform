@@ -32,6 +32,7 @@ export function CompleteClientProfileScreen({ route, navigation }: any): React.J
     streetAddress: '',
     postalCode: '',
     fullAddress: '',
+    referralCode: '',
   });
 
   const serviceAddress = useMemo(() => {
@@ -85,6 +86,7 @@ export function CompleteClientProfileScreen({ route, navigation }: any): React.J
         countryCode: form.countryCode.trim().toUpperCase(),
         city: form.city.trim(),
         area: form.area.trim(),
+        referralCode: form.referralCode.trim().toUpperCase(),
         consent,
         defaultServiceAddress: {
           streetAddress: form.streetAddress.trim() || serviceAddress.trim(),
@@ -147,6 +149,16 @@ export function CompleteClientProfileScreen({ route, navigation }: any): React.J
 
           <Text style={styles.label}>Postal Code Optional</Text>
           <TextInput style={styles.input} value={form.postalCode} onChangeText={(value) => updateField('postalCode', value)} keyboardType="number-pad" placeholder="2191" placeholderTextColor="#64748B" />
+
+          <Text style={styles.label}>Invite Code Optional</Text>
+          <TextInput
+            style={styles.input}
+            value={form.referralCode}
+            onChangeText={(value) => updateField('referralCode', value)}
+            autoCapitalize="characters"
+            placeholder="Padi Pro invite code"
+            placeholderTextColor="#64748B"
+          />
 
           <View style={styles.consentRow}>
             <Text style={styles.consentText}>I agree that Padi may use these details to create my customer profile and match service providers.</Text>

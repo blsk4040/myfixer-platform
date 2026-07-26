@@ -20,6 +20,9 @@ import { logAuditEvent } from './audit.service';
 import { createNotifications } from './notification.service';
 import { NotificationChannel } from '../models/notification.model';
 import { assertActiveMarket, assertMarketAllowsNewPayout } from './market-finance-guard.service';
+import { processReferralRewardForCompletedBooking } from './provider-referral.service';
+import { processCustomerReferralRewardForCompletedBooking } from './customer-referral.service';
+import { refreshProviderReputationStats } from './provider-reputation.service';
 
 export class SettlementError extends Error {
   constructor(message: string, public readonly code: string, public readonly statusCode = 400) {
@@ -288,6 +291,11 @@ export const confirmCustomerCompletion = async (bookingId: string, actor: Actor 
     payment,
     flags.adminApprovalRequired ? ProviderSettlementStatus.APPROVAL_REQUIRED : ProviderSettlementStatus.READY_FOR_PAYOUT
   );
+  if (completedBooking.technicianId) {
+    await refreshProviderReputationStats(completedBooking.technicianId);
+  }
+  await processReferralRewardForCompletedBooking(completedBooking);
+  await processCustomerReferralRewardForCompletedBooking(completedBooking);
   req?.app.get('io')?.to(`booking:${completedBooking.id}`).emit('completion_confirmed', {
     bookingId: completedBooking.id,
     status: completedBooking.status,

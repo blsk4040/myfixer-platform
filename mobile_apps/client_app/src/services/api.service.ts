@@ -38,6 +38,12 @@ export interface TechnicianRecord {
   phone?: string;
   profilePhotoUrl?: string;
   lastLocation?: Coordinate | null;
+  reputation?: {
+    averageRating: number | null;
+    reviewCount: number;
+    completedJobs: number;
+    verified: boolean;
+  };
   [key: string]: unknown;
 }
 
@@ -150,6 +156,7 @@ export interface CompleteGoogleProfilePayload {
   countryCode: string;
   city: string;
   area: string;
+  referralCode?: string;
   consent: boolean;
   defaultServiceAddress: {
     streetAddress?: string;
@@ -195,6 +202,8 @@ export interface BookingHistoryItem {
   createdAt: string;
   updatedAt: string;
   technician?: TechnicianRecord | null;
+  canReview?: boolean;
+  review?: BookingReview | null;
   invoice?: {
     id: string;
     invoiceNumber: string;
@@ -207,6 +216,48 @@ export interface BookingHistoryItem {
     priceBreakdown?: PriceBreakdown | null;
     status: string;
   } | null;
+}
+
+export interface BookingReview {
+  id: string;
+  bookingId: string;
+  rating: number;
+  professional: boolean;
+  onTime: boolean;
+  qualityWork: boolean;
+  communication: boolean;
+  comment?: string;
+  wouldBookAgain: boolean;
+  status: string;
+  createdAt: string;
+}
+
+export interface CustomerReferralProgramResponse {
+  success: boolean;
+  referral: {
+    referralCode: string;
+    inviteUrl: string;
+    shareMessage: string;
+    friendDiscountMessage: string;
+    rewardMessage: string;
+    summary: {
+      registeredCount: number;
+      firstBookingCount: number;
+      completedCount: number;
+      rewardEligibleCount: number;
+      rewardBlockedCount: number;
+    };
+  };
+}
+
+export interface SubmitBookingReviewPayload {
+  rating: number;
+  professional: boolean;
+  onTime: boolean;
+  qualityWork: boolean;
+  communication: boolean;
+  comment?: string;
+  wouldBookAgain: boolean;
 }
 
 export interface JobQuote {
@@ -319,6 +370,15 @@ export interface ServiceAvailabilityItem {
   status: 'ACTIVE' | 'COMING_SOON' | 'PAUSED' | 'DISABLED';
   canBook: boolean;
   message: string;
+  socialProof?: MarketAvailabilitySocialProof;
+}
+
+export interface MarketAvailabilitySocialProof {
+  averageRating: number | null;
+  reviewCount: number;
+  completedJobs: number;
+  city?: string;
+  countryCode?: string;
 }
 
 export interface MarketAvailabilityBookableService {
@@ -341,6 +401,7 @@ export interface MarketAvailabilityBookableService {
   requiresCapabilityApproval?: boolean;
   displayOrder?: number;
   pricingSource?: string;
+  socialProof?: MarketAvailabilitySocialProof;
 }
 
 export interface MarketAvailabilityCategory {
@@ -355,6 +416,7 @@ export interface MarketAvailabilityCategory {
   status: 'ACTIVE' | 'PUBLISHED' | 'COMING_SOON' | 'DRAFT' | 'PAUSED' | 'DISABLED' | 'ARCHIVED';
   displayOrder?: number;
   services: MarketAvailabilityBookableService[];
+  socialProof?: MarketAvailabilitySocialProof;
 }
 
 export interface MarketAvailabilityGroup {
@@ -367,6 +429,7 @@ export interface MarketAvailabilityGroup {
   status: string;
   displayOrder?: number;
   categories: MarketAvailabilityCategory[];
+  socialProof?: MarketAvailabilitySocialProof;
 }
 
 export interface MarketAvailabilityResponse {
@@ -560,6 +623,17 @@ class ApiService {
 
   getMyBookingHistory(): Promise<{ success: boolean; bookings: BookingHistoryItem[] }> {
     return this.request('/bookings/history/me');
+  }
+
+  submitBookingReview(bookingId: string, payload: SubmitBookingReviewPayload): Promise<{ success: boolean; review: BookingReview; message?: string }> {
+    return this.request(`/bookings/${encodeURIComponent(bookingId)}/review`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  getMyReferralProgram(): Promise<CustomerReferralProgramResponse> {
+    return this.request('/clients/me/referral');
   }
 
   createBooking(payload: CreateBookingRequest): Promise<CreateBookingResponse> {

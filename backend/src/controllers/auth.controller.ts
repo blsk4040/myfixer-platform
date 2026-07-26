@@ -18,6 +18,11 @@ import Booking, { BookingStatus } from '../models/booking.model';
 import { getMarketAvailability, normalizeServiceKey } from '../services/service-availability.service';
 import { uploadImageToCloudinary } from '../services/media-storage.service';
 import { assertActiveMarket } from '../services/market-finance-guard.service';
+import { getOrCreateProviderReferralCode, recordCustomerReferral } from '../services/provider-referral.service';
+import { recordCustomerToCustomerReferral } from '../services/customer-referral.service';
+import { parseImageDataUri } from '../utils/image-data-uri';
+
+const MAX_TECHNICIAN_REGISTRATION_PHOTO_BYTES = 5 * 1024 * 1024;
 
 // --- JWT Helper Generator ---
 const generateToken = (userId: string, role: UserRole, email: string, tokenVersion = 0): string => {
@@ -410,6 +415,7 @@ const buildSessionTechnician = async (technicianProfile: any, user?: any) => {
     serviceCategories: technicianProfile.serviceCategories,
     city: technicianProfile.city,
     businessName: technicianProfile.businessName,
+    referralCode: technicianProfile.referralCode || '',
     yearsExperience: technicianProfile.yearsExperience,
     profilePhotoUrl: technicianProfile.documents?.profilePhotoUrl || user?.profilePhotoUrl,
     profilePhotoStatus: technicianProfile.documents?.profilePhotoStatus,
@@ -630,6 +636,26 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
       isEmailVerified: false,
       emailVerificationToken: generateEmailVerificationToken(),
     });
+
+    const providerReferralRecorded = await recordCustomerReferral({
+      referralCode: req.body.referralCode,
+      customerId: newUser._id,
+      customerEmail: newUser.email,
+      countryCode: market.identity.countryCode,
+      city: newUser.location?.city || '',
+      source: 'PASSWORD_SIGNUP',
+    });
+    if (!providerReferralRecorded) {
+      await recordCustomerToCustomerReferral({
+        referralCode: req.body.referralCode,
+        customerId: newUser._id,
+        customerEmail: newUser.email,
+        countryCode: market.identity.countryCode,
+        currency: market.identity.currency,
+        city: newUser.location?.city || '',
+        source: 'PASSWORD_SIGNUP',
+      });
+    }
 
     const verificationEmailSent = await sendVerificationEmail(req, newUser);
 
@@ -1241,6 +1267,26 @@ export const completeGoogleClientProfile = async (req: Request, res: Response): 
       { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
     );
 
+    const providerReferralRecorded = await recordCustomerReferral({
+      referralCode: req.body.referralCode,
+      customerId: user._id,
+      customerEmail: user.email,
+      countryCode: market.identity.countryCode,
+      city,
+      source: 'GOOGLE_PROFILE_COMPLETION',
+    });
+    if (!providerReferralRecorded) {
+      await recordCustomerToCustomerReferral({
+        referralCode: req.body.referralCode,
+        customerId: user._id,
+        customerEmail: user.email,
+        countryCode: market.identity.countryCode,
+        currency: market.identity.currency,
+        city,
+        source: 'GOOGLE_PROFILE_COMPLETION',
+      });
+    }
+
     const verificationUser = user.isEmailVerified || user.emailVerified
       ? null
       : await User.findById(user._id).select('+emailVerificationToken');
@@ -1485,10 +1531,11 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
           ? documents.profilePhotoBase64.trim()
           : '';
 
-    if (!profilePhotoDataUri.startsWith('data:image/')) {
-      res.status(400).json({ message: 'A clear technician profile photo is required for admin review.' });
-      return;
-    }
+    const parsedProfilePhoto = parseImageDataUri(profilePhotoDataUri, {
+      maxBytes: MAX_TECHNICIAN_REGISTRATION_PHOTO_BYTES,
+      invalidMessage: 'A clear JPG, PNG, or WebP profile photo is required for admin review.',
+      tooLargeMessage: 'Profile photos must be 5 MB or smaller.',
+    });
 
     if (!Array.isArray(serviceCategories) || serviceCategories.length === 0) {
       res.status(400).json({ message: 'Please select at least one service category.' });
@@ -1561,7 +1608,7 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
     const verificationEmailSent = await sendVerificationEmail(req, user);
 
     const uploadedProfilePhoto = await uploadImageToCloudinary({
-      dataUri: profilePhotoDataUri,
+      dataUri: parsedProfilePhoto.dataUri,
       folder: `myfixer/technicians/${user._id.toString()}/profile`,
       publicId: `profile-photo-${Date.now()}`,
     });
@@ -1597,6 +1644,8 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
         suspensionReason: '',
       },
     });
+
+    await getOrCreateProviderReferralCode(technician, user.name);
 
     const normalizedServiceRadiusKm = Number.isFinite(Number(serviceRadiusKm)) ? Number(serviceRadiusKm) : 25;
     const capabilityStatus = capabilityStatusFromApprovalStatus(approvalStatus);

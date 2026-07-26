@@ -28,6 +28,7 @@ import {
   Monitor,
   Search,
   ShieldCheck,
+  Star,
   User,
   Wrench,
   X,
@@ -38,6 +39,7 @@ import apiService, {
   MarketAvailabilityBookableService,
   MarketAvailabilityCategory,
   MarketAvailabilityGroup,
+  BookingHistoryItem,
   ServiceAvailabilityItem,
 } from '../../services/api.service';
 import authService from '../../services/auth.service';
@@ -54,6 +56,7 @@ const MapPinIcon = MapPin as any;
 const MonitorIcon = Monitor as any;
 const SearchIcon = Search as any;
 const ShieldCheckIcon = ShieldCheck as any;
+const StarIcon = Star as any;
 const UserIcon = User as any;
 const WrenchIcon = Wrench as any;
 const XIcon = X as any;
@@ -85,6 +88,7 @@ type HomeService = {
   imageSource: any;
   remoteImageFailureKey: string;
   calloutFeeMinor?: number;
+  socialProof?: MarketAvailabilityCategory['socialProof'];
   subCategories: Array<{
     key?: string;
     serviceKey: string;
@@ -94,6 +98,7 @@ type HomeService = {
     calloutFeeMinor?: number;
     feeLabel: string;
     inspectionRequired?: boolean;
+    socialProof?: MarketAvailabilityBookableService['socialProof'];
   }>;
 };
 
@@ -120,6 +125,19 @@ const stackGroupTitle = (value: string) =>
     .split(/\s+/)
     .filter(Boolean);
 
+const socialProofText = (proof?: MarketAvailabilityCategory['socialProof']) => {
+  if (!proof) return '';
+  const parts: string[] = [];
+  if (typeof proof.averageRating === 'number' && proof.reviewCount > 0) {
+    parts.push(`${proof.averageRating.toFixed(1)} rating`);
+  }
+  if (proof.completedJobs > 0) {
+    const suffix = proof.city ? ` in ${proof.city}` : '';
+    parts.push(`${proof.completedJobs.toLocaleString()} jobs completed${suffix}`);
+  }
+  return parts.join(' - ');
+};
+
 const resolveTopLevelGroupIcon = (groupKey?: string, label?: string) => {
   const text = `${groupKey || ''} ${label || ''}`.toLowerCase();
   if (/(auto|car|vehicle|mechanic)/.test(text)) return CarIcon;
@@ -142,6 +160,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
   const [availabilityCurrency, setAvailabilityCurrency] = useState('');
   const [activeBooking, setActiveBooking] = useState<BookingDetails | null>(null);
   const [activeBookingLoading, setActiveBookingLoading] = useState(false);
+  const [pendingReview, setPendingReview] = useState<BookingHistoryItem | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [failedRemoteImages, setFailedRemoteImages] = useState<Record<string, true>>({});
 
@@ -226,6 +245,15 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
       .then((result) => setActiveBooking(result.active ? result.booking : null))
       .catch(() => setActiveBooking(null))
       .finally(() => setActiveBookingLoading(false));
+  }, []);
+
+  useEffect(() => {
+    apiService.getMyBookingHistory()
+      .then((result) => {
+        const nextPendingReview = (result.bookings || []).find((booking) => booking.canReview);
+        setPendingReview(nextPendingReview || null);
+      })
+      .catch(() => setPendingReview(null));
   }, []);
 
   const visibleBackendGroups = useMemo(() => {
@@ -367,6 +395,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
           imageSource: image.source,
           remoteImageFailureKey: image.failedKey,
           calloutFeeMinor: firstFee,
+          socialProof: category.socialProof,
           subCategories: services.map((service) => ({
             key: service.legacySubcategoryKey || service.serviceKey,
             serviceKey: service.serviceKey,
@@ -376,6 +405,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
             calloutFeeMinor: service.calloutFeeMinor,
             feeLabel: formatFee(service.calloutFeeMinor),
             inspectionRequired: service.inspectionRequired,
+            socialProof: service.socialProof,
           })),
         };
       });
@@ -538,6 +568,25 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
           </TouchableOpacity>
         )}
 
+        {pendingReview && (
+          <TouchableOpacity
+            style={styles.reviewReminderCard}
+            activeOpacity={0.86}
+            onPress={() => navigation.navigate('History')}
+          >
+            <View style={styles.reviewReminderIcon}>
+              <StarIcon color={Colors.background} size={18} fill={Colors.background} />
+            </View>
+            <View style={styles.reviewReminderCopy}>
+              <Text style={styles.reviewReminderTitle}>Rate your recent Padi job</Text>
+              <Text style={styles.reviewReminderText} numberOfLines={1}>
+                {pendingReview.applianceType || pendingReview.serviceKey || 'Completed service'} is ready for your feedback.
+              </Text>
+            </View>
+            <ChevronRightIcon color={Colors.background} size={18} strokeWidth={3} />
+          </TouchableOpacity>
+        )}
+
         <View style={styles.searchShell}>
           <SearchIcon color={Colors.textSubtle} size={18} />
           <TextInput
@@ -642,6 +691,9 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
                   ) : null}
                 </View>
                 <Text style={styles.serviceSubtitle} numberOfLines={1}>{item.subtitle}</Text>
+                {!!socialProofText(item.socialProof) && (
+                  <Text style={styles.serviceSocialProof} numberOfLines={1}>{socialProofText(item.socialProof)}</Text>
+                )}
                 <View style={styles.serviceMetaRow}>
                   <Text style={styles.serviceFee} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
                     {formatFee(item.calloutFeeMinor)} call-out
@@ -683,6 +735,9 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.subItemName}>{sub.name}</Text>
                     <Text style={styles.subItemEstimate}>Call-out fee for visit and diagnosis</Text>
+                    {!!socialProofText(sub.socialProof) && (
+                      <Text style={styles.subItemProof}>{socialProofText(sub.socialProof)}</Text>
+                    )}
                   </View>
                   <View style={styles.subItemFeePill}>
                     <Text style={styles.subItemPrice} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
@@ -783,6 +838,33 @@ const styles = StyleSheet.create({
   },
   verifyBannerTitle: { color: Colors.amber, fontSize: 14, fontWeight: '900', marginBottom: 4 },
   verifyBannerText: { color: Colors.text, fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  reviewReminderCard: {
+    minHeight: 78,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: Colors.primary,
+    borderRadius: 22,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    marginBottom: Spacing.lg,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    elevation: 7,
+  },
+  reviewReminderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(11, 11, 13, 0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reviewReminderCopy: { flex: 1, minWidth: 0 },
+  reviewReminderTitle: { color: Colors.background, fontSize: 14, fontWeight: '900' },
+  reviewReminderText: { color: '#1B1B1F', fontSize: 12, fontWeight: '700', marginTop: 3 },
   searchShell: {
     minHeight: 58,
     flexDirection: 'row',
@@ -943,6 +1025,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   serviceSubtitle: { color: Colors.textMuted, fontSize: 12, fontWeight: '600', marginTop: 4 },
+  serviceSocialProof: {
+    color: Colors.text,
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 5,
+    opacity: 0.84,
+  },
   serviceMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1016,6 +1105,7 @@ const styles = StyleSheet.create({
   },
   subItemName: { color: Colors.text, fontSize: 15, fontWeight: '800' },
   subItemEstimate: { color: Colors.textMuted, fontSize: 12, marginTop: 3 },
+  subItemProof: { color: Colors.primary, fontSize: 12, fontWeight: '800', marginTop: 5 },
   subItemFeePill: {
     minWidth: 84,
     minHeight: 40,

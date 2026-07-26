@@ -36,12 +36,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAdminAuditLogs = exports.updateAdminPromotion = exports.archiveAdminPromotion = exports.endAdminPromotion = exports.pauseAdminPromotion = exports.activateAdminPromotion = exports.duplicateAdminPromotion = exports.getAdminPromotionAudit = exports.getAdminPromotionRedemptions = exports.getAdminPromotionPerformance = exports.getAdminPromotionById = exports.createAdminPromotion = exports.getAdminPromotionsSummary = exports.listAdminPromotions = exports.deleteAdminUser = exports.updateAdminUser = exports.createAdminUser = exports.listAdminUsers = exports.deleteAdminMarketArea = exports.updateAdminMarketArea = exports.createAdminMarketArea = exports.deleteAdminMarketCity = exports.updateAdminMarketCity = exports.createAdminMarketCity = exports.deleteAdminMarket = exports.updateAdminMarket = exports.getPublicMarketAvailability = exports.getPublicMarkets = exports.previewAdminPricing = exports.getPublicServices = exports.updateAdminService = exports.deleteAdminBookableService = exports.deleteAdminServiceCategory = exports.deleteAdminServiceGroup = exports.updateAdminServiceGroup = exports.createAdminService = exports.uploadAdminServiceImage = exports.getAdminServices = exports.getAdminMarkets = exports.getAdminWalletTransactions = exports.getAdminInvoices = exports.getAdminQuotes = exports.updateTechnicianCapabilityStatus = exports.getAdminBookingById = exports.getAdminBookings = exports.revealAdminClientContact = exports.getAdminClients = exports.getAdminOverview = exports.buildPromotionAnalyticsSummary = exports.promotionMaterialFieldsChanged = void 0;
-exports.clearAdminAuditLogs = void 0;
+exports.archiveAdminPromotion = exports.endAdminPromotion = exports.pauseAdminPromotion = exports.activateAdminPromotion = exports.duplicateAdminPromotion = exports.getAdminPromotionAudit = exports.getAdminPromotionRedemptions = exports.getAdminPromotionPerformance = exports.getAdminPromotionById = exports.createAdminPromotion = exports.getAdminGrowthTrust = exports.listAdminReferralRewards = exports.getAdminPromotionsSummary = exports.listAdminPromotions = exports.deleteAdminUser = exports.updateAdminUser = exports.createAdminUser = exports.listAdminUsers = exports.deleteAdminMarketArea = exports.updateAdminMarketArea = exports.createAdminMarketArea = exports.deleteAdminMarketCity = exports.updateAdminMarketCity = exports.createAdminMarketCity = exports.deleteAdminMarket = exports.updateAdminMarket = exports.getPublicMarketAvailability = exports.getPublicMarkets = exports.previewAdminPricing = exports.getPublicServices = exports.updateAdminService = exports.deleteAdminBookableService = exports.deleteAdminServiceCategory = exports.deleteAdminServiceGroup = exports.updateAdminServiceGroup = exports.createAdminService = exports.uploadAdminServiceImage = exports.getAdminServices = exports.getAdminMarkets = exports.getAdminWalletTransactions = exports.getAdminInvoices = exports.getAdminQuotes = exports.updateTechnicianCapabilityStatus = exports.getAdminBookingById = exports.getAdminBookings = exports.revealAdminClientContact = exports.getAdminClients = exports.getAdminOverview = exports.buildPromotionAnalyticsSummary = exports.promotionMaterialFieldsChanged = void 0;
+exports.clearAdminAuditLogs = exports.getAdminAuditLogs = exports.updateAdminPromotion = void 0;
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const crypto_1 = __importDefault(require("crypto"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const booking_model_1 = __importStar(require("../models/booking.model"));
+const booking_review_model_1 = __importStar(require("../models/booking-review.model"));
 const quote_model_1 = __importStar(require("../models/quote.model"));
 const chat_message_model_1 = __importDefault(require("../models/chat-message.model"));
 const job_media_model_1 = __importDefault(require("../models/job-media.model"));
@@ -72,6 +73,8 @@ const market_lifecycle_service_1 = require("../services/market-lifecycle.service
 const market_city_service_1 = require("../services/market-city.service");
 const price_breakdown_service_1 = require("../services/price-breakdown.service");
 const admin_market_scope_service_1 = require("../services/admin-market-scope.service");
+const provider_referral_service_1 = require("../services/provider-referral.service");
+const customer_referral_service_1 = require("../services/customer-referral.service");
 const parseLimit = (value, fallback = 50) => {
     const parsed = Number(value);
     if (!Number.isFinite(parsed))
@@ -2617,7 +2620,7 @@ const createAdminUser = async (req, res) => {
         const requestedCountryCode = String(countryCode || 'ZA').toUpperCase();
         const baseMarket = market_config_1.MARKET_CONFIG[requestedCountryCode];
         if (!baseMarket) {
-            res.status(400).json({ message: 'This country is not configured as a MyFixer market yet. Add it in Settings before assigning staff to it.' });
+            res.status(400).json({ message: 'This country is not configured as a Padi market yet. Add it in Markets before assigning staff to it.' });
             return;
         }
         const temporaryPassword = typeof password === 'string' && password.trim().length >= 8
@@ -2803,6 +2806,165 @@ const getAdminPromotionsSummary = async (req, res) => {
     }
 };
 exports.getAdminPromotionsSummary = getAdminPromotionsSummary;
+const listAdminReferralRewards = async (req, res) => {
+    try {
+        const scopeFilter = (0, admin_market_scope_service_1.countryScopeFilter)(await (0, admin_market_scope_service_1.getAdminMarketScope)(req));
+        const [rewards, customerRewards] = await Promise.all([
+            (0, provider_referral_service_1.listReferralRewardsForAdmin)(scopeFilter),
+            (0, customer_referral_service_1.listCustomerReferralRewardsForAdmin)(scopeFilter),
+        ]);
+        const allRewards = [...rewards, ...customerRewards];
+        const summary = allRewards.reduce((acc, reward) => {
+            acc.total += 1;
+            if (reward.status === 'REWARD_ELIGIBLE')
+                acc.issued += 1;
+            if (reward.status === 'REWARD_BLOCKED')
+                acc.blocked += 1;
+            if (reward.rewardRedeemed)
+                acc.redeemed += 1;
+            return acc;
+        }, { total: 0, issued: 0, blocked: 0, redeemed: 0 });
+        res.status(200).json({ success: true, rewards, customerRewards, summary });
+    }
+    catch (error) {
+        if ((0, admin_market_scope_service_1.handleAdminMarketScopeError)(res, error))
+            return;
+        res.status(500).json({ success: false, message: 'Failed to fetch referral rewards.' });
+    }
+};
+exports.listAdminReferralRewards = listAdminReferralRewards;
+const serializeGrowthTrustReview = (review) => ({
+    id: review._id?.toString(),
+    bookingId: review.bookingId?.toString(),
+    customer: review.customerId
+        ? {
+            id: review.customerId._id?.toString(),
+            name: review.customerId.name || '',
+            email: maskEmail(review.customerId.email || ''),
+        }
+        : null,
+    provider: review.technicianId
+        ? {
+            id: review.technicianId._id?.toString(),
+            name: review.technicianId.name || '',
+            email: maskEmail(review.technicianId.email || ''),
+        }
+        : null,
+    serviceKey: review.serviceKey || '',
+    serviceName: review.serviceName || '',
+    countryCode: review.countryCode || '',
+    city: review.city || '',
+    rating: Number(review.rating || 0),
+    professional: review.professional === true,
+    onTime: review.onTime === true,
+    qualityWork: review.qualityWork === true,
+    communication: review.communication === true,
+    wouldBookAgain: review.wouldBookAgain === true,
+    comment: review.comment || '',
+    status: review.status || booking_review_model_1.BookingReviewStatus.PUBLISHED,
+    createdAt: review.createdAt,
+});
+const getAdminGrowthTrust = async (req, res) => {
+    try {
+        const scopeFilter = (0, admin_market_scope_service_1.countryScopeFilter)(await (0, admin_market_scope_service_1.getAdminMarketScope)(req));
+        const reviewFilter = {
+            ...scopeFilter,
+            status: booking_review_model_1.BookingReviewStatus.PUBLISHED,
+        };
+        const [reviewSummary, recentReviews, lowReviews, topProviders, rewards, customerRewards,] = await Promise.all([
+            booking_review_model_1.default.aggregate([
+                { $match: reviewFilter },
+                {
+                    $group: {
+                        _id: null,
+                        totalReviews: { $sum: 1 },
+                        averageRating: { $avg: '$rating' },
+                        lowRatingReviews: {
+                            $sum: {
+                                $cond: [{ $lte: ['$rating', 3] }, 1, 0],
+                            },
+                        },
+                    },
+                },
+            ]),
+            booking_review_model_1.default.find(reviewFilter)
+                .populate('customerId', 'name email')
+                .populate('technicianId', 'name email')
+                .sort({ createdAt: -1 })
+                .limit(75)
+                .lean(),
+            booking_review_model_1.default.find({ ...reviewFilter, rating: { $lte: 3 } })
+                .populate('customerId', 'name email')
+                .populate('technicianId', 'name email')
+                .sort({ createdAt: -1 })
+                .limit(25)
+                .lean(),
+            technician_model_1.default.find(scopeFilter)
+                .populate('userId', 'name email')
+                .select('userId countryCode city approvalStatus stats serviceCategories createdAt')
+                .sort({ 'stats.averageRating': -1, 'stats.reviewCount': -1, 'stats.completedJobs': -1 })
+                .limit(25)
+                .lean(),
+            (0, provider_referral_service_1.listReferralRewardsForAdmin)(scopeFilter),
+            (0, customer_referral_service_1.listCustomerReferralRewardsForAdmin)(scopeFilter),
+        ]);
+        const allRewards = [...rewards, ...customerRewards];
+        const summaryRow = reviewSummary[0] || {};
+        const rewardSummary = allRewards.reduce((acc, reward) => {
+            acc.total += 1;
+            if (reward.status === 'REWARD_ELIGIBLE')
+                acc.issued += 1;
+            if (reward.status === 'REWARD_BLOCKED')
+                acc.blocked += 1;
+            if (reward.rewardRedeemed)
+                acc.redeemed += 1;
+            return acc;
+        }, { total: 0, issued: 0, blocked: 0, redeemed: 0 });
+        const suspiciousReferrals = allRewards
+            .filter((reward) => reward.status === 'REWARD_BLOCKED' || reward.rewardBlockReason)
+            .slice(0, 50);
+        res.status(200).json({
+            success: true,
+            growthTrust: {
+                summary: {
+                    totalReviews: Number(summaryRow.totalReviews || 0),
+                    averageRating: summaryRow.averageRating
+                        ? Number(Number(summaryRow.averageRating).toFixed(2))
+                        : null,
+                    lowRatingReviews: Number(summaryRow.lowRatingReviews || 0),
+                    trackedReferrals: rewardSummary.total,
+                    rewardsIssued: rewardSummary.issued,
+                    rewardsRedeemed: rewardSummary.redeemed,
+                    blockedReferrals: rewardSummary.blocked,
+                },
+                reviews: recentReviews.map(serializeGrowthTrustReview),
+                lowReviews: lowReviews.map(serializeGrowthTrustReview),
+                topProviders: topProviders.map((provider) => ({
+                    id: provider._id?.toString(),
+                    userId: provider.userId?._id?.toString() || provider.userId?.toString(),
+                    name: provider.userId?.name || 'Service Provider',
+                    email: provider.userId?.email ? maskEmail(provider.userId.email) : '',
+                    countryCode: provider.countryCode || '',
+                    city: provider.city || '',
+                    approvalStatus: provider.approvalStatus || '',
+                    averageRating: Number(provider.stats?.averageRating || 0),
+                    reviewCount: Number(provider.stats?.reviewCount || 0),
+                    completedJobs: Number(provider.stats?.completedJobs || 0),
+                })),
+                suspiciousReferrals,
+                referralRewards: rewards,
+                customerReferralRewards: customerRewards,
+            },
+        });
+    }
+    catch (error) {
+        if ((0, admin_market_scope_service_1.handleAdminMarketScopeError)(res, error))
+            return;
+        console.error('Failed to load growth and trust dashboard:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch growth and trust data.' });
+    }
+};
+exports.getAdminGrowthTrust = getAdminGrowthTrust;
 const createAdminPromotion = async (req, res) => {
     try {
         const actor = getActor(req);

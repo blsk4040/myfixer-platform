@@ -13,6 +13,7 @@ export interface TechnicianIdentity {
   approvalStatus: string;
   serviceCategories: string[];
   businessName: string;
+  referralCode: string;
   profilePhotoUrl: string;
   profilePhotoStatus: string;
   stats: {
@@ -64,6 +65,7 @@ export const getTechnicianIdentity = (session: AuthSession | null = authService.
   const approvalStatus = clean(profile?.approvalStatus) || 'UNKNOWN';
   const profilePhotoUrl = clean(profile?.profilePhotoUrl) || clean(user?.profilePhotoUrl);
   const profilePhotoStatus = clean(profile?.profilePhotoStatus) || 'NOT_SUBMITTED';
+  const referralCode = clean(profile?.referralCode);
   const serviceCategories = Array.isArray(profile?.serviceCategories)
     ? profile.serviceCategories.map(clean).filter(Boolean)
     : [];
@@ -81,6 +83,7 @@ export const getTechnicianIdentity = (session: AuthSession | null = authService.
     approvalStatus: titleCaseStatus(approvalStatus),
     serviceCategories,
     businessName: clean(profile?.businessName),
+    referralCode,
     profilePhotoUrl,
     profilePhotoStatus: titleCaseStatus(profilePhotoStatus),
     stats: {

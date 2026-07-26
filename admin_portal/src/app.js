@@ -180,6 +180,18 @@ const state = {
     ledger: [],
     settlements: [],
     promotions: [],
+    referralRewards: [],
+    customerReferralRewards: [],
+    referralRewardSummary: null,
+    growthTrust: {
+      summary: null,
+      reviews: [],
+      lowReviews: [],
+      topProviders: [],
+      suspiciousReferrals: [],
+      referralRewards: [],
+      customerReferralRewards: [],
+    },
     promotionSummary: null,
     promotionMeta: {
       discountTypes: [],
@@ -221,6 +233,7 @@ const views = [
   { id: 'invoices', label: 'Invoices', icon: '$', permission: 'finance.read' },
   { id: 'settlements', label: 'Settlements', icon: 'P', permission: 'finance.read' },
   { id: 'promotions', label: 'Promotions', icon: '%', permission: 'finance.read' },
+  { id: 'growthTrust', label: 'Growth & Trust', icon: 'G', permission: 'promotions.performance.read' },
   { id: 'ledger', label: 'Wallet Ledger', icon: 'L', permission: 'finance.read' },
   { id: 'adminUsers', label: 'Users', icon: 'A', permission: 'admins.read' },
   { id: 'services', label: 'Services', icon: 'S', permission: 'markets.read' },
@@ -350,6 +363,51 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+const PASSWORD_EYE_ICON = `
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path>
+    <circle cx="12" cy="12" r="3"></circle>
+  </svg>
+`;
+
+const PASSWORD_EYE_OFF_ICON = `
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M3 3l18 18"></path>
+    <path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path>
+    <path d="M7.4 7.4C4.2 9 2.5 12 2.5 12s3.5 6 9.5 6c1.6 0 3-.4 4.2-1"></path>
+    <path d="M17.2 14.8c2.8-1.6 4.3-2.8 4.3-2.8S18 6 12 6c-.8 0-1.6.1-2.3.3"></path>
+  </svg>
+`;
+
+function renderPasswordInput({ name, autocomplete, minlength, required = true }) {
+  return `
+    <div class="password-field">
+      <input
+        name="${escapeHtml(name)}"
+        type="password"
+        autocomplete="${escapeHtml(autocomplete)}"
+        ${minlength ? `minlength="${escapeHtml(minlength)}"` : ''}
+        ${required ? 'required' : ''}
+      />
+      <button
+        class="password-toggle"
+        type="button"
+        onclick="togglePasswordVisibility(this)"
+        aria-label="Show password"
+      >${PASSWORD_EYE_ICON}</button>
+    </div>
+  `;
+}
+
+function togglePasswordVisibility(button) {
+  const input = button?.closest('.password-field')?.querySelector('input');
+  if (!input) return;
+  const willShow = input.type === 'password';
+  input.type = willShow ? 'text' : 'password';
+  button.setAttribute('aria-label', willShow ? 'Hide password' : 'Show password');
+  button.innerHTML = willShow ? PASSWORD_EYE_OFF_ICON : PASSWORD_EYE_ICON;
 }
 
 function initials(value) {
@@ -1050,6 +1108,8 @@ async function loadAllData() {
       settlements: hasPermission('finance.read') ? api('/admin/settlements') : Promise.resolve({ settlements: [] }),
       promotions: hasPermission('promotions.read') ? api(`/admin/promotions${scopedQuery()}`) : Promise.resolve({ promotions: [], discountTypes: [], statuses: [] }),
       promotionSummary: hasPermission('promotions.performance.read') ? api(`/admin/promotions/summary${scopedQuery()}`) : Promise.resolve({ summary: null }),
+      referralRewards: hasPermission('promotions.performance.read') ? api(`/admin/referral-rewards${scopedQuery()}`) : Promise.resolve({ rewards: [], summary: null }),
+      growthTrust: hasPermission('promotions.performance.read') ? api(`/admin/growth-trust${scopedQuery()}`) : Promise.resolve({ growthTrust: null }),
       ledger: hasPermission('finance.read') ? api(`/admin/wallet-transactions${scopedQuery({ limit: 100 })}`) : Promise.resolve({ transactions: [] }),
       markets: hasPermission('markets.read') ? api('/admin/markets') : Promise.resolve({ markets: [], availableStatuses: [], availablePaymentProviders: [], defaultServiceCategories: [], availableMarkets: [] }),
       services: hasPermission('markets.read') ? api('/admin/services') : Promise.resolve({ services: [], statuses: [] }),
@@ -1057,7 +1117,7 @@ async function loadAllData() {
       auditLogs: isSuperAdminUser() ? api('/admin/audit-logs?limit=100') : Promise.resolve({ logs: [] }),
     };
 
-    const [overview, clients, technicians, bookings, managedCollections, collectionOperations, notifications, supportTickets, subscriptions, quotes, invoices, settlements, promotions, promotionSummary, ledger, markets, services, adminUsers, auditLogs] = await Promise.all(Object.values(requests));
+    const [overview, clients, technicians, bookings, managedCollections, collectionOperations, notifications, supportTickets, subscriptions, quotes, invoices, settlements, promotions, promotionSummary, referralRewards, growthTrust, ledger, markets, services, adminUsers, auditLogs] = await Promise.all(Object.values(requests));
 
     state.data.overview = overview.overview;
     state.data.clients = clients.clients || [];
@@ -1098,6 +1158,18 @@ async function loadAllData() {
     state.data.settlements = settlements.settlements || [];
     state.data.promotions = promotions.promotions || [];
     state.data.promotionSummary = promotionSummary.summary || null;
+    state.data.referralRewards = referralRewards.rewards || [];
+    state.data.customerReferralRewards = referralRewards.customerRewards || [];
+    state.data.referralRewardSummary = referralRewards.summary || null;
+    state.data.growthTrust = growthTrust.growthTrust || {
+      summary: null,
+      reviews: [],
+      lowReviews: [],
+      topProviders: [],
+      suspiciousReferrals: [],
+      referralRewards: [],
+      customerReferralRewards: [],
+    };
     state.data.promotionMeta = {
       discountTypes: promotions.discountTypes || [],
       statuses: promotions.statuses || [],
@@ -1255,11 +1327,11 @@ function renderLogin() {
             <p>Create a permanent password before opening the internal dashboard.</p>
           </div>
           <label>Temporary Password</label>
-          <input name="currentPassword" type="password" autocomplete="current-password" required />
+          ${renderPasswordInput({ name: 'currentPassword', autocomplete: 'current-password' })}
           <label>New Password</label>
-          <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+          ${renderPasswordInput({ name: 'newPassword', autocomplete: 'new-password', minlength: 8 })}
           <label>Confirm New Password</label>
-          <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
+          ${renderPasswordInput({ name: 'confirmPassword', autocomplete: 'new-password', minlength: 8 })}
           <p class="form-error" data-login-error></p>
           <button class="primary-button" type="submit">${state.loading ? 'Updating...' : 'Update Password'}</button>
           <button class="text-button" type="button" onclick="logout()">Sign out</button>
@@ -1293,9 +1365,9 @@ function renderLogin() {
             <label>Email</label>
             <input name="email" type="email" autocomplete="email" value="${escapeHtml(resetEmail)}" required />
             <label>New Password</label>
-            <input name="password" type="password" autocomplete="new-password" minlength="6" required />
+            ${renderPasswordInput({ name: 'password', autocomplete: 'new-password', minlength: 6 })}
             <label>Confirm Password</label>
-            <input name="confirmPassword" type="password" autocomplete="new-password" minlength="6" required />
+            ${renderPasswordInput({ name: 'confirmPassword', autocomplete: 'new-password', minlength: 6 })}
             <p class="form-message" data-auth-message></p>
             <p class="form-error" data-login-error></p>
             <button class="primary-button" type="submit">${state.loading ? 'Resetting...' : 'Reset Password'}</button>
@@ -1314,7 +1386,7 @@ function renderLogin() {
             <input name="email" type="email" autocomplete="username" required />
 
             <label>Password</label>
-            <input name="password" type="password" autocomplete="current-password" required />
+            ${renderPasswordInput({ name: 'password', autocomplete: 'current-password' })}
 
             <div class="login-row">
               <button class="text-button" type="button" onclick="setAuthView('forgot')">Forgot password?</button>
@@ -1327,12 +1399,12 @@ function renderLogin() {
 
   app.innerHTML = `
     <main class="login-page">
-      <section class="login-media" aria-label="MyFixer operations image">
+      <section class="login-media" aria-label="Padi operations image">
         <div class="media-overlay">
           <div class="brand-lockup">
             <img
               src="https://res.cloudinary.com/dz7dr3wku/image/upload/v1784232641/final_logo_main_xx1y3f.png"
-              alt="MyFixer logo"
+              alt="Padi logo"
               class="brand-logo"
             />
               <div>
@@ -1519,6 +1591,7 @@ function renderActiveView() {
   if (state.activeView === 'invoices') return renderInvoices();
   if (state.activeView === 'settlements') return renderSettlements();
   if (state.activeView === 'promotions') return renderPromotions();
+  if (state.activeView === 'growthTrust') return renderGrowthTrust();
   if (state.activeView === 'ledger') return renderLedger();
   if (state.activeView === 'adminUsers') return renderAdminUsers();
   if (state.activeView === 'services') return renderServices();
@@ -1811,7 +1884,7 @@ function renderOverviewFilterBar(data) {
       <label><span>Date Range</span><select><option>7 Days</option><option>Today</option><option>30 Days</option><option>90 Days</option><option>This Year</option><option>Custom Range</option></select></label>
       <label><span>Active Market</span><select onchange="setOverviewMarket(this.value)" ${isSuperAdminUser() ? '' : 'disabled'}>${marketOptions}</select></label>
       <button class="ghost-button compact" onclick="refresh()">Refresh</button>
-      <button class="ghost-button compact" title="TODO: Connect to analytics export endpoint.">Export</button>
+      <button class="ghost-button compact" title="Analytics export is coming soon.">Export</button>
     </div>
   `;
 }
@@ -1974,8 +2047,8 @@ function renderRevenueByCountryDonut(rows, currency) {
 function renderFinancialDistribution(data) {
   return `
     <div class="overview-grid two">
-      <section class="panel business-panel"><div class="panel-header"><div><h2>Platform Fees</h2><span>Commission retained by MyFixer</span></div></div><div class="financial-total">${moneyFromMinor(data.platformFeesMinor, data.primaryCurrency)}</div>${sparklineSvg(buildRevenueTrendRows(data.paidInvoices).map((row) => row.totalMinor), 'blue')}<p class="business-note">TODO: Replace with finance analytics endpoint for period-over-period growth.</p></section>
-      <section class="panel business-panel"><div class="panel-header"><div><h2>Service Provider Payouts</h2><span>Net earnings owed or paid to providers</span></div></div><div class="financial-total">${moneyFromMinor(data.technicianPayoutsMinor, data.primaryCurrency)}</div>${sparklineSvg(buildRevenueTrendRows(data.paidInvoices).map((row) => row.totalMinor), 'purple')}<p class="business-note">TODO: Connect settlement analytics for paid vs pending payout timing.</p></section>
+      <section class="panel business-panel"><div class="panel-header"><div><h2>Platform Fees</h2><span>Commission retained by Padi</span></div></div><div class="financial-total">${moneyFromMinor(data.platformFeesMinor, data.primaryCurrency)}</div>${sparklineSvg(buildRevenueTrendRows(data.paidInvoices).map((row) => row.totalMinor), 'blue')}<p class="business-note">Period-over-period finance analytics will appear here when the reporting endpoint is available.</p></section>
+      <section class="panel business-panel"><div class="panel-header"><div><h2>Service Provider Payouts</h2><span>Net earnings owed or paid to providers</span></div></div><div class="financial-total">${moneyFromMinor(data.technicianPayoutsMinor, data.primaryCurrency)}</div>${sparklineSvg(buildRevenueTrendRows(data.paidInvoices).map((row) => row.totalMinor), 'purple')}<p class="business-note">Settlement timing analytics will appear here when payout reporting is available.</p></section>
     </div>
   `;
 }
@@ -3374,7 +3447,7 @@ function renderSettlements() {
     return `
       <strong>${escapeHtml(label)}</strong>
       <span>${moneyFromMinor(promotionDiscountMinor, settlement.currency || 'ZAR')} discount · ${escapeHtml(funding)}</span>
-      <span>MyFixer ${moneyFromMinor(Number(breakdown.promotionPlatformFundedMinor || 0), settlement.currency || 'ZAR')} · Provider ${moneyFromMinor(Number(breakdown.promotionTechnicianFundedMinor || 0), settlement.currency || 'ZAR')} · Partner ${moneyFromMinor(Number(breakdown.promotionPartnerFundedMinor || 0), settlement.currency || 'ZAR')}</span>
+      <span>Padi ${moneyFromMinor(Number(breakdown.promotionPlatformFundedMinor || 0), settlement.currency || 'ZAR')} · Provider ${moneyFromMinor(Number(breakdown.promotionTechnicianFundedMinor || 0), settlement.currency || 'ZAR')} · Partner ${moneyFromMinor(Number(breakdown.promotionPartnerFundedMinor || 0), settlement.currency || 'ZAR')}</span>
     `;
   };
   return `
@@ -3901,7 +3974,7 @@ function renderPromotionWizard() {
           ${draft.fundingSource === 'MYFIXER' ? '<p class="setting-help">Service provider earnings are not reduced by this promotion.</p>' : ''}
           ${draft.fundingSource === 'PROVIDER' ? '<p class="setting-help">The provider-funded portion may reduce provider earnings.</p>' : ''}
           ${draft.fundingSource === 'PARTNER' ? `<label>Partner Reference</label><input value="${escapeHtml(draft.partnerReference)}" oninput="setPromotionDraftField('partnerReference', this.value)" />` : ''}
-          ${draft.fundingSource === 'SHARED' ? `<div class="form-grid"><div><label>MyFixer %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.platformFundingPercent)}" oninput="setPromotionDraftField('platformFundingPercent', this.value)" /></div><div><label>Provider %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.technicianFundingPercent)}" oninput="setPromotionDraftField('technicianFundingPercent', this.value)" /></div><div><label>Partner %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.partnerFundingPercent)}" oninput="setPromotionDraftField('partnerFundingPercent', this.value)" /></div></div><p class="setting-help tight">Shared funding splits must total 100%.</p>` : ''}
+          ${draft.fundingSource === 'SHARED' ? `<div class="form-grid"><div><label>Padi %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.platformFundingPercent)}" oninput="setPromotionDraftField('platformFundingPercent', this.value)" /></div><div><label>Provider %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.technicianFundingPercent)}" oninput="setPromotionDraftField('technicianFundingPercent', this.value)" /></div><div><label>Partner %</label><input type="number" min="0" max="100" value="${escapeHtml(draft.partnerFundingPercent)}" oninput="setPromotionDraftField('partnerFundingPercent', this.value)" /></div></div><p class="setting-help tight">Shared funding splits must total 100%.</p>` : ''}
         ` : ''}
         ${step === 4 ? `
           <div class="form-grid"><div><label>Start Date/Time</label><input type="datetime-local" value="${escapeHtml(draft.startsAt)}" oninput="setPromotionDraftField('startsAt', this.value)" /></div><div><label>End Date/Time</label><input type="datetime-local" value="${escapeHtml(draft.expiresAt)}" oninput="setPromotionDraftField('expiresAt', this.value)" /></div></div>
@@ -3912,7 +3985,7 @@ function renderPromotionWizard() {
         ` : ''}
         ${step === 5 ? `
           <div class="metric-grid"><article class="metric-card"><span>Original amount</span><strong>Not available yet</strong></article><article class="metric-card"><span>Promotion discount</span><strong>${promotionOffer(buildPromotionPayload('DRAFT'))}</strong></article><article class="metric-card"><span>Service fee</span><strong>Backend preview</strong></article><article class="metric-card"><span>Tax</span><strong>Backend preview</strong></article><article class="metric-card"><span>Total</span><strong>Backend approved at pricing</strong></article></div>
-          <div class="metric-grid"><article class="metric-card"><span>MyFixer contribution</span><strong>${draft.platformFundingPercent || 0}%</strong></article><article class="metric-card"><span>Provider contribution</span><strong>${draft.technicianFundingPercent || 0}%</strong></article><article class="metric-card"><span>Partner contribution</span><strong>${draft.partnerFundingPercent || 0}%</strong></article><article class="metric-card"><span>Estimated provider impact</span><strong>${['MYFIXER', 'PARTNER'].includes(draft.fundingSource) ? 'No reduction' : 'Provider portion only'}</strong></article></div>
+          <div class="metric-grid"><article class="metric-card"><span>Padi contribution</span><strong>${draft.platformFundingPercent || 0}%</strong></article><article class="metric-card"><span>Provider contribution</span><strong>${draft.technicianFundingPercent || 0}%</strong></article><article class="metric-card"><span>Partner contribution</span><strong>${draft.partnerFundingPercent || 0}%</strong></article><article class="metric-card"><span>Estimated provider impact</span><strong>${['MYFIXER', 'PARTNER'].includes(draft.fundingSource) ? 'No reduction' : 'Provider portion only'}</strong></article></div>
           <div class="mini-card"><strong>Activation Readiness</strong><p>${issues.length ? escapeHtml(issues.join(', ')) : 'Ready for lifecycle validation.'}</p></div>
         ` : ''}
         <div class="action-cluster">
@@ -3949,6 +4022,167 @@ function renderPromotionDetails() {
   `;
 }
 
+function renderReferralRewards() {
+  const rewards = state.data.referralRewards || [];
+  const customerRewards = state.data.customerReferralRewards || [];
+  const summary = state.data.referralRewardSummary || {};
+  const totalCount = rewards.length + customerRewards.length;
+  const cards = [
+    ['Tracked Referrals', summary.total ?? totalCount],
+    ['Reward Issued', summary.issued ?? [...rewards, ...customerRewards].filter((item) => item.status === 'REWARD_ELIGIBLE').length],
+    ['Redeemed', summary.redeemed ?? [...rewards, ...customerRewards].filter((item) => item.rewardRedeemed).length],
+    ['Blocked', summary.blocked ?? [...rewards, ...customerRewards].filter((item) => item.status === 'REWARD_BLOCKED').length],
+  ];
+
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Referral Rewards</h2>
+          <span>Rewards are issued only after a referred customer completes a paid booking.</span>
+        </div>
+      </div>
+      <div class="metric-grid">${cards.map(([label, value]) => `<article class="metric-card"><span>${label}</span><strong>${escapeHtml(value)}</strong></article>`).join('')}</div>
+      <h3>Provider Invites</h3>
+      ${rewards.length ? renderGenericTable(rewards, ['Provider', 'Customer', 'Code', 'Reward', 'Status', 'Fraud Check', 'Timeline', 'Actions'], (reward) => [
+        `<strong>${escapeHtml(reward.referrer?.name || '-')}</strong><span>${escapeHtml(reward.referrer?.email || '')}</span>`,
+        `<strong>${escapeHtml(reward.customer?.name || '-')}</strong><span>${escapeHtml(reward.customer?.email || '')}</span>`,
+        `<strong>${escapeHtml(reward.referralCode || '-')}</strong><span>${escapeHtml(reward.countryCode || '')} ${escapeHtml(reward.city || '')}</span>`,
+        reward.rewardCode
+          ? `<strong>${escapeHtml(reward.rewardCode)}</strong><span>${reward.rewardRedeemed ? 'Redeemed' : 'Available'}${reward.rewardPromotionStatus ? ` · ${escapeHtml(reward.rewardPromotionStatus)}` : ''}</span>`
+          : '<span>No reward issued yet</span>',
+        `<span class="status ${statusClass(reward.status)}">${escapeHtml(reward.status || '-')}</span>`,
+        reward.rewardBlockReason
+          ? `<span class="status bad">${escapeHtml(reward.rewardBlockReason)}</span>`
+          : '<span class="status good">Passed or pending</span>',
+        `Registered ${formatDate(reward.registeredAt)}<span>Completed ${formatDate(reward.firstCompletedAt)} · Issued ${formatDate(reward.rewardIssuedAt)}</span>`,
+        reward.rewardPromotionId
+          ? `<button class="ghost-button compact" onclick="openPromotionDetails('${escapeHtml(reward.rewardPromotionId)}')">View Promotion</button>`
+          : '<span>No action</span>',
+      ]) : '<div class="empty"><strong>No provider referral rewards yet.</strong><p>Provider invite rewards will appear here after customers complete paid bookings.</p></div>'}
+      <h3>Customer Invites</h3>
+      ${customerRewards.length ? renderGenericTable(customerRewards, ['Inviter', 'Friend', 'Invite Code', 'Friend Discount', 'Inviter Reward', 'Status', 'Fraud Check', 'Actions'], (reward) => [
+        `<strong>${escapeHtml(reward.referrer?.name || '-')}</strong><span>${escapeHtml(reward.referrer?.email || '')}</span>`,
+        `<strong>${escapeHtml(reward.customer?.name || '-')}</strong><span>${escapeHtml(reward.customer?.email || '')}</span>`,
+        `<strong>${escapeHtml(reward.referralCode || '-')}</strong><span>${escapeHtml(reward.countryCode || '')} ${escapeHtml(reward.city || '')}</span>`,
+        reward.friendDiscountCode
+          ? `<strong>${escapeHtml(reward.friendDiscountCode)}</strong><span>${reward.friendDiscountRedeemed ? 'Redeemed' : 'Issued'}</span>`
+          : '<span>No discount issued</span>',
+        reward.rewardCode
+          ? `<strong>${escapeHtml(reward.rewardCode)}</strong><span>${reward.rewardRedeemed ? 'Redeemed' : 'Available'}${reward.rewardPromotionStatus ? ` Â· ${escapeHtml(reward.rewardPromotionStatus)}` : ''}</span>`
+          : '<span>No reward issued yet</span>',
+        `<span class="status ${statusClass(reward.status)}">${escapeHtml(reward.status || '-')}</span>`,
+        reward.rewardBlockReason
+          ? `<span class="status bad">${escapeHtml(reward.rewardBlockReason)}</span>`
+          : '<span class="status good">Passed or pending</span>',
+        reward.rewardPromotionId
+          ? `<button class="ghost-button compact" onclick="openPromotionDetails('${escapeHtml(reward.rewardPromotionId)}')">View Reward</button>`
+          : reward.friendDiscountPromotionId
+            ? `<button class="ghost-button compact" onclick="openPromotionDetails('${escapeHtml(reward.friendDiscountPromotionId)}')">View Discount</button>`
+            : '<span>No action</span>',
+      ]) : '<div class="empty"><strong>No customer referral rewards yet.</strong><p>Customer invites will appear here after friends sign up and complete paid bookings.</p></div>'}
+      <p class="setting-help">Fraud controls: one referral per customer, first paid completed booking only, customer-confirmed completion required, one customer-locked promo code, one use only, zero-value bookings blocked.</p>
+    </section>
+  `;
+}
+
+function renderRatingValue(value) {
+  const rating = Number(value || 0);
+  if (!rating) return 'New';
+  return rating.toFixed(1);
+}
+
+function renderReviewSignals(review) {
+  const signals = [
+    ['Professional', review.professional],
+    ['On time', review.onTime],
+    ['Quality', review.qualityWork],
+    ['Communication', review.communication],
+  ];
+  return signals.map(([label, passed]) => `<span class="status ${passed ? 'good' : 'warn'}">${label}</span>`).join(' ');
+}
+
+function renderGrowthTrustReviews(reviews, emptyMessage) {
+  return reviews.length ? renderGenericTable(reviews, ['Rating', 'Service', 'Customer', 'Service Provider', 'Signals', 'Comment', 'Created'], (review) => [
+    `<strong>${renderRatingValue(review.rating)} / 5</strong><span>${escapeHtml(review.city || '')} ${escapeHtml(review.countryCode || '')}</span>`,
+    `<strong>${escapeHtml(review.serviceName || '-')}</strong><span>${escapeHtml(review.serviceKey || '')}</span>`,
+    `<strong>${escapeHtml(review.customer?.name || '-')}</strong><span>${escapeHtml(review.customer?.email || '')}</span>`,
+    `<strong>${escapeHtml(review.provider?.name || '-')}</strong><span>${escapeHtml(review.provider?.email || '')}</span>`,
+    renderReviewSignals(review),
+    escapeHtml(review.comment || '-'),
+    formatDate(review.createdAt),
+  ]) : renderEmpty(emptyMessage);
+}
+
+function renderGrowthTrust() {
+  const data = state.data.growthTrust || {};
+  const summary = data.summary || {};
+  const reviews = data.reviews || [];
+  const lowReviews = data.lowReviews || [];
+  const topProviders = data.topProviders || [];
+  const suspiciousReferrals = data.suspiciousReferrals || [];
+  const cards = [
+    ['Reviews', summary.totalReviews ?? reviews.length, 'Customer job reviews'],
+    ['Average Rating', summary.averageRating ? `${Number(summary.averageRating).toFixed(2)} / 5` : 'New', 'Published review average'],
+    ['Low Ratings', summary.lowRatingReviews ?? lowReviews.length, 'Reviews rated 3 stars or lower'],
+    ['Tracked Referrals', summary.trackedReferrals ?? 0, 'Provider and customer invites'],
+    ['Rewards Issued', summary.rewardsIssued ?? 0, 'Eligible reward promotions'],
+    ['Blocked Referrals', summary.blockedReferrals ?? suspiciousReferrals.length, 'Fraud or safety blocks'],
+  ];
+
+  return `
+    <div class="business-command-center">
+      <section class="panel business-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Growth & Trust</h2>
+            <span>Reviews, provider reputation, referrals and reward safety.</span>
+          </div>
+        </div>
+        <div class="metric-grid">
+          ${cards.map(([label, value, helper]) => `<article class="metric-card"><span>${label}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(helper)}</small></article>`).join('')}
+        </div>
+      </section>
+
+      <div class="overview-grid two">
+        <section class="panel business-panel">
+          <div class="panel-header"><div><h2>Recent Reviews</h2><span>${reviews.length} latest customer reviews</span></div></div>
+          ${renderGrowthTrustReviews(reviews, 'No customer reviews have been submitted yet.')}
+        </section>
+        <section class="panel business-panel">
+          <div class="panel-header"><div><h2>Low-Rating Monitoring</h2><span>Reviews that may need follow-up</span></div></div>
+          ${renderGrowthTrustReviews(lowReviews, 'No low-rating reviews in this market scope.')}
+        </section>
+      </div>
+
+      <section class="panel business-panel">
+        <div class="panel-header"><div><h2>Provider Ratings</h2><span>Real ratings and completed jobs from the system.</span></div></div>
+        ${topProviders.length ? renderGenericTable(topProviders, ['Service Provider', 'Market', 'Rating', 'Reviews', 'Completed Jobs', 'Status'], (provider) => [
+          `<strong>${escapeHtml(provider.name || 'Service Provider')}</strong><span>${escapeHtml(provider.email || '')}</span>`,
+          `${escapeHtml(provider.city || '-')}<span>${escapeHtml(provider.countryCode || '')}</span>`,
+          `<strong>${renderRatingValue(provider.averageRating)}</strong>`,
+          escapeHtml(provider.reviewCount || 0),
+          escapeHtml(provider.completedJobs || 0),
+          `<span class="status ${statusClass(provider.approvalStatus)}">${escapeHtml(provider.approvalStatus || '-')}</span>`,
+        ]) : renderEmpty('No service provider reputation data is available yet.')}
+      </section>
+
+      <section class="panel business-panel">
+        <div class="panel-header"><div><h2>Suspicious Referral Activity</h2><span>Blocked provider and customer referral rewards.</span></div></div>
+        ${suspiciousReferrals.length ? renderGenericTable(suspiciousReferrals, ['Type', 'Inviter', 'Customer', 'Code', 'Market', 'Reason', 'Timeline'], (reward) => [
+          reward.friendDiscountCode ? 'Customer Invite' : 'Provider Invite',
+          `<strong>${escapeHtml(reward.referrer?.name || '-')}</strong><span>${escapeHtml(reward.referrer?.email || '')}</span>`,
+          `<strong>${escapeHtml(reward.customer?.name || '-')}</strong><span>${escapeHtml(reward.customer?.email || '')}</span>`,
+          escapeHtml(reward.referralCode || '-'),
+          `${escapeHtml(reward.city || '-')}<span>${escapeHtml(reward.countryCode || '')}</span>`,
+          `<span class="status bad">${escapeHtml(reward.rewardBlockReason || reward.status || 'Blocked')}</span>`,
+          `Registered ${formatDate(reward.registeredAt)}<span>Completed ${formatDate(reward.firstCompletedAt)} - Blocked ${formatDate(reward.rewardBlockedAt)}</span>`,
+        ]) : renderEmpty('No suspicious or blocked referral activity is currently flagged.')}
+      </section>
+    </div>
+  `;
+}
+
 function renderPromotionsWorkspace() {
   const tab = state.promotionWorkspace.tab || 'directory';
   return `
@@ -3957,11 +4191,12 @@ function renderPromotionsWorkspace() {
       <div class="tab-row">
         <button class="ghost-button compact ${tab === 'directory' ? 'active' : ''}" onclick="setPromotionWorkspaceTab('directory')">Campaign Directory</button>
         ${canMutate('promotions.create') ? `<button class="ghost-button compact ${tab === 'create' ? 'active' : ''}" onclick="startCreatePromotion()">Create Promotion</button>` : ''}
+        ${hasPermission('promotions.performance.read') ? `<button class="ghost-button compact ${tab === 'referrals' ? 'active' : ''}" onclick="setPromotionWorkspaceTab('referrals')">Referral Rewards</button>` : ''}
         ${state.promotionWorkspace.selectedPromotionId ? `<button class="ghost-button compact ${tab === 'details' ? 'active' : ''}" onclick="setPromotionWorkspaceTab('details')">Promotion Details</button>` : ''}
       </div>
     </section>
     ${renderPromotionSummary()}
-    ${tab === 'create' ? renderPromotionWizard() : tab === 'details' ? renderPromotionDetails() : renderPromotionDirectory()}
+    ${tab === 'create' ? renderPromotionWizard() : tab === 'details' ? renderPromotionDetails() : tab === 'referrals' ? renderReferralRewards() : renderPromotionDirectory()}
   `;
 }
 
@@ -4103,7 +4338,7 @@ function renderPromotions() {
             </div>
           </div>
           <div class="form-grid" data-promo-field="fundingSplit">
-            <div><label>MyFixer Funding %</label><input name="platformFundingPercent" type="number" min="0" max="100" step="0.01" value="100" /></div>
+            <div><label>Padi Funding %</label><input name="platformFundingPercent" type="number" min="0" max="100" step="0.01" value="100" /></div>
             <div><label>Provider Funding %</label><input name="technicianFundingPercent" type="number" min="0" max="100" step="0.01" value="0" /></div>
           </div>
           <div data-promo-field="fundingSplit"><label>Partner Funding %</label><input name="partnerFundingPercent" type="number" min="0" max="100" step="0.01" value="0" /><p class="setting-help tight">Shared funding splits must total 100%.</p></div>
@@ -7422,6 +7657,7 @@ window.forgotPassword = forgotPassword;
 window.resetPassword = resetPassword;
 window.changePassword = changePassword;
 window.setAuthView = setAuthView;
+window.togglePasswordVisibility = togglePasswordVisibility;
 window.logout = logout;
 window.refresh = refresh;
 window.setView = setView;

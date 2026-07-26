@@ -5,16 +5,18 @@ import {
   FlatList,
   Image,
   Modal,
+  Share,
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { CheckCircle2 as LucideCheckCircle, FileText as LucideFileText, X as LucideX } from 'lucide-react-native';
-import apiService, { BookingHistoryItem } from '../../services/api.service';
+import { CheckCircle2 as LucideCheckCircle, FileText as LucideFileText, Star as LucideStar, X as LucideX } from 'lucide-react-native';
+import apiService, { BookingHistoryItem, SubmitBookingReviewPayload } from '../../services/api.service';
 import { formatBookingStatus } from '../../types/booking';
 import { Colors, Radius, Spacing } from '../../theme';
 import { customerErrorMessage } from '../../utils/userFacingErrors';
@@ -28,10 +30,25 @@ import {
 } from '../../utils/financialDisplay';
 
 const FileText = LucideFileText as any;
+const Star = LucideStar as any;
 const X = LucideX as any;
 const CheckCircle = LucideCheckCircle as any;
 
 const money = (currency: string, amountMinor = 0) => formatMinorMoney(currency, amountMinor);
+
+const providerReputationText = (provider: BookingHistoryItem['technician']): string => {
+  const reputation = provider?.reputation;
+  if (!reputation) return '';
+  const parts = [];
+  if (typeof reputation.averageRating === 'number' && reputation.reviewCount > 0) {
+    parts.push(`${reputation.averageRating.toFixed(1)} rating`);
+  }
+  if (reputation.completedJobs > 0) {
+    parts.push(`${reputation.completedJobs.toLocaleString()} jobs completed`);
+  }
+  if (reputation.verified) parts.push('Verified Padi Pro');
+  return parts.join(' · ');
+};
 
 export function BookingHistoryScreen(): React.JSX.Element {
   const navigation = useNavigation<any>();
@@ -39,6 +56,18 @@ export function BookingHistoryScreen(): React.JSX.Element {
   const [bookings, setBookings] = useState<BookingHistoryItem[]>([]);
   const [selectedBooking, setSelectedBooking] = useState<BookingHistoryItem | null>(null);
   const [invoiceModalVisible, setInvoiceModalVisible] = useState(false);
+  const [reviewModalVisible, setReviewModalVisible] = useState(false);
+  const [reviewBooking, setReviewBooking] = useState<BookingHistoryItem | null>(null);
+  const [reviewRating, setReviewRating] = useState(0);
+  const [reviewAnswers, setReviewAnswers] = useState({
+    professional: true,
+    onTime: true,
+    qualityWork: true,
+    communication: true,
+    wouldBookAgain: true,
+  });
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
 
   useEffect(() => {
     const fetchHistoryData = async () => {
@@ -92,6 +121,117 @@ export function BookingHistoryScreen(): React.JSX.Element {
     );
   };
 
+  const handleShareReferral = async () => {
+    try {
+      const response = await apiService.getMyReferralProgram();
+      await Share.share({ message: response.referral.shareMessage });
+    } catch (error) {
+      Alert.alert('Invite a friend', customerErrorMessage(error, 'Unable to prepare your invite right now.'));
+    }
+  };
+
+  const openReview = (item: BookingHistoryItem) => {
+    setReviewBooking(item);
+    setReviewRating(item.review?.rating || 0);
+    setReviewAnswers({
+      professional: item.review?.professional ?? true,
+      onTime: item.review?.onTime ?? true,
+      qualityWork: item.review?.qualityWork ?? true,
+      communication: item.review?.communication ?? true,
+      wouldBookAgain: item.review?.wouldBookAgain ?? true,
+    });
+    setReviewComment(item.review?.comment || '');
+    setReviewModalVisible(true);
+  };
+
+  const updateReviewAnswer = (key: keyof typeof reviewAnswers, value: boolean) => {
+    setReviewAnswers((current) => ({ ...current, [key]: value }));
+  };
+
+  const submitReview = async () => {
+    if (!reviewBooking || reviewBooking.review) return;
+    if (reviewRating < 1) {
+      Alert.alert('Rating required', 'Choose a star rating before submitting your review.');
+      return;
+    }
+
+    const payload: SubmitBookingReviewPayload = {
+      rating: reviewRating,
+      professional: reviewAnswers.professional,
+      onTime: reviewAnswers.onTime,
+      qualityWork: reviewAnswers.qualityWork,
+      communication: reviewAnswers.communication,
+      wouldBookAgain: reviewAnswers.wouldBookAgain,
+      comment: reviewComment.trim(),
+    };
+
+    try {
+      setReviewSubmitting(true);
+      const response = await apiService.submitBookingReview(reviewBooking.id, payload);
+      setBookings((current) => current.map((booking) => (
+        booking.id === reviewBooking.id
+          ? { ...booking, review: response.review, canReview: false }
+          : booking
+      )));
+      setReviewBooking((current) => current ? { ...current, review: response.review, canReview: false } : current);
+      setReviewModalVisible(false);
+      Alert.alert(
+        'Thank you',
+        response.message || 'Your review helps keep Padi trusted.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Invite a friend', onPress: handleShareReferral },
+        ]
+      );
+    } catch (error) {
+      Alert.alert('Review', customerErrorMessage(error, 'Unable to save your review right now.'));
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+
+  const renderReviewStars = (value: number, onSelect?: (rating: number) => void) => (
+    <View style={styles.starRow}>
+      {[1, 2, 3, 4, 5].map((rating) => {
+        const active = rating <= value;
+        return (
+          <TouchableOpacity
+            key={rating}
+            style={styles.starButton}
+            onPress={onSelect ? () => onSelect(rating) : undefined}
+            disabled={!onSelect}
+            accessibilityRole={onSelect ? 'button' : 'text'}
+            accessibilityLabel={`${rating} star${rating === 1 ? '' : 's'}`}
+          >
+            <Star color={active ? Colors.primary : Colors.textSubtle} fill={active ? Colors.primary : 'transparent'} size={22} />
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  const renderReviewQuestion = (key: keyof typeof reviewAnswers, label: string) => (
+    <View style={styles.reviewQuestionRow}>
+      <Text style={styles.reviewQuestionText}>{label}</Text>
+      <View style={styles.segmentedControl}>
+        <TouchableOpacity
+          style={[styles.segmentOption, reviewAnswers[key] && styles.segmentOptionActive]}
+          onPress={() => updateReviewAnswer(key, true)}
+          disabled={Boolean(reviewBooking?.review)}
+        >
+          <Text style={[styles.segmentText, reviewAnswers[key] && styles.segmentTextActive]}>Yes</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.segmentOption, !reviewAnswers[key] && styles.segmentOptionActive]}
+          onPress={() => updateReviewAnswer(key, false)}
+          disabled={Boolean(reviewBooking?.review)}
+        >
+          <Text style={[styles.segmentText, !reviewAnswers[key] && styles.segmentTextActive]}>No</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   const renderBookingItem = ({ item }: { item: BookingHistoryItem }) => {
     const statusColor = item.status === 'COMPLETED' ? Colors.primary : Colors.danger;
     const completedDate = new Date(item.completedAt || item.cancelledAt || item.updatedAt).toLocaleDateString();
@@ -103,12 +243,15 @@ export function BookingHistoryScreen(): React.JSX.Element {
             {item.technician?.profilePhotoUrl ? (
               <Image source={{ uri: item.technician.profilePhotoUrl }} style={styles.techAvatar} />
             ) : (
-              <Text style={styles.icon}>•</Text>
+              <Text style={styles.icon}>P</Text>
             )}
             <View style={{ flex: 1 }}>
               <Text style={styles.categoryText}>{item.applianceType}</Text>
               <Text style={styles.jobId}>{item.generalArea || item.fullAddress || 'Service address'}</Text>
               {item.technician?.name ? <Text style={styles.techName}>Handled by {item.technician.name}</Text> : null}
+              {providerReputationText(item.technician) ? (
+                <Text style={styles.techReputation}>{providerReputationText(item.technician)}</Text>
+              ) : null}
             </View>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: `${statusColor}10`, borderColor: statusColor }]}>
@@ -126,6 +269,23 @@ export function BookingHistoryScreen(): React.JSX.Element {
               <TouchableOpacity style={styles.rebookButton} onPress={() => handleBookAgain(item)}>
                 <Text style={styles.rebookButtonText}>Book again</Text>
               </TouchableOpacity>
+            ) : null}
+            {item.status === 'COMPLETED' ? (
+              <TouchableOpacity style={styles.inviteButton} onPress={handleShareReferral}>
+                <Text style={styles.inviteButtonText}>Invite friend</Text>
+              </TouchableOpacity>
+            ) : null}
+            {item.status === 'COMPLETED' ? (
+              item.review ? (
+                <TouchableOpacity style={styles.reviewedButton} onPress={() => openReview(item)}>
+                  <Star color={Colors.primary} fill={Colors.primary} size={13} style={{ marginRight: 5 }} />
+                  <Text style={styles.reviewedButtonText}>{item.review.rating.toFixed(1)}</Text>
+                </TouchableOpacity>
+              ) : item.canReview ? (
+                <TouchableOpacity style={styles.rateButton} onPress={() => openReview(item)}>
+                  <Text style={styles.rateButtonText}>Rate</Text>
+                </TouchableOpacity>
+              ) : null
             ) : null}
             <TouchableOpacity
               style={styles.invoiceButton}
@@ -241,6 +401,59 @@ export function BookingHistoryScreen(): React.JSX.Element {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={reviewModalVisible} animationType="slide" transparent onRequestClose={() => setReviewModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.reviewModalContent}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reviewKicker}>Rate your Padi</Text>
+                <Text style={styles.reviewTitle}>{reviewBooking?.applianceType || 'Completed job'}</Text>
+                {reviewBooking?.technician?.name ? <Text style={styles.reviewProvider}>Handled by {reviewBooking.technician.name}</Text> : null}
+              </View>
+              <TouchableOpacity style={styles.closeButton} onPress={() => setReviewModalVisible(false)}>
+                <X color="#FFFFFF" size={20} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.reviewPanel}>
+              {renderReviewStars(reviewRating, reviewBooking?.review ? undefined : setReviewRating)}
+              <Text style={styles.reviewHint}>
+                {reviewBooking?.review ? 'Thanks. Your review is saved.' : 'Your review helps customers choose trusted Padi Pros.'}
+              </Text>
+            </View>
+
+            <View style={styles.reviewQuestions}>
+              {renderReviewQuestion('professional', 'Professional?')}
+              {renderReviewQuestion('onTime', 'On time?')}
+              {renderReviewQuestion('qualityWork', 'Quality work?')}
+              {renderReviewQuestion('communication', 'Communication?')}
+              {renderReviewQuestion('wouldBookAgain', 'Would you book again?')}
+            </View>
+
+            <TextInput
+              value={reviewComment}
+              onChangeText={setReviewComment}
+              editable={!reviewBooking?.review}
+              multiline
+              maxLength={1200}
+              placeholder="Optional note for Padi"
+              placeholderTextColor={Colors.textSubtle}
+              style={styles.reviewInput}
+            />
+
+            {reviewBooking?.review ? (
+              <TouchableOpacity style={styles.dismissBtn} onPress={() => setReviewModalVisible(false)}>
+                <Text style={styles.dismissBtnText}>Close</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={[styles.dismissBtn, reviewSubmitting && styles.disabledButton]} onPress={submitReview} disabled={reviewSubmitting}>
+                <Text style={styles.dismissBtnText}>{reviewSubmitting ? 'Submitting...' : 'Submit Review'}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -260,14 +473,21 @@ const styles = StyleSheet.create({
   categoryText: { color: Colors.text, fontSize: 15, fontWeight: '800' },
   jobId: { color: Colors.textSubtle, fontSize: 11, fontWeight: '600', marginTop: 1 },
   techName: { color: Colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 3 },
+  techReputation: { color: Colors.primary, fontSize: 10, fontWeight: '800', marginTop: 3 },
   statusBadge: { borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   statusText: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   serviceDetails: { color: Colors.text, fontSize: 13, fontWeight: '500', marginVertical: 14, lineHeight: 18 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: 12 },
   dateText: { color: Colors.textSubtle, fontSize: 12 },
-  footerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  footerActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, flexShrink: 1 },
   rebookButton: { backgroundColor: Colors.primary, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8 },
   rebookButtonText: { color: Colors.background, fontSize: 12, fontWeight: '900' },
+  inviteButton: { backgroundColor: Colors.surfaceRaised, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: Colors.primary },
+  inviteButtonText: { color: Colors.primary, fontSize: 12, fontWeight: '900' },
+  rateButton: { backgroundColor: '#FFB547', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8 },
+  rateButtonText: { color: Colors.background, fontSize: 12, fontWeight: '900' },
+  reviewedButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surfaceRaised, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: Colors.borderStrong },
+  reviewedButtonText: { color: Colors.primary, fontSize: 12, fontWeight: '900' },
   invoiceButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surfaceRaised, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: Colors.borderStrong },
   invoiceButtonText: { color: Colors.primary, fontSize: 12, fontWeight: '700' },
   emptyContainer: { alignItems: 'center', marginTop: 40 },
@@ -291,4 +511,22 @@ const styles = StyleSheet.create({
   complianceText: { flex: 1, color: Colors.textSubtle, fontSize: 11, lineHeight: 16, fontWeight: '500' },
   dismissBtn: { backgroundColor: Colors.primary, padding: 16, borderRadius: Radius.md, alignItems: 'center', marginTop: 28 },
   dismissBtnText: { color: Colors.background, fontSize: 15, fontWeight: '800' },
+  disabledButton: { opacity: 0.55 },
+  reviewModalContent: { backgroundColor: Colors.surface, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, padding: Spacing.xxl, borderWidth: 1, borderColor: Colors.border, maxHeight: '92%' },
+  reviewKicker: { color: Colors.primary, fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.8 },
+  reviewTitle: { color: Colors.text, fontSize: 22, fontWeight: '900', marginTop: 4 },
+  reviewProvider: { color: Colors.textMuted, fontSize: 12, fontWeight: '700', marginTop: 5 },
+  reviewPanel: { alignItems: 'center', backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.md },
+  starRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  starButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  reviewHint: { color: Colors.textSubtle, fontSize: 12, textAlign: 'center', marginTop: 8, lineHeight: 17 },
+  reviewQuestions: { gap: 10 },
+  reviewQuestionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, backgroundColor: Colors.surfaceRaised, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, padding: 12 },
+  reviewQuestionText: { flex: 1, color: Colors.text, fontSize: 14, fontWeight: '800' },
+  segmentedControl: { flexDirection: 'row', backgroundColor: Colors.background, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden' },
+  segmentOption: { minWidth: 48, paddingHorizontal: 10, paddingVertical: 7, alignItems: 'center' },
+  segmentOptionActive: { backgroundColor: Colors.primary },
+  segmentText: { color: Colors.textSubtle, fontSize: 12, fontWeight: '900' },
+  segmentTextActive: { color: Colors.background },
+  reviewInput: { minHeight: 90, color: Colors.text, backgroundColor: Colors.background, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, padding: 14, marginTop: Spacing.md, textAlignVertical: 'top', fontSize: 14, lineHeight: 20 },
 });

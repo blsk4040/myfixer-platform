@@ -1,12 +1,13 @@
 // src/screens/profile/ProfileScreen.tsx
-import React from 'react';
-import { Alert, Image, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Image, ScrollView, Share, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { NavigationProp, ParamListBase, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useSocketConnection } from '../../context/SocketContext';
 import { useJobStore } from '../../store/useJobStore';
 import authService from '../../services/auth.service';
+import apiService, { ProviderReferralProgramResponse } from '../../services/api.service';
 import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
 
 const Colors = {
@@ -44,14 +45,45 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
   const { isOnDuty, toggleDutyStatus, disconnectSocket } = useSocketConnection();
   const completedJobs = useJobStore((state) => state.completedJobs);
   const technicianIdentity = getTechnicianIdentity();
+  const [referralProgram, setReferralProgram] = useState<ProviderReferralProgramResponse['referral'] | null>(null);
+  const [referralLoading, setReferralLoading] = useState(false);
 
   const totalCompletedCount = Math.max(technicianIdentity.stats.completedJobs, completedJobs.length);
   const currentRating = technicianIdentity.stats.reviewCount > 0 && technicianIdentity.stats.averageRating !== null
     ? technicianIdentity.stats.averageRating.toFixed(1)
     : '0.0';
+  const reviewCountLabel = technicianIdentity.stats.reviewCount === 1
+    ? '1 review'
+    : `${technicianIdentity.stats.reviewCount} reviews`;
+  const verificationLabel = technicianIdentity.approvalStatus === 'Approved'
+    ? 'Verified Padi Pro'
+    : `Status: ${technicianIdentity.approvalStatus}`;
   const serviceCategories = technicianIdentity.serviceCategories.length
     ? technicianIdentity.serviceCategories.map(formatServiceCategory)
     : ['No service categories set'];
+
+  useEffect(() => {
+    setReferralLoading(true);
+    apiService.getMyReferralProgram()
+      .then((result) => setReferralProgram(result.referral))
+      .catch(() => setReferralProgram(null))
+      .finally(() => setReferralLoading(false));
+  }, []);
+
+  const handleShareInvite = async () => {
+    const fallbackCode = technicianIdentity.referralCode;
+    const message = referralProgram?.shareMessage ||
+      (fallbackCode
+        ? `Book trusted home services through Padi. Use my invite code ${fallbackCode} when you sign up.`
+        : '');
+
+    if (!message) {
+      Alert.alert('Invite unavailable', 'Your invite code is not ready yet. Please try again shortly.');
+      return;
+    }
+
+    await Share.share({ message });
+  };
 
   const handleToggleDuty = () => {
     if (isOnDuty) {
@@ -112,6 +144,9 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
             <Text style={styles.techMeta}>{technicianIdentity.email}</Text>
             <Text style={styles.techMeta}>{technicianIdentity.phone}</Text>
             <Text style={styles.techMeta}>{technicianIdentity.city} - {technicianIdentity.approvalStatus}</Text>
+            <Text style={styles.reputationLine}>
+              {verificationLabel} · {reviewCountLabel}
+            </Text>
             <Text style={styles.photoStatus}>Photo: {technicianIdentity.profilePhotoStatus}</Text>
           </View>
         </TouchableOpacity>
@@ -144,6 +179,31 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
               {totalCompletedCount} jobs
             </Text>
           </View>
+        </View>
+
+        <View style={styles.inviteCard}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.inviteEyebrow}>GROW WITH PADI</Text>
+            <Text style={styles.inviteTitle}>Invite a customer to Padi</Text>
+            <Text style={styles.inviteCopy}>
+              Share your code with customers who already trust your work. Rewards will be added after the official rules are approved.
+            </Text>
+            <View style={styles.inviteCodeBox}>
+              {referralLoading ? (
+                <ActivityIndicator color={Colors.primary} />
+              ) : (
+                <Text style={styles.inviteCode}>{referralProgram?.referralCode || technicianIdentity.referralCode || 'CODE READY SOON'}</Text>
+              )}
+            </View>
+            {referralProgram && (
+              <Text style={styles.inviteStats}>
+                {referralProgram.summary.registeredCount} signed up · {referralProgram.summary.completedCount} completed jobs
+              </Text>
+            )}
+          </View>
+          <TouchableOpacity style={styles.inviteButton} activeOpacity={0.86} onPress={handleShareInvite}>
+            <Text style={styles.inviteButtonText}>Share</Text>
+          </TouchableOpacity>
         </View>
 
         <Text style={styles.sectionTitle}>Service Categories</Text>
@@ -209,6 +269,7 @@ const styles = StyleSheet.create({
   avatarEditBadgeText: { color: Colors.background, fontSize: 12, fontWeight: '900', lineHeight: 14 },
   techName: { color: Colors.text, fontSize: 20, fontWeight: '700' },
   techMeta: { color: Colors.textSubtle, fontSize: 13 },
+  reputationLine: { color: Colors.primary, fontSize: 12, fontWeight: '900', marginTop: 3 },
   photoStatus: { color: Colors.primary, fontSize: 12, fontWeight: '800', marginTop: 3 },
   dutyCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, padding: 16, borderRadius: Radius.md, borderWidth: 1, marginBottom: 20 },
   dutyLabel: { color: Colors.textSubtle, fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
@@ -217,6 +278,45 @@ const styles = StyleSheet.create({
   metricCard: { flex: 1, minWidth: 0, backgroundColor: Colors.surface, padding: 14, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border },
   metricLabel: { color: Colors.textSubtle, fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   metricValue: { color: Colors.text, fontSize: 16, fontWeight: '700', marginTop: 4 },
+  inviteCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#141511',
+    borderWidth: 1,
+    borderColor: '#B8FF3D44',
+    borderRadius: Radius.lg,
+    padding: 16,
+    marginBottom: 25,
+  },
+  inviteEyebrow: { color: Colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
+  inviteTitle: { color: Colors.text, fontSize: 17, fontWeight: '900', marginTop: 4 },
+  inviteCopy: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 6 },
+  inviteCodeBox: {
+    alignSelf: 'flex-start',
+    minHeight: 34,
+    minWidth: 112,
+    paddingHorizontal: 12,
+    marginTop: 12,
+    borderRadius: 10,
+    backgroundColor: '#0B0B0D',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inviteCode: { color: Colors.primary, fontSize: 14, fontWeight: '900', letterSpacing: 0.6 },
+  inviteStats: { color: Colors.textSubtle, fontSize: 11, fontWeight: '700', marginTop: 8 },
+  inviteButton: {
+    minWidth: 74,
+    minHeight: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 16,
+  },
+  inviteButtonText: { color: Colors.background, fontSize: 13, fontWeight: '900' },
   sectionTitle: { color: Colors.text, fontSize: 13, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 12, marginTop: 5 },
   badgeWrapper: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 25 },
   badge: { backgroundColor: Colors.surface, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: Colors.border },

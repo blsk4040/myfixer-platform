@@ -13,6 +13,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Eye, EyeOff } from 'lucide-react-native';
 import apiService from '../../services/api.service';
 import authService from '../../services/auth.service';
 import { assertConfiguredUrl, getApiBaseUrl } from '../../config/runtime.config';
@@ -20,6 +21,8 @@ import { isExpoGoRuntime } from '../../config/runtimeEnvironment';
 import { BRAND } from '../../config/brand';
 
 type GoogleSigninModule = typeof import('@react-native-google-signin/google-signin')['GoogleSignin'];
+const EyeIcon = Eye as any;
+const EyeOffIcon = EyeOff as any;
 
 const loadGoogleSignin = async (): Promise<GoogleSigninModule | null> => {
   if (isExpoGoRuntime) return null;
@@ -37,6 +40,8 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
   const [isGoogleLoading, setIsGoogleLoading] = useState<boolean>(false);
   const [marketOptions, setMarketOptions] = useState<Array<{ countryCode: string; country: string; currency: string }>>([]);
   const [marketsLoading, setMarketsLoading] = useState<boolean>(true);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
 
   const isGoogleConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 
@@ -48,6 +53,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
     countryCode: 'ZA',
     city: '',
     area: '',
+    referralCode: '',
     password: '',
     confirmPassword: '',
   });
@@ -149,6 +155,7 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
             area: formData.area.trim(),
           },
           countryCode: formData.countryCode,
+          referralCode: formData.referralCode.trim().toUpperCase(),
           password: formData.password,
           role: 'CUSTOMER'
         }),
@@ -404,30 +411,73 @@ export function RegisterScreen({ navigation }: any): React.JSX.Element {
           {currentStep === 3 && (
             <View style={styles.stepFormWrapper}>
               <Text style={styles.inputLabel}>CHOOSE ACCESS PASSWORD</Text>
-              <TextInput
-                style={styles.inputField}
-                placeholder="Minimum 6 characters"
-                placeholderTextColor="#475569"
-                secureTextEntry
-                autoCapitalize="none"
-                textContentType="newPassword"
-                value={formData.password}
-                onChangeText={(val) => updateField('password', val)}
-                onChange={(e) => updateField('password', e.nativeEvent.text)}
-                editable={!isLoading && !isGoogleLoading}
-              />
+              <View style={styles.passwordField}>
+                <TextInput
+                  style={[styles.inputField, styles.passwordInput]}
+                  placeholder="Minimum 6 characters"
+                  placeholderTextColor="#475569"
+                  secureTextEntry={!isPasswordVisible}
+                  autoCapitalize="none"
+                  textContentType="newPassword"
+                  value={formData.password}
+                  onChangeText={(val) => updateField('password', val)}
+                  onChange={(e) => updateField('password', e.nativeEvent.text)}
+                  editable={!isLoading && !isGoogleLoading}
+                />
+                <TouchableOpacity
+                  style={styles.passwordToggle}
+                  activeOpacity={0.75}
+                  onPress={() => setIsPasswordVisible((current) => !current)}
+                  disabled={isLoading || isGoogleLoading}
+                  accessibilityRole="button"
+                  accessibilityLabel={isPasswordVisible ? 'Hide password' : 'Show password'}
+                >
+                  {isPasswordVisible ? (
+                    <EyeOffIcon color="#94A3B8" size={20} />
+                  ) : (
+                    <EyeIcon color="#94A3B8" size={20} />
+                  )}
+                </TouchableOpacity>
+              </View>
 
               <Text style={styles.inputLabel}>CONFIRM PASSWORD</Text>
+              <View style={styles.passwordField}>
+                <TextInput
+                  style={[styles.inputField, styles.passwordInput]}
+                  placeholder="Retype password securely"
+                  placeholderTextColor="#475569"
+                  secureTextEntry={!isConfirmPasswordVisible}
+                  autoCapitalize="none"
+                  textContentType="newPassword"
+                  value={formData.confirmPassword}
+                  onChangeText={(val) => updateField('confirmPassword', val)}
+                  onChange={(e) => updateField('confirmPassword', e.nativeEvent.text)}
+                  editable={!isLoading && !isGoogleLoading}
+                />
+                <TouchableOpacity
+                  style={styles.passwordToggle}
+                  activeOpacity={0.75}
+                  onPress={() => setIsConfirmPasswordVisible((current) => !current)}
+                  disabled={isLoading || isGoogleLoading}
+                  accessibilityRole="button"
+                  accessibilityLabel={isConfirmPasswordVisible ? 'Hide confirm password' : 'Show confirm password'}
+                >
+                  {isConfirmPasswordVisible ? (
+                    <EyeOffIcon color="#94A3B8" size={20} />
+                  ) : (
+                    <EyeIcon color="#94A3B8" size={20} />
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.inputLabel}>INVITE CODE OPTIONAL</Text>
               <TextInput
                 style={styles.inputField}
-                placeholder="Retype password securely"
+                placeholder="e.g. PADI123"
                 placeholderTextColor="#475569"
-                secureTextEntry
-                autoCapitalize="none"
-                textContentType="newPassword"
-                value={formData.confirmPassword}
-                onChangeText={(val) => updateField('confirmPassword', val)}
-                onChange={(e) => updateField('confirmPassword', e.nativeEvent.text)}
+                autoCapitalize="characters"
+                value={formData.referralCode}
+                onChangeText={(val) => updateField('referralCode', val)}
                 editable={!isLoading && !isGoogleLoading}
               />
 
@@ -459,6 +509,17 @@ const styles = StyleSheet.create({
   stepFormWrapper: { gap: 16 },
   inputLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 1 },
   inputField: { backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, padding: 16, color: '#FFFFFF', fontSize: 15 },
+  passwordField: { position: 'relative' },
+  passwordInput: { paddingRight: 52 },
+  passwordToggle: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    width: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   disabledInputField: { color: '#475569', backgroundColor: '#0f172a' },
   marketGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   marketChip: { width: '48%', backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, padding: 12 },

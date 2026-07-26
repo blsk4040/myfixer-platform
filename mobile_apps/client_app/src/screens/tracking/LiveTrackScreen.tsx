@@ -199,7 +199,14 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
       setIsCompletionActionLoading(true);
       await apiService.confirmCompletion(trackingId, `completion-confirm:${trackingId}`);
       setCompletionPending(false);
-      Alert.alert('Completion confirmed', 'Thanks. The provider earning is now eligible for Padi review and admin-approved payout.');
+      Alert.alert(
+        'Completion confirmed',
+        'Thanks. You can now rate this Padi job from your booking history.',
+        [
+          { text: 'Later', style: 'cancel' },
+          { text: 'Rate job', onPress: () => navigation.navigate('History') },
+        ]
+      );
     } catch (error: any) {
       Alert.alert('Completion Error', error.message || 'Could not confirm completion.');
     } finally {

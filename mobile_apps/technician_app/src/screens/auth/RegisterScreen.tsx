@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import { Camera, Check, ChevronDown, ChevronRight, Search, X } from 'lucide-react-native';
+import { Camera, Check, ChevronDown, ChevronRight, Eye, EyeOff, Search, X } from 'lucide-react-native';
 import apiService from '../../services/api.service';
 import authService, { AuthSession } from '../../services/auth.service';
 import { BRAND } from '../../config/brand';
@@ -23,6 +23,8 @@ const CameraIcon = Camera as any;
 const CheckIcon = Check as any;
 const ChevronDownIcon = ChevronDown as any;
 const ChevronRightIcon = ChevronRight as any;
+const EyeIcon = Eye as any;
+const EyeOffIcon = EyeOff as any;
 const SearchIcon = Search as any;
 const XIcon = X as any;
 
@@ -97,6 +99,8 @@ export function RegisterScreen({
   const [activeMarketCodes, setActiveMarketCodes] = useState<string[]>([]);
   const [profilePhotoUri, setProfilePhotoUri] = useState('');
   const [profilePhotoDataUri, setProfilePhotoDataUri] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     let isCurrent = true;
@@ -610,10 +614,56 @@ export function RegisterScreen({
                 </View>
 
                 <Text style={styles.label}>Password</Text>
-                <TextInput style={styles.input} value={formData.password} onChangeText={(value) => updateField('password', value)} secureTextEntry placeholder="Minimum 6 characters" placeholderTextColor={Colors.textSubtle} />
+                <View style={styles.passwordField}>
+                  <TextInput
+                    style={[styles.input, styles.passwordInput]}
+                    value={formData.password}
+                    onChangeText={(value) => updateField('password', value)}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    placeholder="Minimum 6 characters"
+                    placeholderTextColor={Colors.textSubtle}
+                  />
+                  <TouchableOpacity
+                    style={styles.passwordToggle}
+                    activeOpacity={0.75}
+                    onPress={() => setShowPassword((value) => !value)}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? (
+                      <EyeOffIcon size={20} color={Colors.textMuted} strokeWidth={2.2} />
+                    ) : (
+                      <EyeIcon size={20} color={Colors.textMuted} strokeWidth={2.2} />
+                    )}
+                  </TouchableOpacity>
+                </View>
 
                 <Text style={styles.label}>Confirm Password</Text>
-                <TextInput style={styles.input} value={formData.confirmPassword} onChangeText={(value) => updateField('confirmPassword', value)} secureTextEntry placeholder="Retype password" placeholderTextColor={Colors.textSubtle} />
+                <View style={styles.passwordField}>
+                  <TextInput
+                    style={[styles.input, styles.passwordInput]}
+                    value={formData.confirmPassword}
+                    onChangeText={(value) => updateField('confirmPassword', value)}
+                    secureTextEntry={!showConfirmPassword}
+                    autoCapitalize="none"
+                    placeholder="Retype password"
+                    placeholderTextColor={Colors.textSubtle}
+                  />
+                  <TouchableOpacity
+                    style={styles.passwordToggle}
+                    activeOpacity={0.75}
+                    onPress={() => setShowConfirmPassword((value) => !value)}
+                    accessibilityRole="button"
+                    accessibilityLabel={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOffIcon size={20} color={Colors.textMuted} strokeWidth={2.2} />
+                    ) : (
+                      <EyeIcon size={20} color={Colors.textMuted} strokeWidth={2.2} />
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
 
@@ -738,6 +788,21 @@ const styles = StyleSheet.create({
   },
   label: { color: Colors.textMuted, fontSize: 11, fontWeight: '800', marginBottom: 8, marginTop: 10, textTransform: 'uppercase' },
   input: { backgroundColor: Colors.input, borderWidth: 1, borderColor: Colors.border, borderRadius: 12, color: Colors.text, padding: 14, fontSize: 14 },
+  passwordField: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 52,
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    width: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   textArea: { minHeight: 90, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 12 },
   photoCard: { flexDirection: 'row', gap: 14, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: 14, padding: 14, alignItems: 'center' },

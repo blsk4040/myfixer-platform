@@ -411,6 +411,10 @@ UserSchema.index({ role: 1, accountStatus: 1 });
 UserSchema.index({ countryCode: 1, role: 1 });
 UserSchema.index({ 'location.city': 1, role: 1 });
 UserSchema.index({ adminRole: 1, role: 1 });
+UserSchema.index(
+  { 'metadata.customerReferralCode': 1 },
+  { unique: true, sparse: true }
+);
 
 const UserModel =
   (mongoose.models.User as mongoose.Model<IUserDocument> | undefined) ??

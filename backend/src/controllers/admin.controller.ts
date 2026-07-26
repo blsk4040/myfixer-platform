@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import Booking, { BookingStatus } from '../models/booking.model';
+import BookingReview, { BookingReviewStatus } from '../models/booking-review.model';
 import JobQuote, { QuoteStatus } from '../models/quote.model';
 import ChatMessage from '../models/chat-message.model';
 import JobMedia from '../models/job-media.model';
@@ -73,6 +74,8 @@ import {
   getAdminMarketScope,
   handleAdminMarketScopeError,
 } from '../services/admin-market-scope.service';
+import { listReferralRewardsForAdmin } from '../services/provider-referral.service';
+import { listCustomerReferralRewardsForAdmin } from '../services/customer-referral.service';
 
 const parseLimit = (value: unknown, fallback = 50): number => {
   const parsed = Number(value);
@@ -2860,7 +2863,7 @@ export const createAdminUser = async (req: Request, res: Response): Promise<void
     const requestedCountryCode = String(countryCode || 'ZA').toUpperCase() as CountryCode;
     const baseMarket = MARKET_CONFIG[requestedCountryCode];
     if (!baseMarket) {
-      res.status(400).json({ message: 'This country is not configured as a MyFixer market yet. Add it in Settings before assigning staff to it.' });
+      res.status(400).json({ message: 'This country is not configured as a Padi market yet. Add it in Markets before assigning staff to it.' });
       return;
     }
     const temporaryPassword = typeof password === 'string' && password.trim().length >= 8
@@ -3051,6 +3054,174 @@ export const getAdminPromotionsSummary = async (req: Request, res: Response): Pr
     if (handleAdminMarketScopeError(res, error)) return;
     console.error('Failed to load promotion summary:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch promotion summary.' });
+  }
+};
+
+export const listAdminReferralRewards = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const scopeFilter = countryScopeFilter(await getAdminMarketScope(req));
+    const [rewards, customerRewards] = await Promise.all([
+      listReferralRewardsForAdmin(scopeFilter),
+      listCustomerReferralRewardsForAdmin(scopeFilter),
+    ]);
+    const allRewards = [...rewards, ...customerRewards];
+    const summary = allRewards.reduce(
+      (acc, reward) => {
+        acc.total += 1;
+        if (reward.status === 'REWARD_ELIGIBLE') acc.issued += 1;
+        if (reward.status === 'REWARD_BLOCKED') acc.blocked += 1;
+        if (reward.rewardRedeemed) acc.redeemed += 1;
+        return acc;
+      },
+      { total: 0, issued: 0, blocked: 0, redeemed: 0 }
+    );
+
+    res.status(200).json({ success: true, rewards, customerRewards, summary });
+  } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
+    res.status(500).json({ success: false, message: 'Failed to fetch referral rewards.' });
+  }
+};
+
+const serializeGrowthTrustReview = (review: any) => ({
+  id: review._id?.toString(),
+  bookingId: review.bookingId?.toString(),
+  customer: review.customerId
+    ? {
+        id: review.customerId._id?.toString(),
+        name: review.customerId.name || '',
+        email: maskEmail(review.customerId.email || ''),
+      }
+    : null,
+  provider: review.technicianId
+    ? {
+        id: review.technicianId._id?.toString(),
+        name: review.technicianId.name || '',
+        email: maskEmail(review.technicianId.email || ''),
+      }
+    : null,
+  serviceKey: review.serviceKey || '',
+  serviceName: review.serviceName || '',
+  countryCode: review.countryCode || '',
+  city: review.city || '',
+  rating: Number(review.rating || 0),
+  professional: review.professional === true,
+  onTime: review.onTime === true,
+  qualityWork: review.qualityWork === true,
+  communication: review.communication === true,
+  wouldBookAgain: review.wouldBookAgain === true,
+  comment: review.comment || '',
+  status: review.status || BookingReviewStatus.PUBLISHED,
+  createdAt: review.createdAt,
+});
+
+export const getAdminGrowthTrust = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const scopeFilter = countryScopeFilter(await getAdminMarketScope(req));
+    const reviewFilter = {
+      ...scopeFilter,
+      status: BookingReviewStatus.PUBLISHED,
+    };
+
+    const [
+      reviewSummary,
+      recentReviews,
+      lowReviews,
+      topProviders,
+      rewards,
+      customerRewards,
+    ] = await Promise.all([
+      BookingReview.aggregate([
+        { $match: reviewFilter },
+        {
+          $group: {
+            _id: null,
+            totalReviews: { $sum: 1 },
+            averageRating: { $avg: '$rating' },
+            lowRatingReviews: {
+              $sum: {
+                $cond: [{ $lte: ['$rating', 3] }, 1, 0],
+              },
+            },
+          },
+        },
+      ]),
+      BookingReview.find(reviewFilter)
+        .populate('customerId', 'name email')
+        .populate('technicianId', 'name email')
+        .sort({ createdAt: -1 })
+        .limit(75)
+        .lean(),
+      BookingReview.find({ ...reviewFilter, rating: { $lte: 3 } })
+        .populate('customerId', 'name email')
+        .populate('technicianId', 'name email')
+        .sort({ createdAt: -1 })
+        .limit(25)
+        .lean(),
+      Technician.find(scopeFilter)
+        .populate('userId', 'name email')
+        .select('userId countryCode city approvalStatus stats serviceCategories createdAt')
+        .sort({ 'stats.averageRating': -1, 'stats.reviewCount': -1, 'stats.completedJobs': -1 })
+        .limit(25)
+        .lean(),
+      listReferralRewardsForAdmin(scopeFilter),
+      listCustomerReferralRewardsForAdmin(scopeFilter),
+    ]);
+
+    const allRewards = [...rewards, ...customerRewards];
+    const summaryRow = reviewSummary[0] || {};
+    const rewardSummary = allRewards.reduce(
+      (acc, reward) => {
+        acc.total += 1;
+        if (reward.status === 'REWARD_ELIGIBLE') acc.issued += 1;
+        if (reward.status === 'REWARD_BLOCKED') acc.blocked += 1;
+        if (reward.rewardRedeemed) acc.redeemed += 1;
+        return acc;
+      },
+      { total: 0, issued: 0, blocked: 0, redeemed: 0 }
+    );
+
+    const suspiciousReferrals = allRewards
+      .filter((reward) => reward.status === 'REWARD_BLOCKED' || reward.rewardBlockReason)
+      .slice(0, 50);
+
+    res.status(200).json({
+      success: true,
+      growthTrust: {
+        summary: {
+          totalReviews: Number(summaryRow.totalReviews || 0),
+          averageRating: summaryRow.averageRating
+            ? Number(Number(summaryRow.averageRating).toFixed(2))
+            : null,
+          lowRatingReviews: Number(summaryRow.lowRatingReviews || 0),
+          trackedReferrals: rewardSummary.total,
+          rewardsIssued: rewardSummary.issued,
+          rewardsRedeemed: rewardSummary.redeemed,
+          blockedReferrals: rewardSummary.blocked,
+        },
+        reviews: recentReviews.map(serializeGrowthTrustReview),
+        lowReviews: lowReviews.map(serializeGrowthTrustReview),
+        topProviders: topProviders.map((provider: any) => ({
+          id: provider._id?.toString(),
+          userId: provider.userId?._id?.toString() || provider.userId?.toString(),
+          name: provider.userId?.name || 'Service Provider',
+          email: provider.userId?.email ? maskEmail(provider.userId.email) : '',
+          countryCode: provider.countryCode || '',
+          city: provider.city || '',
+          approvalStatus: provider.approvalStatus || '',
+          averageRating: Number(provider.stats?.averageRating || 0),
+          reviewCount: Number(provider.stats?.reviewCount || 0),
+          completedJobs: Number(provider.stats?.completedJobs || 0),
+        })),
+        suspiciousReferrals,
+        referralRewards: rewards,
+        customerReferralRewards: customerRewards,
+      },
+    });
+  } catch (error) {
+    if (handleAdminMarketScopeError(res, error)) return;
+    console.error('Failed to load growth and trust dashboard:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch growth and trust data.' });
   }
 };
 

@@ -10,6 +10,10 @@ import User from '../models/user.model';
 import { EmailService } from '../services/email/email.service';
 import { uploadImageToCloudinary } from '../services/media-storage.service';
 import { countryScopeFilter, getAdminMarketScope, handleAdminMarketScopeError } from '../services/admin-market-scope.service';
+import { getProviderReputation } from '../services/provider-reputation.service';
+import { parseImageDataUri } from '../utils/image-data-uri';
+
+const MAX_TECHNICIAN_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
 
 interface ReviewTechnicianRequestBody {
   status?: unknown;
@@ -113,7 +117,7 @@ export const getMyTechnicianJobs = async (req: Request, res: Response): Promise<
       BookingStatus.DIAGNOSTIC_DONE,
     ];
 
-    const [activeJobs, scheduledJobs, completedJobs] = await Promise.all([
+    const [activeJobs, scheduledJobs, completedJobs, technicianProfile] = await Promise.all([
       Booking.find({
         technicianId: technicianObjectId,
         status: { $in: activeStatuses },
@@ -144,6 +148,7 @@ export const getMyTechnicianJobs = async (req: Request, res: Response): Promise<
       })
         .sort({ completedAt: -1, updatedAt: -1 })
         .limit(50),
+      Technician.findOne({ userId: technicianObjectId }).select('approvalStatus stats').lean(),
     ]);
 
     const allJobs = [...activeJobs, ...scheduledJobs, ...completedJobs];
@@ -164,6 +169,7 @@ export const getMyTechnicianJobs = async (req: Request, res: Response): Promise<
       activeJobs: activeJobs.map(serializeWithQuoteStatus),
       scheduledJobs: scheduledJobs.map(serializeWithQuoteStatus),
       completedJobs: completedJobs.map(serializeWithQuoteStatus),
+      reputation: getProviderReputation(technicianProfile),
     });
   } catch (error) {
     console.error('Failed to fetch technician jobs:', error);
@@ -174,19 +180,19 @@ export const getMyTechnicianJobs = async (req: Request, res: Response): Promise<
 export const uploadMyTechnicianProfilePhoto = async (req: Request, res: Response): Promise<void> => {
   const authUser = (req as any).user as { id?: string; _id?: string } | undefined;
   const technicianUserId = String(authUser?.id ?? authUser?._id ?? '').trim();
-  const dataUri = typeof req.body?.dataUri === 'string' ? req.body.dataUri.trim() : '';
 
   if (!technicianUserId || !mongoose.Types.ObjectId.isValid(technicianUserId)) {
     res.status(401).json({ message: 'Unauthorized. Technician identity missing.' });
     return;
   }
 
-  if (!dataUri.startsWith('data:image/')) {
-    res.status(400).json({ message: 'Please upload a valid profile photo image.' });
-    return;
-  }
-
   try {
+    const { dataUri } = parseImageDataUri(req.body?.dataUri, {
+      maxBytes: MAX_TECHNICIAN_PROFILE_PHOTO_BYTES,
+      invalidMessage: 'Please upload a JPG, PNG, or WebP profile photo.',
+      tooLargeMessage: 'Profile photos must be 5 MB or smaller.',
+    });
+
     const technician = await Technician.findOne({ userId: new mongoose.Types.ObjectId(technicianUserId) });
     if (!technician) {
       res.status(404).json({ message: 'Technician profile not found.' });

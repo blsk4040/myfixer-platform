@@ -87,7 +87,7 @@ const run = (): void => {
 
   assert.equal(userCanAccessSupportTicket({ requesterId: ids.customer }, ids.customer.toString(), UserRole.CUSTOMER), true);
   assert.equal(userCanAccessSupportTicket({ requesterId: ids.customer }, ids.technician.toString(), UserRole.TECHNICIAN), false);
-  assert.equal(userCanAccessSupportTicket({ requesterId: ids.customer }, ids.technician.toString(), UserRole.ADMIN), true);
+  assert.equal(userCanAccessSupportTicket({ requesterId: ids.customer }, ids.technician.toString(), UserRole.ADMIN), false);
 
   console.log('Support foundation tests passed.');
 };

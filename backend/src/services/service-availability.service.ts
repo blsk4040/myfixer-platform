@@ -1,4 +1,7 @@
+import mongoose from 'mongoose';
 import { CountryCode, MARKET_CONFIG, normalizeCountryCode } from '../config/market.config';
+import Booking, { BookingStatus } from '../models/booking.model';
+import BookingReview, { BookingReviewStatus } from '../models/booking-review.model';
 import MarketSetting, { MarketStatus } from '../models/market-setting.model';
 import ServiceCatalog, {
   ServiceBillingModel,
@@ -55,8 +58,10 @@ export interface ServiceDefinition {
     subscriptionCadences?: ServiceSubscriptionCadence[];
     subscriptionNotes?: string;
     pricingSource?: string;
+    socialProof?: ServiceSocialProof;
   }>;
   pricingSource?: string;
+  socialProof?: ServiceSocialProof;
 }
 
 export interface AreaAvailability {
@@ -94,6 +99,14 @@ export interface AvailabilityResult {
   }>;
 }
 
+export interface ServiceSocialProof {
+  averageRating: number | null;
+  reviewCount: number;
+  completedJobs: number;
+  city?: string;
+  countryCode?: string;
+}
+
 export interface BookableServiceAvailability {
   serviceKey: string;
   legacySubcategoryKey?: string;
@@ -121,6 +134,7 @@ export interface BookableServiceAvailability {
   synonyms?: string[];
   displayOrder?: number;
   pricingSource?: string;
+  socialProof?: ServiceSocialProof;
 }
 
 export interface ServiceCategoryAvailability {
@@ -137,6 +151,7 @@ export interface ServiceCategoryAvailability {
   searchKeywords?: string[];
   synonyms?: string[];
   services: BookableServiceAvailability[];
+  socialProof?: ServiceSocialProof;
 }
 
 export interface ServiceGroupAvailability {
@@ -149,6 +164,7 @@ export interface ServiceGroupAvailability {
   status: string;
   displayOrder?: number;
   categories: ServiceCategoryAvailability[];
+  socialProof?: ServiceSocialProof;
 }
 
 export const DEFAULT_SERVICE_DEFINITIONS: ServiceDefinition[] = [
@@ -511,6 +527,7 @@ const buildServiceGroups = (
           synonyms: subcategory.synonyms || [],
           displayOrder: subcategory.displayOrder,
           pricingSource: subcategory.pricingSource,
+          socialProof: subcategory.socialProof,
         }))
       : [{
           serviceKey: service.serviceKey,
@@ -532,6 +549,7 @@ const buildServiceGroups = (
           synonyms: service.synonyms || [],
           displayOrder: service.displayOrder,
           pricingSource: service.pricingSource,
+          socialProof: service.socialProof,
         }]).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
     group.categories.push({
       categoryKey,
@@ -559,6 +577,151 @@ const buildServiceGroups = (
     }))
     .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 };
+
+const emptySocialProof = (countryCode: string, city: string): ServiceSocialProof => ({
+  averageRating: null,
+  reviewCount: 0,
+  completedJobs: 0,
+  countryCode,
+  city,
+});
+
+const socialProofKey = (serviceKey: string, countryCode: string, city: string): string =>
+  `${normalizeServiceKey(serviceKey)}|${String(countryCode || '').trim().toUpperCase()}|${String(city || '').trim().toLowerCase()}`;
+
+const loadServiceSocialProof = async (
+  serviceKeys: string[],
+  countryCode: string,
+  city: string
+): Promise<Map<string, ServiceSocialProof>> => {
+  const normalizedKeys = Array.from(new Set(serviceKeys.map(normalizeServiceKey).filter(Boolean)));
+  const normalizedCountry = String(countryCode || '').trim().toUpperCase();
+  const normalizedCity = String(city || '').trim();
+  const proof = new Map<string, ServiceSocialProof>();
+
+  if (!normalizedKeys.length || !normalizedCountry || !normalizedCity) return proof;
+  if (mongoose.connection.readyState !== 1) {
+    normalizedKeys.forEach((serviceKey) => {
+      proof.set(socialProofKey(serviceKey, normalizedCountry, normalizedCity), emptySocialProof(normalizedCountry, normalizedCity));
+    });
+    return proof;
+  }
+
+  const [reviewRows, completedRows] = await Promise.all([
+    BookingReview.aggregate([
+      {
+        $match: {
+          serviceKey: { $in: normalizedKeys },
+          countryCode: normalizedCountry,
+          city: normalizedCity,
+          status: BookingReviewStatus.PUBLISHED,
+        },
+      },
+      {
+        $group: {
+          _id: '$serviceKey',
+          averageRating: { $avg: '$rating' },
+          reviewCount: { $sum: 1 },
+        },
+      },
+    ]),
+    Booking.aggregate([
+      {
+        $match: {
+          serviceKey: { $in: normalizedKeys },
+          countryCode: normalizedCountry,
+          city: normalizedCity,
+          status: BookingStatus.COMPLETED,
+        },
+      },
+      {
+        $group: {
+          _id: '$serviceKey',
+          completedJobs: { $sum: 1 },
+        },
+      },
+    ]),
+  ]);
+
+  normalizedKeys.forEach((serviceKey) => {
+    proof.set(socialProofKey(serviceKey, normalizedCountry, normalizedCity), emptySocialProof(normalizedCountry, normalizedCity));
+  });
+
+  reviewRows.forEach((row) => {
+    const key = socialProofKey(row._id, normalizedCountry, normalizedCity);
+    const current = proof.get(key) || emptySocialProof(normalizedCountry, normalizedCity);
+    proof.set(key, {
+      ...current,
+      averageRating: row.averageRating ? Number(Number(row.averageRating).toFixed(2)) : null,
+      reviewCount: Number(row.reviewCount || 0),
+    });
+  });
+
+  completedRows.forEach((row) => {
+    const key = socialProofKey(row._id, normalizedCountry, normalizedCity);
+    const current = proof.get(key) || emptySocialProof(normalizedCountry, normalizedCity);
+    proof.set(key, {
+      ...current,
+      completedJobs: Number(row.completedJobs || 0),
+    });
+  });
+
+  return proof;
+};
+
+const proofForService = (
+  proof: Map<string, ServiceSocialProof>,
+  serviceKey: string,
+  countryCode: string,
+  city: string
+): ServiceSocialProof => proof.get(socialProofKey(serviceKey, countryCode, city)) || emptySocialProof(countryCode, city);
+
+const combineSocialProof = (
+  proofs: ServiceSocialProof[],
+  countryCode: string,
+  city: string
+): ServiceSocialProof => {
+  const reviewCount = proofs.reduce((sum, proof) => sum + Number(proof.reviewCount || 0), 0);
+  const completedJobs = proofs.reduce((sum, proof) => sum + Number(proof.completedJobs || 0), 0);
+  const weightedRatingTotal = proofs.reduce(
+    (sum, proof) => sum + (Number(proof.averageRating || 0) * Number(proof.reviewCount || 0)),
+    0
+  );
+
+  return {
+    averageRating: reviewCount > 0 ? Number((weightedRatingTotal / reviewCount).toFixed(2)) : null,
+    reviewCount,
+    completedJobs,
+    countryCode,
+    city,
+  };
+};
+
+const attachGroupSocialProof = (
+  groups: ServiceGroupAvailability[],
+  countryCode: string,
+  city: string
+): ServiceGroupAvailability[] =>
+  groups.map((group) => {
+    const categories = group.categories.map((category) => ({
+      ...category,
+      socialProof: combineSocialProof(
+        category.services.map((service) => service.socialProof || emptySocialProof(countryCode, city)),
+        countryCode,
+        city
+      ),
+    }));
+
+    return {
+      ...group,
+      categories,
+      socialProof: combineSocialProof(
+        categories.map((category) => category.socialProof || emptySocialProof(countryCode, city)),
+        countryCode,
+        city
+      ),
+    };
+  });
 
 export const normalizeAreaEntries = (entries: unknown): AreaAvailability[] => {
   if (!Array.isArray(entries)) return [];
@@ -692,6 +855,13 @@ export const getMarketAvailability = async (
   let services = mergeServiceStatus(catalogueServices, marketServices);
   services = enrichServiceEntries(services, catalogue);
   services.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  const socialProofServiceKeys = services.flatMap((service) => {
+    const subcategoryKeys = (service.subcategories || []).map((subcategory) =>
+      subcategory.serviceKey || subcategory.subcategoryKey
+    );
+    return [service.serviceKey, ...subcategoryKeys];
+  });
+  const socialProof = await loadServiceSocialProof(socialProofServiceKeys, countryCode, city);
 
   const effectiveLocationStatus = countryStatus === MarketStatus.ACTIVE ? cityStatus : countryStatus;
   const formattedServices = services.map((service: ServiceDefinition) => {
@@ -724,6 +894,12 @@ export const getMarketAvailability = async (
           status: effectiveStatus === MarketStatus.ACTIVE ? subcategory.status : effectiveStatus,
           calloutFeeMinor: firstNumber(...pricingCandidates.map((entry) => entry.value)),
           pricingSource: pricingSourceFor(pricingCandidates),
+          socialProof: proofForService(
+            socialProof,
+            subcategory.serviceKey || subcategory.subcategoryKey,
+            countryCode,
+            city
+          ),
         };
       }),
       status: effectiveStatus,
@@ -731,6 +907,17 @@ export const getMarketAvailability = async (
       message: statusMessage(service.label, effectiveStatus, city, area),
       calloutFeeMinor: serviceCalloutFeeMinor,
       pricingSource,
+      socialProof: proofForService(socialProof, service.serviceKey, countryCode, city),
+    };
+  });
+  const servicesWithSocialProof = formattedServices.map((service) => {
+    const subcategoryProofs = (service.subcategories || [])
+      .map((subcategory) => subcategory.socialProof)
+      .filter((proof): proof is ServiceSocialProof => Boolean(proof));
+    if (!subcategoryProofs.length) return service;
+    return {
+      ...service,
+      socialProof: combineSocialProof(subcategoryProofs, countryCode, city),
     };
   });
 
@@ -745,8 +932,8 @@ export const getMarketAvailability = async (
   return {
     ...market,
     market,
-    groups: buildServiceGroups(formattedServices),
-    services: formattedServices,
+    groups: attachGroupSocialProof(buildServiceGroups(servicesWithSocialProof), countryCode, city),
+    services: servicesWithSocialProof,
   };
 };
 

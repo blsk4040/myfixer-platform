@@ -53,6 +53,9 @@ const audit_service_1 = require("./audit.service");
 const notification_service_1 = require("./notification.service");
 const notification_model_1 = require("../models/notification.model");
 const market_finance_guard_service_1 = require("./market-finance-guard.service");
+const provider_referral_service_1 = require("./provider-referral.service");
+const customer_referral_service_1 = require("./customer-referral.service");
+const provider_reputation_service_1 = require("./provider-reputation.service");
 class SettlementError extends Error {
     code;
     statusCode;
@@ -292,6 +295,11 @@ const confirmCustomerCompletion = async (bookingId, actor, input, req) => {
     });
     const flags = (0, payment_capabilities_config_1.getCountryPaymentFeatureFlags)(completedBooking.countryCode);
     const settlement = await createSettlementFromBooking(completedBooking, payment, flags.adminApprovalRequired ? provider_settlement_model_1.ProviderSettlementStatus.APPROVAL_REQUIRED : provider_settlement_model_1.ProviderSettlementStatus.READY_FOR_PAYOUT);
+    if (completedBooking.technicianId) {
+        await (0, provider_reputation_service_1.refreshProviderReputationStats)(completedBooking.technicianId);
+    }
+    await (0, provider_referral_service_1.processReferralRewardForCompletedBooking)(completedBooking);
+    await (0, customer_referral_service_1.processCustomerReferralRewardForCompletedBooking)(completedBooking);
     req?.app.get('io')?.to(`booking:${completedBooking.id}`).emit('completion_confirmed', {
         bookingId: completedBooking.id,
         status: completedBooking.status,

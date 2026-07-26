@@ -26,6 +26,7 @@ export interface AuthTechnicianProfile {
   serviceCategories?: string[];
   city?: string;
   businessName?: string;
+  referralCode?: string;
   yearsExperience?: number;
   profilePhotoUrl?: string;
   profilePhotoStatus?: string;
@@ -79,6 +80,20 @@ class AuthService {
 
   getSession(): AuthSession | null {
     return this.session;
+  }
+
+  updateTechnicianStats(stats: NonNullable<AuthTechnicianProfile['stats']>): void {
+    if (!this.session?.technician) return;
+    this.session = {
+      ...this.session,
+      technician: {
+        ...this.session.technician,
+        stats: {
+          ...(this.session.technician.stats || {}),
+          ...stats,
+        },
+      },
+    };
   }
 
   getAuthHeader(): Record<string, string> {

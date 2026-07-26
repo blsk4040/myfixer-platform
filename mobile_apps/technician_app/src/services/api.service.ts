@@ -396,6 +396,24 @@ export interface GoogleAuthResponse {
   message?: string;
 }
 
+export interface ProviderReferralProgramResponse {
+  success: boolean;
+  referral: {
+    referralCode: string;
+    inviteUrl: string;
+    shareMessage: string;
+    rewardsEnabled: boolean;
+    rewardMessage: string;
+    summary: {
+      registeredCount: number;
+      firstBookingCount: number;
+      completedCount: number;
+      rewardEligibleCount: number;
+      rewardBlockedCount: number;
+    };
+  };
+}
+
 class ApiService {
   private async request<TResponse>(path: string, init?: RequestInit): Promise<TResponse> {
     assertConfiguredUrl(API_BASE_URL, 'EXPO_PUBLIC_API_BASE_URL');
@@ -513,8 +531,23 @@ class ApiService {
     return this.request('/technician/available-jobs');
   }
 
-  getTechnicianJobs(): Promise<{ success: boolean; activeJobs: any[]; scheduledJobs: any[]; completedJobs: any[] }> {
+  getTechnicianJobs(): Promise<{
+    success: boolean;
+    activeJobs: any[];
+    scheduledJobs: any[];
+    completedJobs: any[];
+    reputation?: {
+      averageRating: number | null;
+      reviewCount: number;
+      completedJobs: number;
+      verified: boolean;
+    };
+  }> {
     return this.request('/technician/jobs');
+  }
+
+  getMyReferralProgram(): Promise<ProviderReferralProgramResponse> {
+    return this.request('/technicians/me/referral');
   }
 
   updateBookingStatus(bookingId: string, status: BookingStatus): Promise<{ success: boolean; status: BookingStatus }> {

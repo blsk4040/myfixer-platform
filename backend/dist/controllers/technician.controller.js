@@ -48,6 +48,9 @@ const user_model_1 = __importDefault(require("../models/user.model"));
 const email_service_1 = require("../services/email/email.service");
 const media_storage_service_1 = require("../services/media-storage.service");
 const admin_market_scope_service_1 = require("../services/admin-market-scope.service");
+const provider_reputation_service_1 = require("../services/provider-reputation.service");
+const image_data_uri_1 = require("../utils/image-data-uri");
+const MAX_TECHNICIAN_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
 const isApprovalStatus = (value) => typeof value === 'string' &&
     Object.values(technician_model_1.TechnicianApprovalStatus).includes(value);
 const isPhotoReviewStatus = (value) => value === technician_model_1.VerificationStatus.VERIFIED || value === technician_model_1.VerificationStatus.REJECTED;
@@ -128,7 +131,7 @@ const getMyTechnicianJobs = async (req, res) => {
             booking_model_1.BookingStatus.IN_PROGRESS,
             booking_model_1.BookingStatus.DIAGNOSTIC_DONE,
         ];
-        const [activeJobs, scheduledJobs, completedJobs] = await Promise.all([
+        const [activeJobs, scheduledJobs, completedJobs, technicianProfile] = await Promise.all([
             booking_model_1.default.find({
                 technicianId: technicianObjectId,
                 status: { $in: activeStatuses },
@@ -159,6 +162,7 @@ const getMyTechnicianJobs = async (req, res) => {
             })
                 .sort({ completedAt: -1, updatedAt: -1 })
                 .limit(50),
+            technician_model_1.default.findOne({ userId: technicianObjectId }).select('approvalStatus stats').lean(),
         ]);
         const allJobs = [...activeJobs, ...scheduledJobs, ...completedJobs];
         const bookingIds = allJobs.map((job) => job._id);
@@ -175,6 +179,7 @@ const getMyTechnicianJobs = async (req, res) => {
             activeJobs: activeJobs.map(serializeWithQuoteStatus),
             scheduledJobs: scheduledJobs.map(serializeWithQuoteStatus),
             completedJobs: completedJobs.map(serializeWithQuoteStatus),
+            reputation: (0, provider_reputation_service_1.getProviderReputation)(technicianProfile),
         });
     }
     catch (error) {
@@ -186,16 +191,16 @@ exports.getMyTechnicianJobs = getMyTechnicianJobs;
 const uploadMyTechnicianProfilePhoto = async (req, res) => {
     const authUser = req.user;
     const technicianUserId = String(authUser?.id ?? authUser?._id ?? '').trim();
-    const dataUri = typeof req.body?.dataUri === 'string' ? req.body.dataUri.trim() : '';
     if (!technicianUserId || !mongoose_1.default.Types.ObjectId.isValid(technicianUserId)) {
         res.status(401).json({ message: 'Unauthorized. Technician identity missing.' });
         return;
     }
-    if (!dataUri.startsWith('data:image/')) {
-        res.status(400).json({ message: 'Please upload a valid profile photo image.' });
-        return;
-    }
     try {
+        const { dataUri } = (0, image_data_uri_1.parseImageDataUri)(req.body?.dataUri, {
+            maxBytes: MAX_TECHNICIAN_PROFILE_PHOTO_BYTES,
+            invalidMessage: 'Please upload a JPG, PNG, or WebP profile photo.',
+            tooLargeMessage: 'Profile photos must be 5 MB or smaller.',
+        });
         const technician = await technician_model_1.default.findOne({ userId: new mongoose_1.default.Types.ObjectId(technicianUserId) });
         if (!technician) {
             res.status(404).json({ message: 'Technician profile not found.' });

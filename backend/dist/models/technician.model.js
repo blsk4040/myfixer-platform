@@ -156,6 +156,12 @@ const TechnicianSchema = new mongoose_1.Schema({
         trim: true,
         maxlength: 600,
     },
+    referralCode: {
+        type: String,
+        default: '',
+        trim: true,
+        uppercase: true,
+    },
     documents: {
         idDocumentUrl: {
             type: String,
@@ -304,6 +310,7 @@ TechnicianSchema.index({ countryCode: 1, city: 1, approvalStatus: 1 });
 TechnicianSchema.index({ serviceCategories: 1, approvalStatus: 1 });
 TechnicianSchema.index({ 'stats.averageRating': -1 });
 TechnicianSchema.index({ createdAt: -1 });
+TechnicianSchema.index({ referralCode: 1 }, { unique: true, sparse: true });
 const TechnicianModel = mongoose_1.default.models.Technician ??
     mongoose_1.default.model('Technician', TechnicianSchema);
 exports.default = TechnicianModel;

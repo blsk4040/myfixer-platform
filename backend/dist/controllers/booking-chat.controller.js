@@ -45,8 +45,10 @@ const notification_model_1 = require("../models/notification.model");
 const user_model_1 = require("../models/user.model");
 const notification_service_1 = require("../services/notification.service");
 const media_storage_service_1 = require("../services/media-storage.service");
+const image_data_uri_1 = require("../utils/image-data-uri");
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 const TWO_YEARS_MS = 2 * ONE_YEAR_MS;
+const MAX_BOOKING_MEDIA_IMAGE_BYTES = 5 * 1024 * 1024;
 const getAuthUser = (req) => req.user;
 const getUserId = (req) => {
     const authUser = getAuthUser(req);
@@ -69,16 +71,6 @@ const getPurpose = (value) => {
 const getRetentionDate = (purpose) => {
     const retentionMs = purpose === job_media_model_1.JobMediaPurpose.DISPUTE ? TWO_YEARS_MS : ONE_YEAR_MS;
     return new Date(Date.now() + retentionMs);
-};
-const getMimeTypeFromDataUri = (dataUri) => {
-    const match = dataUri.match(/^data:([^;]+);base64,/i);
-    return match?.[1] || 'image/jpeg';
-};
-const assertDataUriImage = (dataUri) => {
-    if (typeof dataUri !== 'string' || !dataUri.startsWith('data:image/') || !dataUri.includes(';base64,')) {
-        throw new Error('A base64 image data URI is required.');
-    }
-    return dataUri;
 };
 const serializeMedia = (media) => ({
     id: media._id?.toString?.() ?? media.id,
@@ -134,7 +126,12 @@ const uploadBookingMedia = async (req, res) => {
             res.status(404).json({ message: 'Booking not found or access denied.' });
             return;
         }
-        const dataUri = assertDataUriImage(req.body?.dataUri);
+        const parsedImage = (0, image_data_uri_1.parseImageDataUri)(req.body?.dataUri, {
+            maxBytes: MAX_BOOKING_MEDIA_IMAGE_BYTES,
+            invalidMessage: 'Choose a JPG, PNG, or WebP image.',
+            tooLargeMessage: 'Booking images must be 5 MB or smaller.',
+        });
+        const { dataUri, mimeType, sizeBytes } = parsedImage;
         const purpose = getPurpose(req.body?.purpose);
         if (purpose === job_media_model_1.JobMediaPurpose.INSPECTION) {
             if (role !== user_model_1.UserRole.TECHNICIAN && role !== user_model_1.UserRole.ADMIN) {
@@ -150,7 +147,6 @@ const uploadBookingMedia = async (req, res) => {
                 return;
             }
         }
-        const mimeType = typeof req.body?.mimeType === 'string' ? req.body.mimeType : getMimeTypeFromDataUri(dataUri);
         const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName.trim() : '';
         const publicId = `${booking.id}-${Date.now()}-${Math.round(Math.random() * 100000)}`;
         const uploaded = await (0, media_storage_service_1.uploadImageToCloudinary)({
@@ -172,7 +168,7 @@ const uploadBookingMedia = async (req, res) => {
             thumbnailUrl: uploaded.thumbnailUrl,
             mimeType,
             fileName,
-            fileSize: uploaded.fileSize,
+            fileSize: uploaded.fileSize || sizeBytes,
             width: uploaded.width,
             height: uploaded.height,
             retentionExpiresAt: getRetentionDate(purpose),

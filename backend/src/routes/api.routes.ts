@@ -8,8 +8,10 @@ import {
   finalizeJobInvoice,
   getMyActiveBooking,
   getMyBookingHistory,
+  getBookingReview,
   getBookingById,
   completeInspection,
+  submitBookingReview,
   startJob,
   startInspection,
   startRoute,
@@ -95,6 +97,7 @@ import {
   endAdminPromotion,
   getAdminAuditLogs,
   getAdminInvoices,
+  getAdminGrowthTrust,
   getAdminMarkets,
   getAdminOverview,
   getAdminPromotionAudit,
@@ -102,6 +105,7 @@ import {
   getAdminPromotionPerformance,
   getAdminPromotionRedemptions,
   getAdminPromotionsSummary,
+  listAdminReferralRewards,
   getAdminServices,
   listAdminPromotions,
   getAdminQuotes,
@@ -167,7 +171,18 @@ import {
   updateManagedCollectionSubscription,
 } from '../controllers/managed-collection-subscription.controller';
 import { authenticateToken, requireAdminPermission, requireRole } from '../middleware/auth.middleware';
+import {
+  authRateLimiter,
+  bookingWriteRateLimiter,
+  bootstrapRateLimiter,
+  mediaUploadRateLimiter,
+  passwordResetRateLimiter,
+  publicReadRateLimiter,
+  supportRateLimiter,
+} from '../middleware/rate-limit.middleware';
 import { AdminPermission, UserRole } from '../models/user.model';
+import { getMyProviderReferralProgram } from '../controllers/provider-referral.controller';
+import { getMyCustomerReferralProgram } from '../controllers/customer-referral.controller';
 
 // Import the secure PCI-compliant payment gateway endpoints
 import paymentRoutes from './payment.routes';
@@ -176,26 +191,26 @@ import routingRoutes from '../modules/routing/routing.routes';
 const apiRouter = Router();
 
 // 🔐 Authentication Matrix Endpoints
-apiRouter.post('/auth/register', registerUser);
-apiRouter.post('/auth/register-technician', registerTechnician);
-apiRouter.post('/auth/bootstrap-admin', bootstrapAdmin);
-apiRouter.post('/auth/login', loginUser);
-apiRouter.post('/auth/google', googleAuth);
-apiRouter.post('/auth/google/complete-profile', completeGoogleClientProfile);
+apiRouter.post('/auth/register', authRateLimiter, registerUser);
+apiRouter.post('/auth/register-technician', authRateLimiter, registerTechnician);
+apiRouter.post('/auth/bootstrap-admin', bootstrapRateLimiter, bootstrapAdmin);
+apiRouter.post('/auth/login', authRateLimiter, loginUser);
+apiRouter.post('/auth/google', authRateLimiter, googleAuth);
+apiRouter.post('/auth/google/complete-profile', authRateLimiter, completeGoogleClientProfile);
 apiRouter.get('/auth/verify-email', verifyEmail);
-apiRouter.post('/auth/verify-email', verifyEmail);
-apiRouter.post('/auth/forgot-password', forgotPassword);
-apiRouter.post('/auth/reset-password', resetPassword);
+apiRouter.post('/auth/verify-email', authRateLimiter, verifyEmail);
+apiRouter.post('/auth/forgot-password', passwordResetRateLimiter, forgotPassword);
+apiRouter.post('/auth/reset-password', passwordResetRateLimiter, resetPassword);
 apiRouter.post('/auth/change-password', authenticateToken, changeOwnPassword);
 apiRouter.get('/auth/security', authenticateToken, getMySecuritySummary);
 apiRouter.post('/auth/sign-out-other-sessions', authenticateToken, signOutOtherSessions);
 
-apiRouter.get('/markets', getPublicMarkets);
-apiRouter.get('/markets/public', getPublicMarkets);
-apiRouter.get('/markets/:country/availability', getPublicMarketAvailability);
-apiRouter.get('/services', getPublicServices);
-apiRouter.get('/services/published', getPublicServices);
-apiRouter.post('/waitlist/service', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), joinServiceWaitlist);
+apiRouter.get('/markets', publicReadRateLimiter, getPublicMarkets);
+apiRouter.get('/markets/public', publicReadRateLimiter, getPublicMarkets);
+apiRouter.get('/markets/:country/availability', publicReadRateLimiter, getPublicMarketAvailability);
+apiRouter.get('/services', publicReadRateLimiter, getPublicServices);
+apiRouter.get('/services/published', publicReadRateLimiter, getPublicServices);
+apiRouter.post('/waitlist/service', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), joinServiceWaitlist);
 apiRouter.post('/managed-collections', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), createManagedCollectionProfile);
 apiRouter.get('/notifications', authenticateToken, getMyNotifications);
 apiRouter.patch('/notifications/:id', authenticateToken, updateMyNotification);
@@ -204,10 +219,10 @@ apiRouter.patch('/notification-preferences', authenticateToken, updateMyNotifica
 apiRouter.post('/push-tokens', authenticateToken, registerPushToken);
 apiRouter.delete('/push-tokens', authenticateToken, unregisterPushToken);
 apiRouter.get('/support/tickets', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.TECHNICIAN]), listMySupportTickets);
-apiRouter.post('/support/tickets', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.TECHNICIAN]), createSupportTicket);
+apiRouter.post('/support/tickets', supportRateLimiter, authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.TECHNICIAN]), createSupportTicket);
 apiRouter.get('/support/tickets/:ticketId/messages', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.TECHNICIAN]), getSupportTicketMessages);
-apiRouter.post('/support/tickets/:ticketId/messages', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.TECHNICIAN]), createSupportTicketMessage);
-apiRouter.post('/technician/profile-photo', authenticateToken, requireRole([UserRole.TECHNICIAN]), uploadMyTechnicianProfilePhoto);
+apiRouter.post('/support/tickets/:ticketId/messages', supportRateLimiter, authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.TECHNICIAN]), createSupportTicketMessage);
+apiRouter.post('/technician/profile-photo', mediaUploadRateLimiter, authenticateToken, requireRole([UserRole.TECHNICIAN]), uploadMyTechnicianProfilePhoto);
 apiRouter.get('/profile/me', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyProfile);
 apiRouter.patch('/profile/default-address', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), updateMyDefaultAddress);
 apiRouter.get('/managed-collection-plans', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), listPublicSubscriptionPlans);
@@ -216,34 +231,38 @@ apiRouter.post('/managed-collection-subscriptions', authenticateToken, requireRo
 apiRouter.patch('/managed-collection-subscriptions/:id', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), updateManagedCollectionSubscription);
 
 // 📅 Dispatch & Booking Allocation Engine
-apiRouter.post('/bookings/finalize-invoice', authenticateToken, finalizeJobInvoice);
+apiRouter.post('/bookings/finalize-invoice', bookingWriteRateLimiter, authenticateToken, finalizeJobInvoice);
 apiRouter.get('/bookings/active/current', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyActiveBooking);
 apiRouter.get('/bookings/history/me', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyBookingHistory);
-apiRouter.post('/bookings', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), createBooking);
-apiRouter.post('/bookings/:id/accept', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), acceptBooking);
-apiRouter.post('/bookings/:id/decline', authenticateToken, requireRole([UserRole.TECHNICIAN]), declineBooking);
-apiRouter.post('/bookings/:id/start-route', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), startRoute);
-apiRouter.post('/bookings/:bookingId/arrival', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), confirmArrival);
-apiRouter.post('/bookings/:bookingId/start-inspection', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), startInspection);
-apiRouter.post('/bookings/:bookingId/complete-inspection', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), completeInspection);
-apiRouter.post('/bookings/:id/start-job', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), startJob);
-apiRouter.post('/bookings/:bookingId/submit-completion', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), submitCompletion);
-apiRouter.post('/bookings/:bookingId/confirm-completion', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), confirmCompletion);
-apiRouter.post('/bookings/:bookingId/report-completion-issue', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), reportCompletionIssueController);
-apiRouter.patch('/bookings/:id/status', authenticateToken, updateBookingStatus);
+apiRouter.get('/clients/me/referral', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyCustomerReferralProgram);
+apiRouter.post('/bookings', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), createBooking);
+apiRouter.get('/bookings/:bookingId/review', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getBookingReview);
+apiRouter.post('/bookings/:bookingId/review', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), submitBookingReview);
+apiRouter.post('/bookings/:id/accept', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), acceptBooking);
+apiRouter.post('/bookings/:id/decline', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.TECHNICIAN]), declineBooking);
+apiRouter.post('/bookings/:id/start-route', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), startRoute);
+apiRouter.post('/bookings/:bookingId/arrival', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), confirmArrival);
+apiRouter.post('/bookings/:bookingId/start-inspection', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), startInspection);
+apiRouter.post('/bookings/:bookingId/complete-inspection', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), completeInspection);
+apiRouter.post('/bookings/:id/start-job', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), startJob);
+apiRouter.post('/bookings/:bookingId/submit-completion', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), submitCompletion);
+apiRouter.post('/bookings/:bookingId/confirm-completion', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), confirmCompletion);
+apiRouter.post('/bookings/:bookingId/report-completion-issue', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), reportCompletionIssueController);
+apiRouter.patch('/bookings/:id/status', bookingWriteRateLimiter, authenticateToken, updateBookingStatus);
 apiRouter.get('/bookings/:id', authenticateToken, getBookingById);
-apiRouter.post('/bookings/:bookingId/media', authenticateToken, uploadBookingMedia);
+apiRouter.post('/bookings/:bookingId/media', mediaUploadRateLimiter, authenticateToken, uploadBookingMedia);
 apiRouter.get('/bookings/:bookingId/messages', authenticateToken, getBookingMessages);
-apiRouter.post('/bookings/:bookingId/messages', authenticateToken, sendBookingMessage);
+apiRouter.post('/bookings/:bookingId/messages', supportRateLimiter, authenticateToken, sendBookingMessage);
 
-apiRouter.post('/bookings/:bookingId/quotes', authenticateToken, createJobQuote);
+apiRouter.post('/bookings/:bookingId/quotes', bookingWriteRateLimiter, authenticateToken, createJobQuote);
 apiRouter.get('/bookings/:bookingId/quotes', authenticateToken, getBookingQuotes);
-apiRouter.post('/quotes/:quoteId/submit', authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), submitJobQuote);
-apiRouter.post('/quotes/:quoteId/approve', authenticateToken, approveJobQuote);
-apiRouter.post('/quotes/:quoteId/reject', authenticateToken, rejectJobQuote);
-apiRouter.post('/quotes/:quoteId/request-clarification', authenticateToken, requestQuoteClarification);
+apiRouter.post('/quotes/:quoteId/submit', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.TECHNICIAN, UserRole.ADMIN]), submitJobQuote);
+apiRouter.post('/quotes/:quoteId/approve', bookingWriteRateLimiter, authenticateToken, approveJobQuote);
+apiRouter.post('/quotes/:quoteId/reject', bookingWriteRateLimiter, authenticateToken, rejectJobQuote);
+apiRouter.post('/quotes/:quoteId/request-clarification', bookingWriteRateLimiter, authenticateToken, requestQuoteClarification);
 apiRouter.get('/technician/available-jobs', authenticateToken, requireRole([UserRole.TECHNICIAN]), getAvailableJobsForTechnician);
 apiRouter.get('/technician/jobs', authenticateToken, requireRole([UserRole.TECHNICIAN]), getMyTechnicianJobs);
+apiRouter.get('/technicians/me/referral', authenticateToken, requireRole([UserRole.TECHNICIAN]), getMyProviderReferralProgram);
 
 apiRouter.get('/admin/technicians', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.TECHNICIANS_READ), listTechnicianApplications);
 apiRouter.patch('/admin/technicians/:id/review', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.TECHNICIANS_REVIEW), reviewTechnicianApplication);
@@ -264,6 +283,8 @@ apiRouter.get('/admin/invoices', authenticateToken, requireRole([UserRole.ADMIN]
 apiRouter.get('/admin/wallet-transactions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminWalletTransactions);
 apiRouter.get('/admin/promotions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_READ), listAdminPromotions);
 apiRouter.get('/admin/promotions/summary', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_PERFORMANCE_READ), getAdminPromotionsSummary);
+apiRouter.get('/admin/referral-rewards', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_PERFORMANCE_READ), listAdminReferralRewards);
+apiRouter.get('/admin/growth-trust', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_PERFORMANCE_READ), getAdminGrowthTrust);
 apiRouter.post('/admin/promotions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_CREATE), createAdminPromotion);
 apiRouter.get('/admin/promotions/:id', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_READ), getAdminPromotionById);
 apiRouter.get('/admin/promotions/:id/performance', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_PERFORMANCE_READ), getAdminPromotionPerformance);
@@ -291,7 +312,7 @@ apiRouter.patch('/admin/markets/:countryCode/cities/:cityName/areas/:areaName', 
 apiRouter.delete('/admin/markets/:countryCode/cities/:cityName/areas/:areaName', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), deleteAdminMarketArea);
 apiRouter.get('/admin/services', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_READ), getAdminServices);
 apiRouter.post('/admin/services', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), createAdminService);
-apiRouter.post('/admin/services/images', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), uploadAdminServiceImage);
+apiRouter.post('/admin/services/images', mediaUploadRateLimiter, authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), uploadAdminServiceImage);
 apiRouter.patch('/admin/service-groups/:groupKey', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), updateAdminServiceGroup);
 apiRouter.delete('/admin/service-groups/:groupKey', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), deleteAdminServiceGroup);
 apiRouter.delete('/admin/services/:serviceKey/bookable/:bookableServiceKey', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), deleteAdminBookableService);
@@ -312,7 +333,7 @@ apiRouter.post('/admin/notifications/:id/cancel', authenticateToken, requireRole
 apiRouter.get('/admin/support/tickets', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.SUPPORT_READ), listAdminSupportTickets);
 apiRouter.patch('/admin/support/tickets/:ticketId', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.SUPPORT_UPDATE), updateAdminSupportTicket);
 apiRouter.get('/admin/support/tickets/:ticketId/messages', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.SUPPORT_READ), getSupportTicketMessages);
-apiRouter.post('/admin/support/tickets/:ticketId/messages', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.SUPPORT_REPLY), createAdminSupportMessage);
+apiRouter.post('/admin/support/tickets/:ticketId/messages', supportRateLimiter, authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.SUPPORT_REPLY), createAdminSupportMessage);
 apiRouter.get('/admin/managed-collection-subscriptions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), listAdminManagedCollectionSubscriptions);
 apiRouter.post('/admin/managed-collection-subscriptions/generate-invoices', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), generateManagedCollectionSubscriptionInvoices);
 apiRouter.post('/admin/managed-collection-subscription-plans', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.MARKETS_UPDATE), createAdminSubscriptionPlan);

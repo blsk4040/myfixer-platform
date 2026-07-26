@@ -25,9 +25,62 @@ import { registerSocketServer } from './sockets/socket.server';
 import { validatePaystackStartupConfiguration } from './services/paystack.service';
 import { validatePayoutStartupConfiguration } from './config/payment-capabilities.config';
 
+const isProductionRuntime = (): boolean =>
+  process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
+
+const requireConfiguredEnv = (name: string): string => {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} must be configured in production.`);
+  }
+  return value;
+};
+
+const requireHttpsUrl = (name: string): void => {
+  const value = requireConfiguredEnv(name);
+  if (!/^https:\/\/[^\s]+$/i.test(value)) {
+    throw new Error(`${name} must be a valid HTTPS URL in production.`);
+  }
+};
+
+const assertNoLocalProductionOrigin = (origin: string): void => {
+  if (/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?/i.test(origin)) {
+    throw new Error('CORS_ORIGINS must not include localhost addresses in production.');
+  }
+};
+
 const validateStartupConfiguration = (): void => {
   const routingProvider = (process.env.ROUTING_PROVIDER || 'osrm').trim().toLowerCase();
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
+  const isProduction = isProductionRuntime();
+  if (isProduction) {
+    requireConfiguredEnv('MONGODB_URI');
+    const jwtSecret = requireConfiguredEnv('JWT_SECRET');
+    if (jwtSecret.length < 48) {
+      throw new Error('JWT_SECRET must be at least 48 characters in production.');
+    }
+
+    requireHttpsUrl('ADMIN_PORTAL_URL');
+    requireHttpsUrl('API_BASE_URL');
+    requireHttpsUrl('SOCKET_URL');
+    requireConfiguredEnv('RESEND_API_KEY');
+    requireConfiguredEnv('RESEND_FROM_EMAIL');
+    requireConfiguredEnv('CLOUDINARY_CLOUD_NAME');
+    requireConfiguredEnv('CLOUDINARY_API_KEY');
+    requireConfiguredEnv('CLOUDINARY_API_SECRET');
+    requireConfiguredEnv('GOOGLE_WEB_CLIENT_ID');
+    requireConfiguredEnv('GOOGLE_ANDROID_CLIENT_ID');
+
+    const configuredOrigins = (process.env.CORS_ORIGIN ?? process.env.CORS_ORIGINS ?? '').trim();
+    if (!configuredOrigins) {
+      throw new Error('CORS_ORIGINS must be configured in production.');
+    }
+    configuredOrigins.split(',').map((origin) => origin.trim()).filter(Boolean).forEach((origin) => {
+      if (!/^https:\/\/[^\s]+$/i.test(origin)) {
+        throw new Error('CORS_ORIGINS must contain only HTTPS origins in production.');
+      }
+      assertNoLocalProductionOrigin(origin);
+    });
+  }
   if (isProduction && routingProvider === 'osrm' && !process.env.OSRM_BASE_URL?.trim()) {
     throw new Error('OSRM_BASE_URL must be configured when ROUTING_PROVIDER=osrm in production.');
   }
@@ -67,6 +120,7 @@ export const io = new SocketIOServer(httpServer, {
 });
 
 app.use(helmet());
+app.set('trust proxy', isProductionRuntime() ? 1 : false);
 app.use(cors(corsOptions));
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '8mb';
 app.use(express.json({

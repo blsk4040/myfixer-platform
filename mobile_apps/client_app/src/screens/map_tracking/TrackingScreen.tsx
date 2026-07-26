@@ -113,6 +113,20 @@ const getBookingCustomerCoordinate = (booking: BookingDetails): Coordinate | nul
 
 const toLngLat = (coordinate: Coordinate): [number, number] => [coordinate.longitude, coordinate.latitude];
 
+const providerReputationText = (technician: BookingDetails['technician'] | null): string => {
+  const reputation = technician?.reputation;
+  if (!reputation) return 'Verified Padi Pro';
+  const parts = [];
+  if (typeof reputation.averageRating === 'number' && reputation.reviewCount > 0) {
+    parts.push(`${reputation.averageRating.toFixed(1)} rating`);
+  }
+  if (reputation.completedJobs > 0) {
+    parts.push(`${reputation.completedJobs.toLocaleString()} jobs completed`);
+  }
+  parts.push(reputation.verified ? 'Verified Padi Pro' : 'Padi Pro');
+  return parts.join(' · ');
+};
+
 export default function TrackingScreen({ bookingId, customerCoordinate, route }: TrackingScreenProps) {
   const resolvedBookingId = bookingId ?? route?.params?.bookingId ?? '';
   const initialCustomerCoordinate = customerCoordinate ?? route?.params?.customerCoordinate ?? null;
@@ -290,7 +304,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
             <Text style={styles.providerName}>{technician?.name || (technicianLocation ? `Assigned ${providerRole.capitalized}` : `Securing nearest ${providerRole.singular}`)}</Text>
             <View style={styles.verificationBadgeRow}>
               <ShieldCheck color={Colors.primary} size={14} />
-              <Text style={styles.verificationText}>Verified Padi Pro</Text>
+              <Text style={styles.verificationText}>{providerReputationText(technician)}</Text>
             </View>
           </View>
         </View>

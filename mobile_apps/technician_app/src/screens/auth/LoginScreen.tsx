@@ -15,11 +15,14 @@ import {
   ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Eye, EyeOff } from 'lucide-react-native';
 import apiService from '../../services/api.service';
 import authService, { AuthSession } from '../../services/auth.service';
 import { BRAND } from '../../config/brand';
 
 const appLogo = require('../../../assets/logo/app_logo.png');
+const EyeIcon = Eye as any;
+const EyeOffIcon = EyeOff as any;
 
 const Colors = {
   background: '#0B0B0D',
@@ -44,6 +47,7 @@ interface LoginScreenProps {
 export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationRequired }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
@@ -197,16 +201,32 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
             />
 
             <Text style={styles.inputLabel}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your password"
-              placeholderTextColor={Colors.textSubtle}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize="none"
-              editable={!isLoading && !isGoogleLoading}
-            />
+            <View style={styles.passwordField}>
+              <TextInput
+                style={[styles.input, styles.passwordInput]}
+                placeholder="Enter your password"
+                placeholderTextColor={Colors.textSubtle}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                editable={!isLoading && !isGoogleLoading}
+              />
+              <TouchableOpacity
+                style={styles.passwordToggle}
+                activeOpacity={0.75}
+                onPress={() => setShowPassword((value) => !value)}
+                disabled={isLoading || isGoogleLoading}
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? (
+                  <EyeOffIcon size={20} color={Colors.textMuted} strokeWidth={2.2} />
+                ) : (
+                  <EyeIcon size={20} color={Colors.textMuted} strokeWidth={2.2} />
+                )}
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
               style={styles.loginButton}
@@ -362,6 +382,23 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     borderWidth: 1,
     borderColor: Colors.border
+  },
+  passwordField: {
+    position: 'relative',
+    marginBottom: 14,
+  },
+  passwordInput: {
+    marginBottom: 0,
+    paddingRight: 52,
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    width: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loginButton: { 
     backgroundColor: Colors.primary,

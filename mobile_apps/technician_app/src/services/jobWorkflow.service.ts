@@ -2,6 +2,7 @@ import { Alert } from 'react-native';
 import apiService from './api.service';
 import { TrackingService } from './TrackingService';
 import { NotificationService } from './notification.service';
+import authService from './auth.service';
 import { AssignedBookingDetails, JobPayload, PrivacySafeIncomingJob, useJobStore } from '../store/useJobStore';
 
 const normalizeJobStatus = (status: unknown): JobPayload['jobStatus'] | undefined => {
@@ -87,6 +88,13 @@ export async function refreshAvailableJobs(): Promise<void> {
 
 export async function refreshTechnicianJobBuckets(): Promise<void> {
   const response = await apiService.getTechnicianJobs();
+  if (response.reputation) {
+    authService.updateTechnicianStats({
+      averageRating: response.reputation.averageRating,
+      reviewCount: response.reputation.reviewCount,
+      completedJobs: response.reputation.completedJobs,
+    });
+  }
   useJobStore.getState().replaceJobBuckets({
     activeJobs: Array.isArray(response.activeJobs) ? response.activeJobs.map(normalizeJobPayload) : [],
     scheduledJobs: Array.isArray(response.scheduledJobs) ? response.scheduledJobs.map(normalizeJobPayload) : [],
