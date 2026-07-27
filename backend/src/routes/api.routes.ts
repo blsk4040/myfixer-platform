@@ -7,6 +7,7 @@ import {
   declineBooking,
   finalizeJobInvoice,
   getMyActiveBooking,
+  getMyActiveBookings,
   getMyBookingHistory,
   getBookingReview,
   getBookingById,
@@ -232,6 +233,7 @@ apiRouter.patch('/managed-collection-subscriptions/:id', authenticateToken, requ
 
 // 📅 Dispatch & Booking Allocation Engine
 apiRouter.post('/bookings/finalize-invoice', bookingWriteRateLimiter, authenticateToken, finalizeJobInvoice);
+apiRouter.get('/bookings/active', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyActiveBookings);
 apiRouter.get('/bookings/active/current', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyActiveBooking);
 apiRouter.get('/bookings/history/me', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyBookingHistory);
 apiRouter.get('/clients/me/referral', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyCustomerReferralProgram);

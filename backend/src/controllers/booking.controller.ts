@@ -1488,6 +1488,101 @@ export const getMyActiveBooking = async (
   }
 };
 
+export const getMyActiveBookings = async (
+  request: Request,
+  response: Response
+): Promise<void> => {
+  const authUser = getAuthenticatedUser(request);
+  const customerId = String(authUser?.id ?? authUser?._id ?? '').trim();
+
+  if (!customerId) {
+    response.status(401).json({ message: 'Unauthorized. User context missing.' });
+    return;
+  }
+
+  try {
+    const bookings = await Booking.find({
+      customerId,
+      status: {
+        $in: [
+          BookingStatus.PENDING,
+          BookingStatus.SCHEDULED,
+          BookingStatus.ACCEPTED,
+          BookingStatus.IN_ROUTE,
+          BookingStatus.ARRIVED,
+          BookingStatus.IN_PROGRESS,
+          BookingStatus.DIAGNOSTIC_DONE,
+        ],
+      },
+    }).sort({ updatedAt: -1 });
+
+    const technicianIds = bookings
+      .map((booking) => booking.technicianId)
+      .filter((technicianId): technicianId is mongoose.Types.ObjectId => Boolean(technicianId && mongoose.Types.ObjectId.isValid(technicianId)));
+
+    const [technicianUsers, technicianProfiles] = await Promise.all([
+      technicianIds.length
+        ? User.find({ _id: { $in: technicianIds } }).select('name phone profilePhotoUrl').lean()
+        : [],
+      technicianIds.length
+        ? TechnicianModel.find({ userId: { $in: technicianIds } }).select('userId approvalStatus stats lastLocation documents.profilePhotoUrl documents.profilePhotoStatus updatedAt').lean()
+        : [],
+    ]);
+
+    const usersById = new Map(technicianUsers.map((user) => [String(user._id), user]));
+    const profilesByUserId = new Map(technicianProfiles.map((profile) => [String(profile.userId), profile]));
+
+    response.status(200).json({
+      active: bookings.length > 0,
+      bookings: bookings.map((booking) => {
+        const [longitude, latitude] = booking.customerLocation.coordinates;
+        const technicianId = booking.technicianId ? String(booking.technicianId) : '';
+        const technicianUser = technicianId ? usersById.get(technicianId) : null;
+        const technicianProfile = technicianId ? profilesByUserId.get(technicianId) : null;
+        const approvedTechnicianPhotoUrl = technicianProfile?.documents?.profilePhotoStatus === VerificationStatus.VERIFIED
+          ? technicianProfile.documents.profilePhotoUrl
+          : '';
+
+        return {
+          id: booking.id,
+          status: booking.status,
+          customerId: booking.customerId,
+          customerName: booking.customerName,
+          serviceKey: booking.serviceKey,
+          applianceType: booking.applianceType,
+          faultDescription: booking.faultDescription,
+          fullAddress: booking.fullAddress,
+          complexDetails: booking.complexDetails,
+          generalArea: booking.generalArea,
+          price: decimalFromMinor(booking.priceMinor),
+          priceMinor: booking.priceMinor,
+          countryCode: booking.countryCode,
+          currency: booking.currency,
+          customerLocation: { latitude, longitude },
+          technicianId: booking.technicianId,
+          technician: technicianUser ? {
+            id: technicianId,
+            name: technicianUser.name,
+            phone: technicianUser.phone,
+            profilePhotoUrl: technicianUser.profilePhotoUrl || approvedTechnicianPhotoUrl || '',
+            lastLocation: technicianProfile?.lastLocation ? {
+              longitude: technicianProfile.lastLocation.coordinates[0],
+              latitude: technicianProfile.lastLocation.coordinates[1],
+            } : null,
+            lastGpsUpdate: technicianProfile?.updatedAt ?? null,
+            reputation: getProviderReputation(technicianProfile),
+          } : null,
+          createdAt: booking.createdAt,
+          updatedAt: booking.updatedAt,
+        };
+      }),
+    });
+  } catch (error) {
+    console.error('Failed to fetch active bookings:', error);
+    response.status(500).json({ message: 'Failed to fetch active bookings' });
+  }
+};
+
 export const getMyBookingHistory = async (
   request: Request,
   response: Response

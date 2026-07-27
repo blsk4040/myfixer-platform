@@ -187,6 +187,11 @@ export interface ActiveBookingResponse {
   booking: BookingDetails | null;
 }
 
+export interface ActiveBookingsResponse {
+  active: boolean;
+  bookings: BookingDetails[];
+}
+
 export interface BookingHistoryItem {
   id: string;
   serviceKey?: string;
@@ -636,6 +641,10 @@ class ApiService {
 
   getMyActiveBooking(): Promise<ActiveBookingResponse> {
     return this.request<ActiveBookingResponse>('/bookings/active/current');
+  }
+
+  getMyActiveBookings(): Promise<ActiveBookingsResponse> {
+    return this.request<ActiveBookingsResponse>('/bookings/active');
   }
 
   getMyBookingHistory(): Promise<{ success: boolean; bookings: BookingHistoryItem[] }> {
