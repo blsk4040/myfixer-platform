@@ -5,8 +5,8 @@ import CustomerReferral, { CustomerReferralStatus } from '../models/customer-ref
 import Promotion, {
   PromotionDiscountType,
   PromotionFundingSource,
-  PromotionStackingPolicy,
   PromotionStatus,
+  PromotionStackingPolicy,
   PromotionTriggerType,
 } from '../models/promotion.model';
 import User, { UserRole } from '../models/user.model';
@@ -389,6 +389,62 @@ export const getCustomerReferralSummary = async (customerId: mongoose.Types.Obje
     rewardEligibleCount: counts[CustomerReferralStatus.REWARD_ELIGIBLE] || 0,
     rewardBlockedCount: counts[CustomerReferralStatus.REWARD_BLOCKED] || 0,
   };
+};
+
+export const listActiveCustomerReferralPromotions = async (customerId: mongoose.Types.ObjectId | string) => {
+  const now = new Date();
+  const promotions = await Promotion.find({
+    status: PromotionStatus.ACTIVE,
+    triggerType: PromotionTriggerType.CODE,
+    eligibleClientIds: new mongoose.Types.ObjectId(String(customerId)),
+    $or: [
+      { expiresAt: null },
+      { expiresAt: { $exists: false } },
+      { expiresAt: { $gt: now } },
+    ],
+    'metadata.source': {
+      $in: [
+        'CUSTOMER_REFERRAL_FRIEND_DISCOUNT',
+        'CUSTOMER_REFERRAL_REWARD',
+        'PROVIDER_REFERRAL_REWARD',
+      ],
+    },
+  })
+    .select('code name description discountType discountValue maxDiscountMinor minBookingAmountMinor currency expiresAt usageLimit usageCount redemptionCount metadata')
+    .sort({ createdAt: -1 })
+    .limit(10)
+    .lean();
+
+  return promotions
+    .filter((promotion) => {
+      const usageLimit = promotion.usageLimit === null || promotion.usageLimit === undefined
+        ? null
+        : Number(promotion.usageLimit);
+      return usageLimit === null || Number(promotion.usageCount || 0) < usageLimit;
+    })
+    .map((promotion: any) => {
+      const source = String(promotion.metadata?.source || '');
+      return {
+        id: promotion._id?.toString(),
+        code: promotion.code || '',
+        title: source === 'CUSTOMER_REFERRAL_FRIEND_DISCOUNT'
+          ? 'First booking discount'
+          : source === 'CUSTOMER_REFERRAL_REWARD'
+            ? 'Friend invite reward'
+            : 'Padi Pro invite reward',
+        description: promotion.description || promotion.name || 'Use this code on your next qualifying booking.',
+        discountType: promotion.discountType,
+        discountValue: Number(promotion.discountValue || 0),
+        maxDiscountMinor: promotion.maxDiscountMinor === null || promotion.maxDiscountMinor === undefined
+          ? null
+          : Number(promotion.maxDiscountMinor),
+        minBookingAmountMinor: Number(promotion.minBookingAmountMinor || 0),
+        currency: promotion.currency || 'ZAR',
+        expiresAt: promotion.expiresAt || null,
+        status: Number(promotion.redemptionCount || 0) > 0 ? 'USED' : 'AVAILABLE',
+        source,
+      };
+    });
 };
 
 export const listCustomerReferralRewardsForAdmin = async (filter: Record<string, unknown> = {}) => {

@@ -3,6 +3,7 @@ import User, { UserRole } from '../models/user.model';
 import {
   getCustomerReferralSummary,
   getOrCreateCustomerReferralCode,
+  listActiveCustomerReferralPromotions,
 } from '../services/customer-referral.service';
 
 const getAuthUser = (req: Request): { id?: string; _id?: string } | undefined => (req as any).user;
@@ -26,7 +27,10 @@ export const getMyCustomerReferralProgram = async (req: Request, res: Response):
     const referralCode = await getOrCreateCustomerReferralCode(userId);
     const appLinkBase = (process.env.CLIENT_APP_SHARE_URL || process.env.CLIENT_APP_URL || 'https://padi.app').replace(/\/$/, '');
     const inviteUrl = `${appLinkBase}/invite/${encodeURIComponent(referralCode)}`;
-    const summary = await getCustomerReferralSummary(userId);
+    const [summary, rewards] = await Promise.all([
+      getCustomerReferralSummary(userId),
+      listActiveCustomerReferralPromotions(userId),
+    ]);
 
     res.status(200).json({
       success: true,
@@ -35,6 +39,7 @@ export const getMyCustomerReferralProgram = async (req: Request, res: Response):
         inviteUrl,
         shareMessage: `I booked through Padi. Use my invite code ${referralCode} when you sign up and get a discount on your first qualifying booking: ${inviteUrl}`,
         summary,
+        rewards,
         friendDiscountMessage: 'Your friend gets a discount on their first qualifying booking.',
         rewardMessage: 'Your reward is issued after your friend completes a real paid booking.',
       },

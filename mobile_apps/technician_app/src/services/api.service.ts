@@ -404,6 +404,18 @@ export interface ProviderReferralProgramResponse {
     shareMessage: string;
     rewardsEnabled: boolean;
     rewardMessage: string;
+    eligibility?: {
+      eligible: boolean;
+      status: 'ELIGIBLE' | 'LOCKED';
+      reason: string;
+      reasons: string[];
+      completedJobs: number;
+      requiredCompletedJobs: number;
+      accountApproved: boolean;
+      profilePhotoApproved: boolean;
+      marketReady: boolean;
+      trustReady: boolean;
+    };
     summary: {
       registeredCount: number;
       firstBookingCount: number;

@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -11,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import authService from '../../services/auth.service';
-import apiService, { CustomerProfile } from '../../services/api.service';
+import apiService, { CustomerProfile, CustomerReferralProgramResponse } from '../../services/api.service';
 import { Colors, Radius } from '../../theme';
 import { customerErrorMessage } from '../../utils/userFacingErrors';
 
@@ -24,6 +25,8 @@ interface ProfileOption {
 
 export function ProfileScreen({ navigation }: any): React.JSX.Element {
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
+  const [referral, setReferral] = useState<CustomerReferralProgramResponse['referral'] | null>(null);
+  const [referralLoading, setReferralLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [managedCollectionPaymentsAvailable, setManagedCollectionPaymentsAvailable] = useState(false);
 
@@ -32,6 +35,11 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
       .then((response) => setProfile(response.profile))
       .catch((error: Error) => Alert.alert('Account', customerErrorMessage(error, 'Unable to load your account right now.')))
       .finally(() => setLoading(false));
+
+    apiService.getMyReferralProgram()
+      .then((response) => setReferral(response.referral))
+      .catch(() => setReferral(null))
+      .finally(() => setReferralLoading(false));
   }, []);
 
   useEffect(() => {
@@ -100,6 +108,22 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
     ]);
   };
 
+  const handleShareInvite = async () => {
+    if (!referral?.shareMessage) {
+      Alert.alert('Invite friends', 'Your invite code is not ready yet. Please try again shortly.');
+      return;
+    }
+
+    await Share.share({ message: referral.shareMessage });
+  };
+
+  const formatRewardOffer = (reward: NonNullable<CustomerReferralProgramResponse['referral']['rewards']>[number]) => {
+    if (reward.discountType === 'FREE_CALLOUT') return 'Free call-out';
+    const amountMinor = reward.maxDiscountMinor ?? reward.discountValue;
+    if (reward.discountType === 'FIXED_AMOUNT') return `${reward.currency} ${Math.round(amountMinor / 100)} off`;
+    return `${reward.discountValue}% off`;
+  };
+
   const initials = (profile?.name || 'Customer')
     .split(' ')
     .filter(Boolean)
@@ -150,6 +174,52 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
           ) : null}
         </View>
 
+        <View style={styles.referralCard}>
+          <View style={styles.referralHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.referralEyebrow}>Invite friends</Text>
+              <Text style={styles.referralTitle}>Give a friend a Padi discount</Text>
+              <Text style={styles.referralCopy}>
+                Share your code. Your reward unlocks after your friend completes a real paid booking.
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.shareButton} activeOpacity={0.86} onPress={handleShareInvite}>
+              <Text style={styles.shareButtonText}>Share</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.referralCodeBox}>
+            {referralLoading ? (
+              <ActivityIndicator color={Colors.primary} />
+            ) : (
+              <Text style={styles.referralCode}>{referral?.referralCode || 'CODE READY SOON'}</Text>
+            )}
+          </View>
+
+          {referral ? (
+            <Text style={styles.referralStats}>
+              {referral.summary.registeredCount} invited - {referral.summary.completedCount} completed - {referral.summary.rewardEligibleCount} rewards
+            </Text>
+          ) : null}
+
+          {referral?.rewards?.length ? (
+            <View style={styles.rewardStack}>
+              <Text style={styles.rewardSectionTitle}>Available rewards</Text>
+              {referral.rewards.map((reward) => (
+                <View key={reward.id || reward.code} style={styles.rewardRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rewardTitle}>{reward.title}</Text>
+                    <Text style={styles.rewardMeta}>{formatRewardOffer(reward)} - use code {reward.code}</Text>
+                  </View>
+                  <Text style={styles.rewardStatus}>{reward.status}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.noRewardText}>No reward code yet. Invite friends to earn future discounts.</Text>
+          )}
+        </View>
+
         <Text style={styles.sectionTitle}>My Account</Text>
         <View style={styles.menuStack}>
           {accountOptions.map((opt, idx) => (
@@ -195,6 +265,23 @@ const styles = StyleSheet.create({
   addressBox: { marginTop: 18, width: '100%', backgroundColor: Colors.input, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, padding: 12 },
   addressLabel: { color: Colors.textSubtle, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
   addressText: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  referralCard: { backgroundColor: '#141511', borderRadius: Radius.lg, padding: 18, borderWidth: 1, borderColor: 'rgba(184, 255, 61, 0.28)', marginBottom: 24 },
+  referralHeader: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  referralEyebrow: { color: Colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+  referralTitle: { color: Colors.text, fontSize: 17, fontWeight: '900', marginTop: 4 },
+  referralCopy: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 6 },
+  shareButton: { minHeight: 42, minWidth: 76, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.primary, paddingHorizontal: 16 },
+  shareButtonText: { color: Colors.background, fontSize: 13, fontWeight: '900' },
+  referralCodeBox: { alignSelf: 'flex-start', minHeight: 36, minWidth: 140, paddingHorizontal: 12, marginTop: 14, borderRadius: 10, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
+  referralCode: { color: Colors.primary, fontSize: 15, fontWeight: '900', letterSpacing: 0.7 },
+  referralStats: { color: Colors.textSubtle, fontSize: 11, fontWeight: '700', marginTop: 10 },
+  rewardStack: { marginTop: 14, gap: 8 },
+  rewardSectionTitle: { color: Colors.text, fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
+  rewardRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.background, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, padding: 12 },
+  rewardTitle: { color: Colors.text, fontSize: 13, fontWeight: '800' },
+  rewardMeta: { color: Colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 3 },
+  rewardStatus: { color: Colors.primary, fontSize: 10, fontWeight: '900' },
+  noRewardText: { color: Colors.textSubtle, fontSize: 11, fontWeight: '700', marginTop: 12 },
   sectionTitle: { color: Colors.textSubtle, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 },
   menuStack: { backgroundColor: Colors.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden' },
   menuRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },

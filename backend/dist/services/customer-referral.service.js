@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.listCustomerReferralRewardsForAdmin = exports.getCustomerReferralSummary = exports.processCustomerReferralRewardForCompletedBooking = exports.markCustomerReferralFirstBookingCreated = exports.recordCustomerToCustomerReferral = exports.findCustomerByReferralCode = exports.getOrCreateCustomerReferralCode = exports.normalizeCustomerReferralCode = void 0;
+exports.listCustomerReferralRewardsForAdmin = exports.listActiveCustomerReferralPromotions = exports.getCustomerReferralSummary = exports.processCustomerReferralRewardForCompletedBooking = exports.markCustomerReferralFirstBookingCreated = exports.recordCustomerToCustomerReferral = exports.findCustomerByReferralCode = exports.getOrCreateCustomerReferralCode = exports.normalizeCustomerReferralCode = void 0;
 const crypto_1 = __importDefault(require("crypto"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const booking_model_1 = __importStar(require("../models/booking.model"));
@@ -365,6 +365,61 @@ const getCustomerReferralSummary = async (customerId) => {
     };
 };
 exports.getCustomerReferralSummary = getCustomerReferralSummary;
+const listActiveCustomerReferralPromotions = async (customerId) => {
+    const now = new Date();
+    const promotions = await promotion_model_1.default.find({
+        status: promotion_model_1.PromotionStatus.ACTIVE,
+        triggerType: promotion_model_1.PromotionTriggerType.CODE,
+        eligibleClientIds: new mongoose_1.default.Types.ObjectId(String(customerId)),
+        $or: [
+            { expiresAt: null },
+            { expiresAt: { $exists: false } },
+            { expiresAt: { $gt: now } },
+        ],
+        'metadata.source': {
+            $in: [
+                'CUSTOMER_REFERRAL_FRIEND_DISCOUNT',
+                'CUSTOMER_REFERRAL_REWARD',
+                'PROVIDER_REFERRAL_REWARD',
+            ],
+        },
+    })
+        .select('code name description discountType discountValue maxDiscountMinor minBookingAmountMinor currency expiresAt usageLimit usageCount redemptionCount metadata')
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
+    return promotions
+        .filter((promotion) => {
+        const usageLimit = promotion.usageLimit === null || promotion.usageLimit === undefined
+            ? null
+            : Number(promotion.usageLimit);
+        return usageLimit === null || Number(promotion.usageCount || 0) < usageLimit;
+    })
+        .map((promotion) => {
+        const source = String(promotion.metadata?.source || '');
+        return {
+            id: promotion._id?.toString(),
+            code: promotion.code || '',
+            title: source === 'CUSTOMER_REFERRAL_FRIEND_DISCOUNT'
+                ? 'First booking discount'
+                : source === 'CUSTOMER_REFERRAL_REWARD'
+                    ? 'Friend invite reward'
+                    : 'Padi Pro invite reward',
+            description: promotion.description || promotion.name || 'Use this code on your next qualifying booking.',
+            discountType: promotion.discountType,
+            discountValue: Number(promotion.discountValue || 0),
+            maxDiscountMinor: promotion.maxDiscountMinor === null || promotion.maxDiscountMinor === undefined
+                ? null
+                : Number(promotion.maxDiscountMinor),
+            minBookingAmountMinor: Number(promotion.minBookingAmountMinor || 0),
+            currency: promotion.currency || 'ZAR',
+            expiresAt: promotion.expiresAt || null,
+            status: Number(promotion.redemptionCount || 0) > 0 ? 'USED' : 'AVAILABLE',
+            source,
+        };
+    });
+};
+exports.listActiveCustomerReferralPromotions = listActiveCustomerReferralPromotions;
 const listCustomerReferralRewardsForAdmin = async (filter = {}) => {
     const referrals = await customer_referral_model_1.default.find(filter)
         .populate('referrerCustomerId', 'name email phone countryCode')

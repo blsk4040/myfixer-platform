@@ -9,7 +9,7 @@ import Promotion, {
   PromotionStatus,
   PromotionTriggerType,
 } from '../models/promotion.model';
-import Technician, { ITechnicianDocument } from '../models/technician.model';
+import Technician, { ITechnicianDocument, TechnicianApprovalStatus, VerificationStatus } from '../models/technician.model';
 import User from '../models/user.model';
 import { createNotifications } from './notification.service';
 import { NotificationChannel } from '../models/notification.model';
@@ -31,6 +31,75 @@ const DEFAULT_REWARD_AMOUNT_MINOR = Number.isFinite(Number(process.env.REFERRAL_
 const DEFAULT_REWARD_EXPIRY_DAYS = Number.isFinite(Number(process.env.REFERRAL_REWARD_EXPIRY_DAYS))
   ? Math.max(1, Math.round(Number(process.env.REFERRAL_REWARD_EXPIRY_DAYS)))
   : 30;
+export const PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS = Number.isFinite(Number(process.env.PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS))
+  ? Math.max(0, Math.round(Number(process.env.PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS)))
+  : 3;
+export const PROVIDER_REFERRAL_MIN_RELIABILITY_SCORE = Number.isFinite(Number(process.env.PROVIDER_REFERRAL_MIN_RELIABILITY_SCORE))
+  ? Math.min(100, Math.max(0, Math.round(Number(process.env.PROVIDER_REFERRAL_MIN_RELIABILITY_SCORE))))
+  : 80;
+
+export interface ProviderReferralEligibility {
+  eligible: boolean;
+  status: 'ELIGIBLE' | 'LOCKED';
+  reason: string;
+  reasons: string[];
+  completedJobs: number;
+  requiredCompletedJobs: number;
+  accountApproved: boolean;
+  profilePhotoApproved: boolean;
+  marketReady: boolean;
+  trustReady: boolean;
+}
+
+const providerPaidCompletedBookingCount = (technicianId: mongoose.Types.ObjectId | string) =>
+  Booking.countDocuments({
+    technicianId: new mongoose.Types.ObjectId(String(technicianId)),
+    status: BookingStatus.COMPLETED,
+    paymentStatus: BookingPaymentStatus.SECURED,
+    priceMinor: { $gt: 0 },
+  });
+
+export const getProviderReferralEligibility = async (
+  technician: ITechnicianDocument
+): Promise<ProviderReferralEligibility> => {
+  const populatedUser = technician.userId as any;
+  const userActive = populatedUser?.isActive !== false;
+  const accountApproved = userActive && technician.approvalStatus === TechnicianApprovalStatus.APPROVED;
+  const profilePhotoApproved = technician.documents?.profilePhotoStatus === VerificationStatus.VERIFIED;
+  const marketReady = Boolean(String(technician.countryCode || '').trim() && String(technician.city || '').trim());
+  const trustReady =
+    Number(technician.strikesCount || 0) === 0 &&
+    Number(technician.reliabilityScore ?? 100) >= PROVIDER_REFERRAL_MIN_RELIABILITY_SCORE;
+  const completedJobs = Math.max(
+    Number(technician.stats?.completedJobs || 0),
+    await providerPaidCompletedBookingCount(technician._id)
+  );
+
+  const reasons: string[] = [];
+  if (!accountApproved) reasons.push('Your Padi Pro account must be approved and active.');
+  if (!profilePhotoApproved) reasons.push('Your profile photo must be approved.');
+  if (!marketReady) reasons.push('Your operating country and city must be set.');
+  if (!trustReady) reasons.push('Your account must have no active trust restrictions.');
+  if (completedJobs < PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS) {
+    reasons.push(`Complete ${PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS} paid jobs to unlock customer invites.`);
+  }
+
+  const eligible = reasons.length === 0;
+  return {
+    eligible,
+    status: eligible ? 'ELIGIBLE' : 'LOCKED',
+    reason: eligible
+      ? 'You can invite customers. Rewards are issued only after a legitimate paid completed booking.'
+      : reasons[0],
+    reasons,
+    completedJobs,
+    requiredCompletedJobs: PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS,
+    accountApproved,
+    profilePhotoApproved,
+    marketReady,
+    trustReady,
+  };
+};
 
 export const getOrCreateProviderReferralCode = async (
   technician: ITechnicianDocument,

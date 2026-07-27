@@ -36,13 +36,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.listReferralRewardsForAdmin = exports.getProviderReferralSummary = exports.processReferralRewardForCompletedBooking = exports.markReferralFirstBookingCreated = exports.recordCustomerReferral = exports.findProviderByReferralCode = exports.getOrCreateProviderReferralCode = exports.normalizeReferralCode = void 0;
+exports.listReferralRewardsForAdmin = exports.getProviderReferralSummary = exports.processReferralRewardForCompletedBooking = exports.markReferralFirstBookingCreated = exports.recordCustomerReferral = exports.findProviderByReferralCode = exports.getOrCreateProviderReferralCode = exports.getProviderReferralEligibility = exports.PROVIDER_REFERRAL_MIN_RELIABILITY_SCORE = exports.PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS = exports.normalizeReferralCode = void 0;
 const crypto_1 = __importDefault(require("crypto"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const booking_model_1 = __importStar(require("../models/booking.model"));
 const provider_referral_model_1 = __importStar(require("../models/provider-referral.model"));
 const promotion_model_1 = __importStar(require("../models/promotion.model"));
-const technician_model_1 = __importDefault(require("../models/technician.model"));
+const technician_model_1 = __importStar(require("../models/technician.model"));
 const user_model_1 = __importDefault(require("../models/user.model"));
 const notification_service_1 = require("./notification.service");
 const notification_model_1 = require("../models/notification.model");
@@ -61,6 +61,56 @@ const DEFAULT_REWARD_AMOUNT_MINOR = Number.isFinite(Number(process.env.REFERRAL_
 const DEFAULT_REWARD_EXPIRY_DAYS = Number.isFinite(Number(process.env.REFERRAL_REWARD_EXPIRY_DAYS))
     ? Math.max(1, Math.round(Number(process.env.REFERRAL_REWARD_EXPIRY_DAYS)))
     : 30;
+exports.PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS = Number.isFinite(Number(process.env.PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS))
+    ? Math.max(0, Math.round(Number(process.env.PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS)))
+    : 3;
+exports.PROVIDER_REFERRAL_MIN_RELIABILITY_SCORE = Number.isFinite(Number(process.env.PROVIDER_REFERRAL_MIN_RELIABILITY_SCORE))
+    ? Math.min(100, Math.max(0, Math.round(Number(process.env.PROVIDER_REFERRAL_MIN_RELIABILITY_SCORE))))
+    : 80;
+const providerPaidCompletedBookingCount = (technicianId) => booking_model_1.default.countDocuments({
+    technicianId: new mongoose_1.default.Types.ObjectId(String(technicianId)),
+    status: booking_model_1.BookingStatus.COMPLETED,
+    paymentStatus: booking_model_1.BookingPaymentStatus.SECURED,
+    priceMinor: { $gt: 0 },
+});
+const getProviderReferralEligibility = async (technician) => {
+    const populatedUser = technician.userId;
+    const userActive = populatedUser?.isActive !== false;
+    const accountApproved = userActive && technician.approvalStatus === technician_model_1.TechnicianApprovalStatus.APPROVED;
+    const profilePhotoApproved = technician.documents?.profilePhotoStatus === technician_model_1.VerificationStatus.VERIFIED;
+    const marketReady = Boolean(String(technician.countryCode || '').trim() && String(technician.city || '').trim());
+    const trustReady = Number(technician.strikesCount || 0) === 0 &&
+        Number(technician.reliabilityScore ?? 100) >= exports.PROVIDER_REFERRAL_MIN_RELIABILITY_SCORE;
+    const completedJobs = Math.max(Number(technician.stats?.completedJobs || 0), await providerPaidCompletedBookingCount(technician._id));
+    const reasons = [];
+    if (!accountApproved)
+        reasons.push('Your Padi Pro account must be approved and active.');
+    if (!profilePhotoApproved)
+        reasons.push('Your profile photo must be approved.');
+    if (!marketReady)
+        reasons.push('Your operating country and city must be set.');
+    if (!trustReady)
+        reasons.push('Your account must have no active trust restrictions.');
+    if (completedJobs < exports.PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS) {
+        reasons.push(`Complete ${exports.PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS} paid jobs to unlock customer invites.`);
+    }
+    const eligible = reasons.length === 0;
+    return {
+        eligible,
+        status: eligible ? 'ELIGIBLE' : 'LOCKED',
+        reason: eligible
+            ? 'You can invite customers. Rewards are issued only after a legitimate paid completed booking.'
+            : reasons[0],
+        reasons,
+        completedJobs,
+        requiredCompletedJobs: exports.PROVIDER_REFERRAL_REQUIRED_COMPLETED_JOBS,
+        accountApproved,
+        profilePhotoApproved,
+        marketReady,
+        trustReady,
+    };
+};
+exports.getProviderReferralEligibility = getProviderReferralEligibility;
 const getOrCreateProviderReferralCode = async (technician, providerName = '') => {
     const existing = (0, exports.normalizeReferralCode)(technician.referralCode);
     if (existing)

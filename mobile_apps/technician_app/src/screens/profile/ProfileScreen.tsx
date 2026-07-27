@@ -61,6 +61,11 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
   const serviceCategories = technicianIdentity.serviceCategories.length
     ? technicianIdentity.serviceCategories.map(formatServiceCategory)
     : ['No services set'];
+  const referralEligibility = referralProgram?.eligibility;
+  const inviteUnlocked = Boolean(referralEligibility?.eligible);
+  const inviteCompletedJobs = referralEligibility?.completedJobs ?? totalCompletedCount;
+  const inviteRequiredJobs = referralEligibility?.requiredCompletedJobs ?? 3;
+  const inviteProgressLabel = `${Math.min(inviteCompletedJobs, inviteRequiredJobs)}/${inviteRequiredJobs} paid jobs completed`;
 
   useEffect(() => {
     setReferralLoading(true);
@@ -71,11 +76,15 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
   }, []);
 
   const handleShareInvite = async () => {
-    const fallbackCode = technicianIdentity.referralCode;
-    const message = referralProgram?.shareMessage ||
-      (fallbackCode
-        ? `Book trusted home services through Padi. Use my invite code ${fallbackCode} when you sign up.`
-        : '');
+    if (!inviteUnlocked) {
+      Alert.alert(
+        'Invite locked',
+        referralEligibility?.reason || 'Customer invites unlock after your account is approved and you complete your first paid jobs.'
+      );
+      return;
+    }
+
+    const message = referralProgram?.shareMessage || '';
 
     if (!message) {
       Alert.alert('Invite unavailable', 'Your invite code is not ready yet. Please try again shortly.');
@@ -184,25 +193,40 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
         <View style={styles.inviteCard}>
           <View style={{ flex: 1 }}>
             <Text style={styles.inviteEyebrow}>GROW WITH PADI</Text>
-            <Text style={styles.inviteTitle}>Invite a customer to Padi</Text>
+            <Text style={styles.inviteTitle}>
+              {inviteUnlocked ? 'Invite a customer to Padi' : 'Customer invites unlock soon'}
+            </Text>
             <Text style={styles.inviteCopy}>
-              Share your code with customers who already trust your work. Rewards will be added after the official rules are approved.
+              {inviteUnlocked
+                ? 'Share your code with customers who already trust your work. Rewards are issued only after a legitimate paid completed booking.'
+                : referralEligibility?.reason || 'Build your Padi track record first. Invites unlock after approval, trust checks and completed paid jobs.'}
             </Text>
             <View style={styles.inviteCodeBox}>
               {referralLoading ? (
                 <ActivityIndicator color={Colors.primary} />
-              ) : (
+              ) : inviteUnlocked ? (
                 <Text style={styles.inviteCode}>{referralProgram?.referralCode || technicianIdentity.referralCode || 'CODE READY SOON'}</Text>
+              ) : (
+                <Text style={styles.inviteLockedText}>{inviteProgressLabel}</Text>
               )}
             </View>
-            {referralProgram && (
+            {referralProgram && inviteUnlocked && (
               <Text style={styles.inviteStats}>
-                {referralProgram.summary.registeredCount} signed up · {referralProgram.summary.completedCount} completed jobs
+                {referralProgram.summary.registeredCount} signed up - {referralProgram.summary.completedCount} completed jobs
               </Text>
             )}
+            {referralProgram && !inviteUnlocked && (
+              <Text style={styles.inviteStats}>No referral reward is issued at signup.</Text>
+            )}
           </View>
-          <TouchableOpacity style={styles.inviteButton} activeOpacity={0.86} onPress={handleShareInvite}>
-            <Text style={styles.inviteButtonText}>Share</Text>
+          <TouchableOpacity
+            style={[styles.inviteButton, !inviteUnlocked && styles.inviteButtonDisabled]}
+            activeOpacity={0.86}
+            onPress={handleShareInvite}
+          >
+            <Text style={[styles.inviteButtonText, !inviteUnlocked && styles.inviteButtonTextDisabled]}>
+              {inviteUnlocked ? 'Share' : 'Locked'}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -306,6 +330,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   inviteCode: { color: Colors.primary, fontSize: 14, fontWeight: '900', letterSpacing: 0.6 },
+  inviteLockedText: { color: Colors.textMuted, fontSize: 12, fontWeight: '900' },
   inviteStats: { color: Colors.textSubtle, fontSize: 11, fontWeight: '700', marginTop: 8 },
   inviteButton: {
     minWidth: 74,
@@ -317,6 +342,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   inviteButtonText: { color: Colors.background, fontSize: 13, fontWeight: '900' },
+  inviteButtonDisabled: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.border },
+  inviteButtonTextDisabled: { color: Colors.textMuted },
   sectionTitle: { color: Colors.text, fontSize: 13, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 12, marginTop: 5 },
   badgeWrapper: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 25 },
   badge: { backgroundColor: Colors.surface, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: Colors.border },

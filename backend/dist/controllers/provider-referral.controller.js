@@ -15,7 +15,7 @@ const getMyProviderReferralProgram = async (req, res) => {
         return;
     }
     try {
-        const technician = await technician_model_1.default.findOne({ userId }).populate('userId', 'name').exec();
+        const technician = await technician_model_1.default.findOne({ userId }).populate('userId', 'name isActive').exec();
         if (!technician) {
             res.status(404).json({ message: 'Padi Pro profile not found.' });
             return;
@@ -27,15 +27,22 @@ const getMyProviderReferralProgram = async (req, res) => {
         const appLinkBase = (process.env.CLIENT_APP_SHARE_URL || process.env.CLIENT_APP_URL || 'https://padi.app').replace(/\/$/, '');
         const inviteUrl = `${appLinkBase}/invite/${encodeURIComponent(referralCode)}`;
         const summary = await (0, provider_referral_service_1.getProviderReferralSummary)(technician._id);
+        const eligibility = await (0, provider_referral_service_1.getProviderReferralEligibility)(technician);
+        const shareMessage = eligibility.eligible
+            ? `Book trusted home services through Padi. Use my invite code ${referralCode} when you sign up: ${inviteUrl}`
+            : '';
         res.status(200).json({
             success: true,
             referral: {
                 referralCode,
                 inviteUrl,
-                shareMessage: `Book trusted home services through Padi. Use my invite code ${referralCode} when you sign up: ${inviteUrl}`,
+                shareMessage,
                 summary,
-                rewardsEnabled: false,
-                rewardMessage: 'Referral rewards will be activated after fraud controls and reward rules are approved.',
+                eligibility,
+                rewardsEnabled: eligibility.eligible,
+                rewardMessage: eligibility.eligible
+                    ? 'Rewards are issued only after the invited customer completes a legitimate paid booking.'
+                    : eligibility.reason,
             },
         });
     }

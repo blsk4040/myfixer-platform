@@ -240,6 +240,20 @@ export interface CustomerReferralProgramResponse {
     shareMessage: string;
     friendDiscountMessage: string;
     rewardMessage: string;
+    rewards?: Array<{
+      id: string;
+      code: string;
+      title: string;
+      description: string;
+      discountType: 'PERCENTAGE' | 'FIXED_AMOUNT' | 'FREE_CALLOUT';
+      discountValue: number;
+      maxDiscountMinor: number | null;
+      minBookingAmountMinor: number;
+      currency: CurrencyCode;
+      expiresAt: string | null;
+      status: 'AVAILABLE' | 'USED';
+      source: string;
+    }>;
     summary: {
       registeredCount: number;
       firstBookingCount: number;
