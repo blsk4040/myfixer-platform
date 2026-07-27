@@ -448,6 +448,9 @@ const normalizeServiceSubcategories = (value) => Array.isArray(value)
             return null;
         const stableServiceKey = (0, service_availability_service_1.normalizeServiceKey)(record.serviceKey ?? subcategoryKey);
         const calloutFeeMinor = minorFromInput(record.calloutFeeMinor, record.calloutFee);
+        const calloutFeeEnabled = record.calloutFeeEnabled === undefined
+            ? calloutFeeMinor !== undefined && calloutFeeMinor > 0
+            : record.calloutFeeEnabled === true;
         const minimumChargeMinor = minorFromInput(record.minimumChargeMinor, record.minimumCharge);
         const billingModel = normalizeServiceBillingModel(record.billingModel);
         const subscriptionEligible = billingModel === service_catalog_model_1.ServiceBillingModel.SUBSCRIPTION || record.subscriptionEligible === true;
@@ -470,11 +473,12 @@ const normalizeServiceSubcategories = (value) => Array.isArray(value)
             fixedPriceSupported: record.fixedPriceSupported === true,
             requiresCapabilityApproval: record.requiresCapabilityApproval === undefined ? true : record.requiresCapabilityApproval === true,
             capabilityRequirements: normalizeCapabilityRequirements(record.capabilityRequirements),
+            calloutFeeEnabled,
             billingModel,
             subscriptionEligible,
             subscriptionCadences: subscriptionEligible ? normalizeSubscriptionCadences(record.subscriptionCadences) : [],
             subscriptionNotes: subscriptionEligible ? String(record.subscriptionNotes || '').trim().slice(0, 800) : '',
-            ...(calloutFeeMinor !== undefined ? { calloutFeeMinor } : {}),
+            calloutFeeMinor: calloutFeeEnabled ? (calloutFeeMinor ?? 0) : 0,
             ...(minimumChargeMinor !== undefined ? { minimumChargeMinor } : {}),
         };
     })

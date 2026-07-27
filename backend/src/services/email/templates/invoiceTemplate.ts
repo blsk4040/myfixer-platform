@@ -47,6 +47,7 @@ export function generateInvoiceHtml({
   currency,
 }: InvoiceEmailProps): string {
   const displayPromotion = promotionLabel || promoCode || 'Promotion';
+  const hasBaseAmount = baseAmount > 0;
   return `
     <!DOCTYPE html>
     <html>
@@ -94,18 +95,19 @@ export function generateInvoiceHtml({
                 </tr>
               </thead>
               <tbody>
+                ${hasBaseAmount ? `
                 <tr>
-                  <td>Base Diagnostic & Call-Out Fee</td>
+                  <td>Call-out fee</td>
                   <td style="text-align: right;">${formatMoney(baseAmount, currency)}</td>
-                </tr>
+                </tr>` : ''}
                 ${additionalLabor > 0 ? `
                 <tr>
-                  <td>Extended Repair Labor Charges</td>
+                  <td>Labour</td>
                   <td style="text-align: right;">${formatMoney(additionalLabor, currency)}</td>
                 </tr>` : ''}
                 ${partsAmount > 0 ? `
                 <tr>
-                  <td>Acquired Materials & Component Parts</td>
+                  <td>Materials and parts</td>
                   <td style="text-align: right;">${formatMoney(partsAmount, currency)}</td>
                 </tr>` : ''}
                 ${discountAmount > 0 ? `
@@ -129,7 +131,7 @@ export function generateInvoiceHtml({
                   <td style="text-align: right;">${formatMoney(taxAmount, currency)}</td>
                 </tr>` : ''}
                 <tr class="total-row">
-                  <td>Total Settled Balance</td>
+                  <td>Total paid</td>
                   <td style="text-align: right; color: #00B961;">${formatMoney(totalAmount, currency)}</td>
                 </tr>
               </tbody>

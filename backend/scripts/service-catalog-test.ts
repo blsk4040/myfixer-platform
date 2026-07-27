@@ -305,6 +305,7 @@ async function run() {
     assert.strictEqual(itAvailability.groups[0].categories[0].label, 'IT Support');
     assert.strictEqual(itAvailability.groups[0].categories[0].status, MarketStatus.ACTIVE);
     assert.strictEqual(itAvailability.groups[0].categories[0].services[0].label, 'Computer Repair');
+    assert.strictEqual(itAvailability.groups[0].categories[0].services[0].calloutFeeEnabled, true);
     assert.strictEqual(itAvailability.groups[0].categories[0].services[0].billingModel, ServiceBillingModel.SUBSCRIPTION);
     assert.strictEqual(itAvailability.groups[0].categories[0].services[0].subscriptionEligible, true);
     assert.deepStrictEqual(itAvailability.groups[0].categories[0].services[0].subscriptionCadences, [ServiceSubscriptionCadence.MONTHLY]);
@@ -322,7 +323,9 @@ async function run() {
     });
     mockServices([{ ...publishedElectrical, defaultCalloutFeeMinor: undefined, subcategories: [] }]);
     const noPrice = await validateServiceBookable({ countryCode: 'ZA', serviceKey: 'electrical' });
-    assert.strictEqual(noPrice.allowed, false, 'A service without any resolvable call-out fee must not be bookable.');
+    assert.strictEqual(noPrice.allowed, true, 'A published service without a call-out fee should still be bookable.');
+    assert.strictEqual(noPrice.service?.calloutFeeEnabled, false);
+    assert.strictEqual(noPrice.service?.calloutFeeMinor, 0);
 
     mockMarket({ ...activeMarket, identity: { ...activeMarket.identity, status: MarketStatus.PAUSED } });
     const paused = await validateServiceBookable({ countryCode: 'ZA', city: 'Pretoria', area: 'Centurion', serviceKey: 'electrical' });

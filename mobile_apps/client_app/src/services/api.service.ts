@@ -372,6 +372,7 @@ export interface ServiceAvailabilityItem {
   imageKey?: string;
   imageUrl?: string;
   calloutFeeMinor?: number;
+  calloutFeeEnabled?: boolean;
   subcategories?: Array<{
     subcategoryKey: string;
     label: string;
@@ -380,6 +381,7 @@ export interface ServiceAvailabilityItem {
     imageKey?: string;
     imageUrl?: string;
     calloutFeeMinor?: number;
+    calloutFeeEnabled?: boolean;
   }>;
   status: 'ACTIVE' | 'COMING_SOON' | 'PAUSED' | 'DISABLED';
   canBook: boolean;
@@ -408,6 +410,7 @@ export interface MarketAvailabilityBookableService {
   canBook: boolean;
   message: string;
   calloutFeeMinor?: number;
+  calloutFeeEnabled?: boolean;
   minimumChargeMinor?: number;
   estimatedDurationMinutes?: number;
   inspectionRequired?: boolean;

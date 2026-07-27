@@ -87,7 +87,6 @@ type HomeService = {
   availabilityMessage: string;
   imageSource: any;
   remoteImageFailureKey: string;
-  calloutFeeMinor?: number;
   socialProof?: MarketAvailabilityCategory['socialProof'];
   subCategories: Array<{
     key?: string;
@@ -96,6 +95,7 @@ type HomeService = {
     description?: string;
     basePrice: number;
     calloutFeeMinor?: number;
+    calloutFeeEnabled?: boolean;
     feeLabel: string;
     inspectionRequired?: boolean;
     socialProof?: MarketAvailabilityBookableService['socialProof'];
@@ -199,13 +199,20 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
     };
   };
 
-  const formatFee = (amountMinor?: number) => {
+  const formatFee = (amountMinor?: number, enabled = true) => {
+    if (!enabled) return 'Quote after inspection';
     if (typeof amountMinor !== 'number') return 'Quote based';
+    if (amountMinor <= 0) return 'Quote after inspection';
     const amount = amountMinor / 100;
     if (!availabilityCurrency) return 'Fee configured';
     return availabilityCurrency === 'ZAR'
       ? `R${amount.toFixed(0)}`
       : `${availabilityCurrency} ${amount.toFixed(2)}`;
+  };
+
+  const hasVisibleCalloutFee = (enabled?: boolean, amountMinor?: number) => {
+    if (enabled === false) return false;
+    return typeof amountMinor === 'number' && amountMinor > 0;
   };
 
   const loadAvailability = useCallback(async () => {
@@ -277,7 +284,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
       .filter((service) => service.canBook && service.status === 'ACTIVE')
       .map((service, index): MarketAvailabilityCategory | null => {
         const services: MarketAvailabilityBookableService[] = (service.subcategories || [])
-          .filter((subcategory) => subcategory.status === 'ACTIVE' && typeof (subcategory.calloutFeeMinor ?? service.calloutFeeMinor) === 'number')
+          .filter((subcategory) => subcategory.status === 'ACTIVE')
           .map((subcategory, subIndex) => ({
             serviceKey: subcategory.subcategoryKey || service.serviceKey,
             legacySubcategoryKey: subcategory.subcategoryKey,
@@ -290,11 +297,12 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
             status: subcategory.status,
             canBook: service.canBook,
             message: service.message,
-            calloutFeeMinor: subcategory.calloutFeeMinor ?? service.calloutFeeMinor,
+            calloutFeeEnabled: subcategory.calloutFeeEnabled ?? service.calloutFeeEnabled ?? ((subcategory.calloutFeeMinor ?? service.calloutFeeMinor ?? 0) > 0),
+            calloutFeeMinor: subcategory.calloutFeeMinor ?? service.calloutFeeMinor ?? 0,
             displayOrder: subIndex * 10,
           }));
 
-        if (!services.length && typeof service.calloutFeeMinor === 'number') {
+        if (!services.length) {
           services.push({
             serviceKey: service.serviceKey,
             legacySubcategoryKey: service.serviceKey,
@@ -307,7 +315,8 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
             status: service.status,
             canBook: service.canBook,
             message: service.message,
-            calloutFeeMinor: service.calloutFeeMinor,
+            calloutFeeEnabled: service.calloutFeeEnabled ?? ((service.calloutFeeMinor ?? 0) > 0),
+            calloutFeeMinor: service.calloutFeeMinor ?? 0,
             displayOrder: 0,
           });
         }
@@ -380,8 +389,6 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
           imageKey: category.imageKey || category.iconKey,
           imageUrl: category.imageUrl,
         });
-        const firstFee = services.find((service) => typeof service.calloutFeeMinor === 'number')?.calloutFeeMinor;
-
         return {
           id: category.categoryKey,
           serviceKey: category.legacyServiceKey || category.categoryKey,
@@ -394,7 +401,6 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
           availabilityMessage: '',
           imageSource: image.source,
           remoteImageFailureKey: image.failedKey,
-          calloutFeeMinor: firstFee,
           socialProof: category.socialProof,
           subCategories: services.map((service) => ({
             key: service.legacySubcategoryKey || service.serviceKey,
@@ -403,7 +409,8 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
             description: service.description,
             basePrice: (service.calloutFeeMinor ?? 0) / 100,
             calloutFeeMinor: service.calloutFeeMinor,
-            feeLabel: formatFee(service.calloutFeeMinor),
+            calloutFeeEnabled: hasVisibleCalloutFee(service.calloutFeeEnabled, service.calloutFeeMinor),
+            feeLabel: formatFee(service.calloutFeeMinor, hasVisibleCalloutFee(service.calloutFeeEnabled, service.calloutFeeMinor)),
             inspectionRequired: service.inspectionRequired,
             socialProof: service.socialProof,
           })),
@@ -479,7 +486,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
     }
   };
 
-  const handleSubCategorySelect = (sub: { key?: string; serviceKey: string; name: string; basePrice: number; calloutFeeMinor?: number; inspectionRequired?: boolean }) => {
+  const handleSubCategorySelect = (sub: { key?: string; serviceKey: string; name: string; basePrice: number; calloutFeeMinor?: number; calloutFeeEnabled?: boolean; inspectionRequired?: boolean }) => {
     if (!selectedCategory) return;
     setModalVisible(false);
     navigation.navigate('BookingWizard', {
@@ -489,6 +496,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
       subCategoryKey: sub.key,
       basePrice: sub.basePrice,
       calloutFeeMinor: sub.calloutFeeMinor,
+      calloutFeeEnabled: sub.calloutFeeEnabled,
       inspectionRequired: sub.inspectionRequired,
     });
   };
@@ -695,9 +703,6 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
                   <Text style={styles.serviceSocialProof} numberOfLines={1}>{socialProofText(item.socialProof)}</Text>
                 )}
                 <View style={styles.serviceMetaRow}>
-                  <Text style={styles.serviceFee} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
-                    {formatFee(item.calloutFeeMinor)} call-out
-                  </Text>
                   <Text style={styles.serviceCount}>
                     {item.subCategories.length} {item.subCategories.length === 1 ? 'service' : 'services'}
                   </Text>
@@ -718,7 +723,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
             <View style={styles.modalHeader}>
               <View style={styles.modalTitleWrap}>
                 <Text style={styles.modalTitle}>What do you need help with?</Text>
-                <Text style={styles.modalSubtitle}>The amount shown is the call-out fee. Repairs and parts are quoted after diagnosis.</Text>
+                <Text style={styles.modalSubtitle}>Some services include a call-out fee. Others can be requested with no call-out charge.</Text>
               </View>
               <TouchableOpacity style={styles.closeBtn} onPress={() => setModalVisible(false)}>
                 <XIcon color={Colors.textMuted} size={20} />
@@ -734,7 +739,9 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={styles.subItemName}>{sub.name}</Text>
-                    <Text style={styles.subItemEstimate}>Call-out fee for visit and diagnosis</Text>
+                    <Text style={styles.subItemEstimate}>
+                      {sub.calloutFeeEnabled === false ? 'Quote after inspection' : 'Call-out fee for visit and diagnosis'}
+                    </Text>
                     {!!socialProofText(sub.socialProof) && (
                       <Text style={styles.subItemProof}>{socialProofText(sub.socialProof)}</Text>
                     )}
@@ -1039,15 +1046,16 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 8,
   },
-  serviceFee: { color: Colors.primary, fontSize: 12, fontWeight: '900' },
   serviceCount: {
-    color: Colors.textSubtle,
+    color: Colors.primary,
     fontSize: 11,
-    fontWeight: '800',
-    backgroundColor: '#1A1A1F',
+    fontWeight: '900',
+    backgroundColor: 'rgba(184, 255, 61, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(184, 255, 61, 0.18)',
     borderRadius: Radius.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     overflow: 'hidden',
   },
   serviceArrow: {

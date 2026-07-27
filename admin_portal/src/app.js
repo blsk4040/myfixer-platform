@@ -4730,6 +4730,12 @@ function minorToDecimal(minor) {
   return typeof minor === 'number' && Number.isFinite(minor) ? (minor / 100).toFixed(2) : '';
 }
 
+function calloutFeeEnabledFor(service, fallbackFeeMinor) {
+  if (typeof service?.calloutFeeEnabled === 'boolean') return service.calloutFeeEnabled;
+  if (typeof service?.calloutFeeMinor === 'number') return service.calloutFeeMinor > 0;
+  return typeof fallbackFeeMinor === 'number' && fallbackFeeMinor > 0;
+}
+
 function bookableServicesForCategory(serviceKey) {
   const category = serviceCatalogRecord(serviceKey);
   return (category?.subcategories || []).map((service, index) => ({
@@ -4737,7 +4743,10 @@ function bookableServicesForCategory(serviceKey) {
     subcategoryKey: service.subcategoryKey || service.serviceKey || '',
     label: service.label || service.serviceKey || service.subcategoryKey || 'Unnamed Service',
     description: service.description || '',
-    calloutFeeMinor: service.calloutFeeMinor ?? category.defaultCalloutFeeMinor,
+    calloutFeeEnabled: calloutFeeEnabledFor(service, category.defaultCalloutFeeMinor),
+    calloutFeeMinor: calloutFeeEnabledFor(service, category.defaultCalloutFeeMinor)
+      ? (service.calloutFeeMinor ?? category.defaultCalloutFeeMinor ?? 0)
+      : 0,
     status: service.publicationStatus || service.status || category.status || 'DRAFT',
     inspectionRequired: service.inspectionRequired === true,
     billingModel: service.billingModel || 'ON_DEMAND',
@@ -4775,7 +4784,7 @@ function renderBookableServiceList(bookableServices) {
         <article class="service-builder-item ${workspace.selectedBookableServiceKey === service.serviceKey ? 'selected' : ''}" tabindex="0" aria-label="${escapeHtml(service.label)} bookable service" onclick="openBookableServiceDrawer('edit', '${escapeHtml(service.serviceKey)}')" onkeydown="handleBookableServiceCardKey(event, '${escapeHtml(service.serviceKey)}')">
           <span class="service-group-card-copy">
             <strong>${escapeHtml(service.label)}</strong>
-            <small>${typeof service.calloutFeeMinor === 'number' ? `${moneyFromMinor(service.calloutFeeMinor, currency)} call-out` : 'Call-out fee not set'}</small>
+            <small>${service.calloutFeeEnabled ? `${moneyFromMinor(service.calloutFeeMinor || 0, currency)} call-out` : 'No call-out fee'}</small>
             <em>${escapeHtml(String(service.status || 'DRAFT').replace('_', ' '))}${service.inspectionRequired ? ' - Inspection required' : ''}${service.subscriptionEligible ? ' - Subscription-ready' : ''}</em>
           </span>
           <span class="service-group-card-arrow" aria-hidden="true">&gt;</span>
@@ -4798,9 +4807,12 @@ function renderBookableServiceDrawer(category, bookableService) {
       : `${bookableService?.label || 'Bookable Service'} Details`
     : 'Create Bookable Service';
   const feeMinor = bookableService?.calloutFeeMinor ?? serviceCatalogRecord(category.serviceKey)?.defaultCalloutFeeMinor;
+  const calloutFeeEnabledValue = draft.calloutFeeEnabled !== undefined
+    ? draft.calloutFeeEnabled
+    : calloutFeeEnabledFor(bookableService, serviceCatalogRecord(category.serviceKey)?.defaultCalloutFeeMinor);
   const serviceNameValue = draft.serviceName !== undefined ? draft.serviceName : bookableService?.label || '';
   const descriptionValue = draft.description !== undefined ? draft.description : bookableService?.description || '';
-  const calloutFeeValue = draft.calloutFee !== undefined ? draft.calloutFee : minorToDecimal(feeMinor);
+  const calloutFeeValue = draft.calloutFee !== undefined ? draft.calloutFee : minorToDecimal(calloutFeeEnabledValue ? feeMinor : 0);
   const inspectionRequiredValue = draft.inspectionRequired !== undefined ? draft.inspectionRequired : bookableService?.inspectionRequired === true;
   const billingModelValue = draft.billingModel !== undefined ? draft.billingModel : bookableService?.billingModel || 'ON_DEMAND';
   const subscriptionEligibleValue = draft.subscriptionEligible !== undefined
@@ -4832,12 +4844,17 @@ function renderBookableServiceDrawer(category, bookableService) {
           Description
           <textarea name="description" rows="3" placeholder="Short customer-facing description" ${canUpdate ? '' : 'disabled'}>${escapeHtml(descriptionValue)}</textarea>
         </label>
-        <label>
-          Default Call-out Fee
+        <label class="checkbox-line">
+          <input name="calloutFeeEnabled" type="checkbox" ${calloutFeeEnabledValue ? 'checked' : ''} ${canUpdate ? '' : 'disabled'} onchange="toggleBookableCalloutFee(this)" />
+          Charge call-out fee
+        </label>
+        <label data-callout-fee-field>
+          Call-out Fee Amount
           <span class="currency-input">
             <em>${escapeHtml(currency)}</em>
-            <input name="calloutFee" value="${escapeHtml(calloutFeeValue)}" type="number" min="0" max="1000000" step="0.01" placeholder="350.00" inputmode="decimal" required ${canUpdate ? '' : 'disabled'} />
+            <input name="calloutFee" value="${escapeHtml(calloutFeeValue)}" type="number" min="0" max="1000000" step="0.01" placeholder="350.00" inputmode="decimal" ${calloutFeeEnabledValue ? 'required' : 'disabled'} ${canUpdate ? '' : 'disabled'} />
           </span>
+          <small>Use this only when the customer must pay for a visit or inspection.</small>
         </label>
         <label class="checkbox-line">
           <input name="inspectionRequired" type="checkbox" ${inspectionRequiredValue ? 'checked' : ''} ${canUpdate ? '' : 'disabled'} />
@@ -5589,6 +5606,7 @@ function captureBookableDraftFromForm() {
     ...existingDraft,
     serviceName: String(data.get('serviceName') || ''),
     description: String(data.get('description') || ''),
+    calloutFeeEnabled: data.get('calloutFeeEnabled') === 'on',
     calloutFee: String(data.get('calloutFee') || ''),
     inspectionRequired: data.get('inspectionRequired') === 'on',
     billingModel: String(data.get('billingModel') || 'ON_DEMAND'),
@@ -5596,6 +5614,15 @@ function captureBookableDraftFromForm() {
     subscriptionCadences: data.getAll('subscriptionCadences').map((item) => String(item || '').trim()).filter(Boolean),
     subscriptionNotes: String(data.get('subscriptionNotes') || ''),
   };
+}
+
+function toggleBookableCalloutFee(checkbox) {
+  const form = checkbox?.closest?.('form');
+  const input = form?.elements?.calloutFee;
+  if (!input) return;
+  input.disabled = !checkbox.checked;
+  input.required = checkbox.checked;
+  if (!checkbox.checked) input.value = '0.00';
 }
 
 function captureServiceCategoryDraftFromForm() {
@@ -5722,7 +5749,8 @@ async function saveBookableService(event, publicationStatus) {
     ? serviceKeyFrom(existingBookable?.subcategoryKey || existingBookable?.serviceKey || editingKey)
     : serviceKey;
   const description = String(form.get('description') || '').trim();
-  const calloutFeeMinor = decimalToMinor(form.get('calloutFee'));
+  const calloutFeeEnabled = form.get('calloutFeeEnabled') === 'on';
+  const calloutFeeMinor = calloutFeeEnabled ? decimalToMinor(form.get('calloutFee')) : 0;
   const inspectionRequired = form.get('inspectionRequired') === 'on';
   const billingModel = String(form.get('billingModel') || 'ON_DEMAND') === 'SUBSCRIPTION' ? 'SUBSCRIPTION' : 'ON_DEMAND';
   const subscriptionEligible = billingModel === 'SUBSCRIPTION' || form.get('subscriptionEligible') === 'on';
@@ -5734,6 +5762,7 @@ async function saveBookableService(event, publicationStatus) {
   const draftSnapshot = {
     serviceName,
     description,
+    calloutFeeEnabled,
     calloutFee: String(form.get('calloutFee') || ''),
     inspectionRequired,
     billingModel,
@@ -5774,12 +5803,12 @@ async function saveBookableService(event, publicationStatus) {
     return;
   }
 
-  if (!Number.isFinite(calloutFeeMinor) || calloutFeeMinor === null) {
+  if (calloutFeeEnabled && (!Number.isFinite(calloutFeeMinor) || calloutFeeMinor === null)) {
     fail('Default call-out fee must be a valid amount with no more than two decimal places.');
     return;
   }
 
-  if (calloutFeeMinor < 0 || calloutFeeMinor > 100000000) {
+  if (calloutFeeEnabled && (calloutFeeMinor < 0 || calloutFeeMinor > 100000000)) {
     fail('Default call-out fee must be between 0.00 and 1,000,000.00.');
     return;
   }
@@ -5817,6 +5846,7 @@ async function saveBookableService(event, publicationStatus) {
     subscriptionNotes: subscriptionEligible ? subscriptionNotes : '',
     fixedPriceSupported: existingBookable?.fixedPriceSupported === true,
     requiresCapabilityApproval: existingBookable?.requiresCapabilityApproval === undefined ? true : existingBookable.requiresCapabilityApproval !== false,
+    calloutFeeEnabled,
     calloutFeeMinor,
   };
   const nextSubcategories = editing

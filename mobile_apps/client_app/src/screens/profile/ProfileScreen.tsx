@@ -241,9 +241,12 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
           ))}
         </View>
 
-        <TouchableOpacity style={styles.signOutBtn} activeOpacity={0.8} onPress={handleSignOut}>
-          <Text style={styles.signOutText}>Sign Out</Text>
-        </TouchableOpacity>
+        <View style={styles.signOutSection}>
+          <TouchableOpacity style={styles.signOutBtn} activeOpacity={0.8} onPress={handleSignOut}>
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </TouchableOpacity>
+          <Text style={styles.signOutHelper}>You can sign back in anytime with your Padi account.</Text>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -252,7 +255,7 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   loadingContainer: { flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center' },
-  scrollContainer: { padding: 20, paddingBottom: 110 },
+  scrollContainer: { padding: 20, paddingBottom: 168 },
   profileHeroCard: { backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: Colors.border, marginBottom: 28 },
   avatarMock: { width: 70, height: 70, borderRadius: 35, backgroundColor: 'rgba(184, 255, 61, 0.14)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: Colors.primary, marginBottom: 14 },
   avatarText: { color: Colors.primary, fontSize: 24, fontWeight: '700' },
@@ -290,6 +293,8 @@ const styles = StyleSheet.create({
   menuTitle: { color: Colors.text, fontSize: 14, fontWeight: '700' },
   menuSubtitle: { color: Colors.textSubtle, fontSize: 11, marginTop: 2, lineHeight: 14 },
   chevron: { color: Colors.textSubtle, fontSize: 18, fontWeight: '600' },
-  signOutBtn: { padding: 16, borderRadius: Radius.md, alignItems: 'center', marginTop: 32, borderWidth: 1, borderColor: Colors.borderStrong, backgroundColor: Colors.surfaceRaised },
-  signOutText: { color: Colors.text, fontSize: 14, fontWeight: '700' },
+  signOutSection: { marginTop: 28, marginBottom: 18, paddingTop: 18, borderTopWidth: 1, borderTopColor: Colors.border, alignItems: 'center' },
+  signOutBtn: { width: '100%', minHeight: 52, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.borderStrong, backgroundColor: Colors.surfaceRaised },
+  signOutText: { color: Colors.text, fontSize: 14, fontWeight: '800' },
+  signOutHelper: { color: Colors.textSubtle, fontSize: 11, fontWeight: '600', lineHeight: 16, marginTop: 10, textAlign: 'center' },
 });

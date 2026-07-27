@@ -56,6 +56,13 @@ exports.DEFAULT_SERVICE_DEFINITIONS = [
     { serviceKey: 'rental_property', label: 'Rental Property Listings', status: market_setting_model_1.MarketStatus.DISABLED },
 ];
 const PUBLIC_SERVICE_FIELDS = 'serviceKey categoryKey groupKey groupLabel groupDescription groupImageKey groupImageUrl groupIconKey groupStatus groupDisplayOrder label description imageKey imageUrl iconKey searchKeywords synonyms status displayOrder defaultCalloutFeeMinor minimumChargeMinor fixedPriceSupported requiresCapabilityApproval capabilityRequirements subcategories';
+const isCalloutFeeEnabled = (explicit, feeMinor, fallbackFeeMinor) => {
+    if (typeof explicit === 'boolean')
+        return explicit;
+    if (typeof feeMinor === 'number')
+        return feeMinor > 0;
+    return typeof fallbackFeeMinor === 'number' && fallbackFeeMinor > 0;
+};
 const publishedCatalogue = async () => {
     const services = await service_catalog_model_1.default.find({ status: service_catalog_model_1.ServicePublicationStatus.PUBLISHED })
         .select(PUBLIC_SERVICE_FIELDS)
@@ -113,7 +120,10 @@ const publishedCatalogue = async () => {
                 subscriptionEligible: subcategory.subscriptionEligible === true,
                 subscriptionCadences: subcategory.subscriptionCadences || [],
                 subscriptionNotes: subcategory.subscriptionNotes || '',
-                calloutFeeMinor: subcategory.calloutFeeMinor,
+                calloutFeeEnabled: isCalloutFeeEnabled(subcategory.calloutFeeEnabled, subcategory.calloutFeeMinor, service.defaultCalloutFeeMinor),
+                calloutFeeMinor: isCalloutFeeEnabled(subcategory.calloutFeeEnabled, subcategory.calloutFeeMinor, service.defaultCalloutFeeMinor)
+                    ? (subcategory.calloutFeeMinor ?? service.defaultCalloutFeeMinor ?? 0)
+                    : 0,
                 minimumChargeMinor: subcategory.minimumChargeMinor,
             })),
         },
@@ -236,7 +246,7 @@ const enrichServiceEntries = (entries, catalogue) => {
     });
     return enriched;
 };
-const publicCatalogueDefaults = (catalogue) => Array.from(catalogue.values()).filter((service) => (service.subcategories || []).length > 0 || typeof service.calloutFeeMinor === 'number');
+const publicCatalogueDefaults = (catalogue) => Array.from(catalogue.values()).filter((service) => (service.subcategories || []).length > 0 || service.calloutFeeEnabled === true || typeof service.calloutFeeMinor === 'number');
 const isMarketStatus = (value) => typeof value === 'string' && Object.values(market_setting_model_1.MarketStatus).includes(value);
 exports.isMarketStatus = isMarketStatus;
 const isServiceBillingModel = (value) => typeof value === 'string' && Object.values(service_catalog_model_1.ServiceBillingModel).includes(value);
@@ -257,15 +267,17 @@ const normalizeServiceEntry = (entry) => {
     const serviceKey = (0, exports.normalizeServiceKey)(record.serviceKey ?? record.key ?? record.value ?? record.label);
     if (!serviceKey)
         return null;
+    const recordCalloutFeeMinor = typeof record.calloutFeeMinor === 'number'
+        ? record.calloutFeeMinor
+        : typeof record.calloutFee === 'number'
+            ? Math.round(record.calloutFee * 100)
+            : undefined;
     return {
         serviceKey,
         label: (0, exports.normalizeText)(record.label) || (0, exports.labelFromServiceKey)(serviceKey),
         status: (0, exports.isMarketStatus)(record.status) ? record.status : market_setting_model_1.MarketStatus.ACTIVE,
-        calloutFeeMinor: typeof record.calloutFeeMinor === 'number'
-            ? record.calloutFeeMinor
-            : typeof record.calloutFee === 'number'
-                ? Math.round(record.calloutFee * 100)
-                : undefined,
+        calloutFeeEnabled: isCalloutFeeEnabled(record.calloutFeeEnabled, recordCalloutFeeMinor),
+        calloutFeeMinor: isCalloutFeeEnabled(record.calloutFeeEnabled, recordCalloutFeeMinor) ? (recordCalloutFeeMinor ?? 0) : 0,
         imageKey: (0, exports.normalizeText)(record.imageKey),
         imageUrl: (0, exports.normalizeText)(record.imageUrl),
         description: (0, exports.normalizeText)(record.description),
@@ -283,6 +295,11 @@ const normalizeServiceEntry = (entry) => {
                 const label = (0, exports.normalizeText)(subRecord.label);
                 if (!subcategoryKey)
                     return null;
+                const subRecordCalloutFeeMinor = typeof subRecord.calloutFeeMinor === 'number'
+                    ? subRecord.calloutFeeMinor
+                    : typeof subRecord.calloutFee === 'number'
+                        ? Math.round(subRecord.calloutFee * 100)
+                        : undefined;
                 return {
                     subcategoryKey,
                     serviceKey,
@@ -299,11 +316,8 @@ const normalizeServiceEntry = (entry) => {
                     subscriptionEligible: subRecord.subscriptionEligible === true,
                     subscriptionCadences: normalizeSubscriptionCadences(subRecord.subscriptionCadences),
                     subscriptionNotes: (0, exports.normalizeText)(subRecord.subscriptionNotes).slice(0, 800),
-                    calloutFeeMinor: typeof subRecord.calloutFeeMinor === 'number'
-                        ? subRecord.calloutFeeMinor
-                        : typeof subRecord.calloutFee === 'number'
-                            ? Math.round(subRecord.calloutFee * 100)
-                            : undefined,
+                    calloutFeeEnabled: isCalloutFeeEnabled(subRecord.calloutFeeEnabled, subRecordCalloutFeeMinor),
+                    calloutFeeMinor: isCalloutFeeEnabled(subRecord.calloutFeeEnabled, subRecordCalloutFeeMinor) ? (subRecordCalloutFeeMinor ?? 0) : 0,
                     minimumChargeMinor: typeof subRecord.minimumChargeMinor === 'number'
                         ? subRecord.minimumChargeMinor
                         : typeof subRecord.minimumCharge === 'number'
@@ -359,9 +373,10 @@ const buildServiceGroups = (services) => {
                 imageKey: subcategory.imageKey || service.imageKey,
                 imageUrl: subcategory.imageUrl || service.imageUrl,
                 status: subcategory.status,
-                canBook: service.canBook && subcategory.status === market_setting_model_1.MarketStatus.ACTIVE && typeof subcategory.calloutFeeMinor === 'number',
+                canBook: service.canBook && subcategory.status === market_setting_model_1.MarketStatus.ACTIVE,
                 message: subcategory.status === market_setting_model_1.MarketStatus.ACTIVE ? service.message : statusMessage(subcategory.label, subcategory.status),
-                calloutFeeMinor: subcategory.calloutFeeMinor,
+                calloutFeeEnabled: subcategory.calloutFeeEnabled === true,
+                calloutFeeMinor: subcategory.calloutFeeMinor ?? 0,
                 minimumChargeMinor: subcategory.minimumChargeMinor ?? service.minimumChargeMinor,
                 estimatedDurationMinutes: subcategory.estimatedDurationMinutes,
                 inspectionRequired: subcategory.inspectionRequired,
@@ -389,7 +404,8 @@ const buildServiceGroups = (services) => {
                     status: service.status,
                     canBook: service.canBook,
                     message: service.message,
-                    calloutFeeMinor: service.calloutFeeMinor,
+                    calloutFeeEnabled: service.calloutFeeEnabled === true,
+                    calloutFeeMinor: service.calloutFeeMinor ?? 0,
                     minimumChargeMinor: service.minimumChargeMinor,
                     fixedPriceSupported: service.fixedPriceSupported,
                     requiresCapabilityApproval: service.requiresCapabilityApproval,
@@ -641,6 +657,7 @@ const getMarketAvailability = async (countryInput, cityInput, areaInput) => {
         const catalogued = catalogue.get(service.serviceKey);
         const marketOverride = serviceOverride(marketServices, service.serviceKey);
         const serviceCalloutFeeMinor = firstNumber(marketOverride?.calloutFeeMinor, catalogued?.calloutFeeMinor, defaultCalloutFeeMinor);
+        const serviceCalloutFeeEnabled = isCalloutFeeEnabled(service.calloutFeeEnabled, serviceCalloutFeeMinor, defaultCalloutFeeMinor);
         const pricingSource = marketOverride?.calloutFeeMinor !== undefined ? 'MARKET_SERVICE_OVERRIDE' :
             catalogued?.calloutFeeMinor !== undefined ? 'CATALOGUE_SERVICE_DEFAULT' :
                 defaultCalloutFeeMinor !== undefined ? 'MARKET_DEFAULT_CALLOUT' :
@@ -656,18 +673,22 @@ const getMarketAvailability = async (countryInput, cityInput, areaInput) => {
                     { value: catalogued?.calloutFeeMinor, source: 'CATALOGUE_SERVICE_DEFAULT' },
                     { value: defaultCalloutFeeMinor, source: 'MARKET_DEFAULT_CALLOUT' },
                 ];
+                const resolvedSubcategoryFeeMinor = firstNumber(...pricingCandidates.map((entry) => entry.value));
+                const subcategoryCalloutFeeEnabled = isCalloutFeeEnabled(subcategory.calloutFeeEnabled, resolvedSubcategoryFeeMinor, serviceCalloutFeeMinor);
                 return {
                     ...subcategory,
                     status: effectiveStatus === market_setting_model_1.MarketStatus.ACTIVE ? subcategory.status : effectiveStatus,
-                    calloutFeeMinor: firstNumber(...pricingCandidates.map((entry) => entry.value)),
+                    calloutFeeEnabled: subcategoryCalloutFeeEnabled,
+                    calloutFeeMinor: subcategoryCalloutFeeEnabled ? (resolvedSubcategoryFeeMinor ?? 0) : 0,
                     pricingSource: pricingSourceFor(pricingCandidates),
                     socialProof: proofForService(socialProof, subcategory.serviceKey || subcategory.subcategoryKey, countryCode, city),
                 };
             }),
             status: effectiveStatus,
-            canBook: effectiveStatus === market_setting_model_1.MarketStatus.ACTIVE && serviceCalloutFeeMinor !== undefined,
+            canBook: effectiveStatus === market_setting_model_1.MarketStatus.ACTIVE,
             message: statusMessage(service.label, effectiveStatus, city, area),
-            calloutFeeMinor: serviceCalloutFeeMinor,
+            calloutFeeEnabled: serviceCalloutFeeEnabled,
+            calloutFeeMinor: serviceCalloutFeeEnabled ? (serviceCalloutFeeMinor ?? 0) : 0,
             pricingSource,
             socialProof: proofForService(socialProof, service.serviceKey, countryCode, city),
         };
@@ -710,7 +731,7 @@ const validateServiceBookable = async (input) => {
         const parentWithBookable = availability.services.find((item) => item.subcategories?.some((subcategory) => (subcategory.serviceKey || subcategory.subcategoryKey) === serviceKey));
         const bookable = parentWithBookable?.subcategories?.find((subcategory) => (subcategory.serviceKey || subcategory.subcategoryKey) === serviceKey);
         if (parentWithBookable && bookable) {
-            if (!parentWithBookable.canBook || bookable.status !== market_setting_model_1.MarketStatus.ACTIVE || typeof bookable.calloutFeeMinor !== 'number') {
+            if (!parentWithBookable.canBook || bookable.status !== market_setting_model_1.MarketStatus.ACTIVE) {
                 return {
                     allowed: false,
                     message: `${bookable.label} is not currently bookable in this location.`,
@@ -721,7 +742,8 @@ const validateServiceBookable = async (input) => {
                 allowed: true,
                 service: {
                     ...parentWithBookable,
-                    calloutFeeMinor: bookable.calloutFeeMinor,
+                    calloutFeeEnabled: bookable.calloutFeeEnabled === true,
+                    calloutFeeMinor: bookable.calloutFeeMinor ?? 0,
                     pricingSource: bookable.pricingSource || 'SUBCATEGORY_RESOLVED_CALLOUT',
                 },
             };
@@ -739,14 +761,15 @@ const validateServiceBookable = async (input) => {
         if (!subcategory) {
             return { allowed: false, message: 'This subcategory is not available for the selected service.', service };
         }
-        if (subcategory.status !== market_setting_model_1.MarketStatus.ACTIVE || typeof subcategory.calloutFeeMinor !== 'number') {
+        if (subcategory.status !== market_setting_model_1.MarketStatus.ACTIVE) {
             return { allowed: false, message: `${subcategory.label} is not currently bookable.`, service };
         }
         return {
             allowed: true,
             service: {
                 ...service,
-                calloutFeeMinor: subcategory.calloutFeeMinor,
+                calloutFeeEnabled: subcategory.calloutFeeEnabled === true,
+                calloutFeeMinor: subcategory.calloutFeeMinor ?? 0,
                 pricingSource: subcategory.pricingSource || 'SUBCATEGORY_RESOLVED_CALLOUT',
             },
         };

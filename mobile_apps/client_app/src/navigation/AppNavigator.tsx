@@ -58,6 +58,7 @@ export type RootStackParamList = {
     subCategoryKey?: string;
     basePrice?: number;
     calloutFeeMinor?: number;
+    calloutFeeEnabled?: boolean;
     preferredTechnicianId?: string;
     preferredTechnicianName?: string;
     rebookFromBookingId?: string;

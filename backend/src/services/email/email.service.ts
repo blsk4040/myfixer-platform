@@ -324,11 +324,12 @@ export class EmailService {
         return false;
       }
 
-      const rows = args.lineItems.map((item) => `
+      const visibleLineItems = args.lineItems.filter((item) => Number(item.totalAmountMinor) > 0);
+      const rows = visibleLineItems.map((item) => `
         <tr>
-          <td>${item.label}</td>
-          <td>${item.quantity}</td>
-          <td>${args.currency} ${(item.totalAmountMinor / 100).toFixed(2)}</td>
+          <td style="padding:12px 0;border-bottom:1px solid #EEF2F7;color:#0F172A;">${escapeHtml(item.label)}</td>
+          <td style="padding:12px 0;border-bottom:1px solid #EEF2F7;text-align:center;color:#475569;">${item.quantity}</td>
+          <td style="padding:12px 0;border-bottom:1px solid #EEF2F7;text-align:right;color:#0F172A;font-weight:700;">${args.currency} ${(item.totalAmountMinor / 100).toFixed(2)}</td>
         </tr>
       `).join('');
 
@@ -337,14 +338,43 @@ export class EmailService {
         to: args.recipientEmail,
         subject: `Padi quote for booking #${args.bookingId}`,
         html: `
-          <p>Hello ${args.customerName || 'Client'},</p>
-          <p>Your technician sent a quote for approval.</p>
-          <table cellpadding="8" cellspacing="0" border="1">
-            <thead><tr><th>Item</th><th>Qty</th><th>Total</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-          <p><strong>Total: ${args.currency} ${args.totalAmount.toFixed(2)}</strong></p>
-          <p>Please open Padi to approve or reject this quote.</p>
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Padi Quote</title>
+          </head>
+          <body style="margin:0;padding:0;background:#F8FAFC;color:#0F172A;font-family:Helvetica,Arial,sans-serif;">
+            <div style="width:100%;padding:40px 0;background:#F8FAFC;">
+              <div style="max-width:600px;margin:0 auto;background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden;">
+                <div style="background:#090D14;padding:30px;text-align:center;">${padiWordmarkHtml}</div>
+                <div style="padding:32px;">
+                  <h1 style="margin:0 0 12px;font-size:22px;line-height:1.25;">Quote ready for review</h1>
+                  <p style="margin:0 0 16px;color:#334155;">Hello ${escapeHtml(args.customerName || 'Client')},</p>
+                  <p style="margin:0 0 22px;color:#334155;">Your Padi Pro has sent a quote for your booking. Please open Padi to approve, reject, or request clarification before work continues.</p>
+                  <div style="background:#F1F5F9;border-radius:10px;padding:14px 16px;margin-bottom:22px;font-size:14px;color:#334155;">
+                    <strong>Booking:</strong> #${escapeHtml(args.bookingId)}
+                  </div>
+                  <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:18px;">
+                    <thead>
+                      <tr>
+                        <th style="text-align:left;padding:0 0 8px;border-bottom:2px solid #E2E8F0;color:#64748B;font-size:12px;text-transform:uppercase;">Item</th>
+                        <th style="text-align:center;padding:0 0 8px;border-bottom:2px solid #E2E8F0;color:#64748B;font-size:12px;text-transform:uppercase;">Qty</th>
+                        <th style="text-align:right;padding:0 0 8px;border-bottom:2px solid #E2E8F0;color:#64748B;font-size:12px;text-transform:uppercase;">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>${rows || `<tr><td colspan="3" style="padding:14px 0;color:#64748B;">No chargeable items have been added yet.</td></tr>`}</tbody>
+                  </table>
+                  <div style="display:flex;justify-content:space-between;gap:12px;border-top:2px solid #0F172A;padding-top:16px;font-weight:900;font-size:17px;">
+                    <span>Total</span>
+                    <span style="color:#00B961;">${args.currency} ${args.totalAmount.toFixed(2)}</span>
+                  </div>
+                </div>
+                <div style="text-align:center;padding:22px;background:#F8FAFC;border-top:1px solid #E2E8F0;color:#94A3B8;font-size:12px;">Padi &bull; Support: support@myfixer.co.za</div>
+              </div>
+            </div>
+          </body>
+          </html>
         `,
       });
 

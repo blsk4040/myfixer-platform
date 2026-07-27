@@ -46,6 +46,7 @@ export interface IServiceSubcategory {
     notes?: string;
   };
   calloutFeeMinor?: number;
+  calloutFeeEnabled?: boolean;
   minimumChargeMinor?: number;
   billingModel?: ServiceBillingModel;
   subscriptionEligible?: boolean;
@@ -236,6 +237,10 @@ const ServiceSubcategorySchema = new Schema<IServiceSubcategory>(
       type: Number,
       min: 0,
       max: MAX_SERVICE_PRICE_MINOR,
+      default: undefined,
+    },
+    calloutFeeEnabled: {
+      type: Boolean,
       default: undefined,
     },
     minimumChargeMinor: {

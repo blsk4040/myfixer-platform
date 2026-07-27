@@ -67,11 +67,13 @@ export default function BookingWizardScreen() {
     subCategory = '',
     subCategoryKey = '',
     basePrice = 0,
+    calloutFeeEnabled,
     preferredTechnicianId,
     preferredTechnicianName,
     rebookFromBookingId,
   } = route.params || {};
   const isPreferredProviderRebook = Boolean(preferredTechnicianId && rebookFromBookingId);
+  const hasCalloutFee = calloutFeeEnabled === undefined ? basePrice > 0 : calloutFeeEnabled !== false;
 
   const [notes, setNotes] = useState('');
   const [promoCode, setPromoCode] = useState('');
@@ -358,7 +360,8 @@ export default function BookingWizardScreen() {
           <View style={styles.header}>
             <Text style={styles.headerTitle}>{subCategory || 'Selected service'}</Text>
             <Text style={styles.headerSubtitle}>
-              Call-out fee: <Text style={styles.greenText}>{basePrice > 0 ? `R${basePrice}` : 'Confirmed by Padi'}</Text>
+              {hasCalloutFee ? 'Call-out fee: ' : 'No call-out fee'}
+              {hasCalloutFee ? <Text style={styles.greenText}>{basePrice > 0 ? `R${basePrice}` : 'Confirmed by Padi'}</Text> : null}
             </Text>
             <View style={styles.stepper}>
               {wizardSteps.map((step, index) => (

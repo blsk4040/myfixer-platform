@@ -185,6 +185,10 @@ const ServiceSubcategorySchema = new mongoose_1.Schema({
         max: MAX_SERVICE_PRICE_MINOR,
         default: undefined,
     },
+    calloutFeeEnabled: {
+        type: Boolean,
+        default: undefined,
+    },
     minimumChargeMinor: {
         type: Number,
         min: 0,
