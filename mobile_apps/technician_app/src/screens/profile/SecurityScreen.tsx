@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Bell, CheckCircle2, ChevronRight, FileCheck2, KeyRound, Mail, ShieldCheck, Smartphone, UserCheck, X } from 'lucide-react-native';
+import { Bell, CheckCircle2, ChevronRight, Eye, EyeOff, FileCheck2, KeyRound, Mail, ShieldCheck, Smartphone, UserCheck, X } from 'lucide-react-native';
 
 import authService from '../../services/auth.service';
 import apiService, { SecuritySummaryResponse } from '../../services/api.service';
@@ -42,6 +45,8 @@ const Radius = {
 const BellIcon = Bell as any;
 const CheckCircleIcon = CheckCircle2 as any;
 const ChevronRightIcon = ChevronRight as any;
+const EyeIcon = Eye as any;
+const EyeOffIcon = EyeOff as any;
 const FileCheckIcon = FileCheck2 as any;
 const KeyIcon = KeyRound as any;
 const MailIcon = Mail as any;
@@ -72,6 +77,10 @@ export function SecurityScreen(): React.JSX.Element {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
   const [signingOutOthers, setSigningOutOthers] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   const isEmailVerified = summary?.emailVerified ?? session?.user.isEmailVerified !== false;
   const email = summary?.email || session?.user.email || 'Email unavailable';
@@ -92,10 +101,27 @@ export function SecurityScreen(): React.JSX.Element {
     void loadSummary();
   }, [loadSummary]);
 
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardOffset(event.endCoordinates.height);
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardOffset(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
   const resetPasswordForm = () => {
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
   };
 
   const handleChangePassword = async () => {
@@ -298,36 +324,80 @@ export function SecurityScreen(): React.JSX.Element {
       </ScrollView>
 
       <Modal visible={passwordModalVisible} animationType="slide" transparent onRequestClose={() => setPasswordModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>Change password</Text>
-                <Text style={styles.modalSubtitle}>Use at least 8 characters.</Text>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView
+            contentContainerStyle={[styles.modalScrollContent, { paddingBottom: keyboardOffset ? keyboardOffset + 24 : 34 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <View>
+                  <Text style={styles.modalTitle}>Change password</Text>
+                  <Text style={styles.modalSubtitle}>Use at least 8 characters.</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  onPress={() => {
+                    resetPasswordForm();
+                    setPasswordModalVisible(false);
+                  }}
+                >
+                  <XIcon color={Colors.text} size={20} />
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => {
-                  resetPasswordForm();
-                  setPasswordModalVisible(false);
-                }}
-              >
-                <XIcon color={Colors.text} size={20} />
+
+              <Text style={styles.inputLabel}>Current password</Text>
+              <View style={styles.passwordField}>
+                <TextInput
+                  style={[styles.input, styles.passwordInput]}
+                  secureTextEntry={!showCurrentPassword}
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  placeholder="Enter current password"
+                  placeholderTextColor={Colors.textSubtle}
+                />
+                <TouchableOpacity style={styles.passwordToggle} onPress={() => setShowCurrentPassword((value) => !value)} accessibilityLabel={showCurrentPassword ? 'Hide current password' : 'Show current password'}>
+                  {showCurrentPassword ? <EyeOffIcon color={Colors.textMuted} size={20} /> : <EyeIcon color={Colors.textMuted} size={20} />}
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.inputLabel}>New password</Text>
+              <View style={styles.passwordField}>
+                <TextInput
+                  style={[styles.input, styles.passwordInput]}
+                  secureTextEntry={!showNewPassword}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  placeholder="Enter new password"
+                  placeholderTextColor={Colors.textSubtle}
+                />
+                <TouchableOpacity style={styles.passwordToggle} onPress={() => setShowNewPassword((value) => !value)} accessibilityLabel={showNewPassword ? 'Hide new password' : 'Show new password'}>
+                  {showNewPassword ? <EyeOffIcon color={Colors.textMuted} size={20} /> : <EyeIcon color={Colors.textMuted} size={20} />}
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.inputLabel}>Confirm new password</Text>
+              <View style={styles.passwordField}>
+                <TextInput
+                  style={[styles.input, styles.passwordInput]}
+                  secureTextEntry={!showConfirmPassword}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder="Repeat new password"
+                  placeholderTextColor={Colors.textSubtle}
+                />
+                <TouchableOpacity style={styles.passwordToggle} onPress={() => setShowConfirmPassword((value) => !value)} accessibilityLabel={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}>
+                  {showConfirmPassword ? <EyeOffIcon color={Colors.textMuted} size={20} /> : <EyeIcon color={Colors.textMuted} size={20} />}
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity style={[styles.saveButton, savingPassword && styles.disabledButton]} activeOpacity={0.86} onPress={handleChangePassword} disabled={savingPassword}>
+                {savingPassword ? <ActivityIndicator color={Colors.background} /> : <Text style={styles.saveButtonText}>Update password</Text>}
               </TouchableOpacity>
             </View>
-
-            <Text style={styles.inputLabel}>Current password</Text>
-            <TextInput style={styles.input} secureTextEntry value={currentPassword} onChangeText={setCurrentPassword} placeholder="Enter current password" placeholderTextColor={Colors.textSubtle} />
-            <Text style={styles.inputLabel}>New password</Text>
-            <TextInput style={styles.input} secureTextEntry value={newPassword} onChangeText={setNewPassword} placeholder="Enter new password" placeholderTextColor={Colors.textSubtle} />
-            <Text style={styles.inputLabel}>Confirm new password</Text>
-            <TextInput style={styles.input} secureTextEntry value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Repeat new password" placeholderTextColor={Colors.textSubtle} />
-
-            <TouchableOpacity style={[styles.saveButton, savingPassword && styles.disabledButton]} activeOpacity={0.86} onPress={handleChangePassword} disabled={savingPassword}>
-              {savingPassword ? <ActivityIndicator color={Colors.background} /> : <Text style={styles.saveButtonText}>Update password</Text>}
-            </TouchableOpacity>
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -373,6 +443,7 @@ const styles = StyleSheet.create({
   eventDotWarning: { backgroundColor: Colors.amber },
   eventTitle: { color: Colors.text, fontSize: 13, fontWeight: '900', textTransform: 'capitalize' },
   modalOverlay: { flex: 1, backgroundColor: Colors.overlay, justifyContent: 'flex-end' },
+  modalScrollContent: { flexGrow: 1, justifyContent: 'flex-end', paddingTop: 48 },
   modalCard: {
     backgroundColor: Colors.surface,
     borderTopLeftRadius: Radius.xl,
@@ -389,6 +460,17 @@ const styles = StyleSheet.create({
   closeButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.input, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.border },
   inputLabel: { color: Colors.text, fontSize: 12, fontWeight: '900', marginBottom: 8, marginTop: 12 },
   input: { minHeight: 52, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.input, color: Colors.text, paddingHorizontal: 14, fontSize: 14, fontWeight: '700' },
+  passwordField: { position: 'relative' },
+  passwordInput: { paddingRight: 52 },
+  passwordToggle: {
+    position: 'absolute',
+    right: 8,
+    top: 0,
+    width: 44,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   saveButton: { minHeight: 56, borderRadius: Radius.lg, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 28, marginBottom: 6 },
   saveButtonText: { color: Colors.background, fontSize: 14, fontWeight: '900' },
 });
