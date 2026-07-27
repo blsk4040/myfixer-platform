@@ -635,6 +635,16 @@ function formatTechnicianServices(services = []) {
   return labels.length ? labels.join(', ') : 'No service selected';
 }
 
+function technicianRequestedServices(tech = {}) {
+  const capabilities = Array.isArray(tech.capabilities) ? tech.capabilities : [];
+  if (capabilities.length) {
+    return capabilities
+      .map((capability) => capability.categorySlug || capability.serviceKey || capability.label)
+      .filter(Boolean);
+  }
+  return tech.serviceCategories || [];
+}
+
 function technicianServiceSelections(services = []) {
   const selectedKeys = normalizeServiceEntries(services)
     .map((service) => serviceKeyFrom(service.serviceKey || service.key || service.label))
@@ -649,6 +659,18 @@ function technicianServiceSelections(services = []) {
     const serviceKey = serviceKeyFrom(service.serviceKey || '');
     if (!serviceKey) return;
     rowsByKey.set(serviceKey, service);
+    (service.subcategories || []).forEach((bookableService) => {
+      const bookableKey = serviceKeyFrom(bookableService.serviceKey || bookableService.subcategoryKey || '');
+      if (!bookableKey) return;
+      rowsByKey.set(bookableKey, {
+        ...bookableService,
+        serviceKey: bookableKey,
+        groupKey: service.groupKey,
+        groupLabel: service.groupLabel,
+        categoryLabel: service.label,
+        status: bookableService.status || bookableService.publicationStatus || service.status,
+      });
+    });
   });
 
   return selectedKeys.map((serviceKey) => {
@@ -662,6 +684,7 @@ function technicianServiceSelections(services = []) {
       status: record?.status || 'REQUESTED',
       groupKey,
       groupLabel: record?.groupLabel || group?.label || 'Selected Services',
+      categoryLabel: record?.categoryLabel || '',
       bookableCount,
     };
   }).sort((a, b) => a.groupLabel.localeCompare(b.groupLabel) || a.label.localeCompare(b.label));
@@ -670,7 +693,7 @@ function technicianServiceSelections(services = []) {
 function renderTechnicianServiceSelections(services = []) {
   const selections = technicianServiceSelections(services);
   if (!selections.length) {
-    return '<div class="technician-service-empty">No service categories selected during signup.</div>';
+    return '<div class="technician-service-empty">No specific services selected during signup.</div>';
   }
 
   const groups = selections.reduce((map, item) => {
@@ -681,7 +704,7 @@ function renderTechnicianServiceSelections(services = []) {
   }, new Map());
 
   return `
-    <div class="technician-service-review" aria-label="Selected service categories">
+    <div class="technician-service-review" aria-label="Selected provider services">
       ${Array.from(groups.values()).map((group) => `
         <div class="technician-service-group">
           <div class="technician-service-group-header">
@@ -692,7 +715,7 @@ function renderTechnicianServiceSelections(services = []) {
             ${group.items.map((item) => `
               <span class="technician-service-pill">
                 <em>${escapeHtml(item.label)}</em>
-                <small>${item.bookableCount ? `${item.bookableCount} bookable ${item.bookableCount === 1 ? 'service' : 'services'}` : escapeHtml(item.status)}</small>
+                <small>${escapeHtml(item.categoryLabel || item.status)}</small>
               </span>
             `).join('')}
           </div>
@@ -1621,7 +1644,7 @@ function renderProviderReviewQueue() {
     <div class="overview-list">
       ${pendingProviders.map((tech) => {
         const user = tech.userId || {};
-        const serviceLabel = formatTechnicianServices(tech.serviceCategories || []);
+        const serviceLabel = formatTechnicianServices(technicianRequestedServices(tech));
         const location = [tech.city, tech.countryCode].filter(Boolean).join(', ') || '-';
         return `
           <article class="overview-row">
@@ -2258,8 +2281,9 @@ function renderTechnicians() {
           const user = tech.userId || {};
           const photoUrl = tech.documents?.profilePhotoUrl || user.profilePhotoUrl || '';
           const photoStatus = tech.documents?.profilePhotoStatus || 'NOT_SUBMITTED';
-          const serviceLabel = formatTechnicianServices(tech.serviceCategories || []);
-          const serviceSelections = renderTechnicianServiceSelections(tech.serviceCategories || []);
+          const requestedServices = technicianRequestedServices(tech);
+          const serviceLabel = formatTechnicianServices(requestedServices);
+          const serviceSelections = renderTechnicianServiceSelections(requestedServices);
           const experienceLabel = formatYearsExperience(tech.yearsExperience);
           const radiusLabel = formatServiceRadius(tech.serviceRadiusKm);
           const providerLabel = tech.businessName || 'Independent provider';
@@ -2288,7 +2312,7 @@ function renderTechnicians() {
                   </div>
                   <div class="technician-service-section">
                     <div class="technician-service-section-header">
-                      <strong>Signup Service Categories</strong>
+                    <strong>Selected Provider Services</strong>
                       <span>${escapeHtml(serviceLabel)}</span>
                     </div>
                     ${serviceSelections}

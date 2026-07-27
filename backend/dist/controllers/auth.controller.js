@@ -1378,7 +1378,7 @@ const registerTechnician = async (req, res) => {
             tooLargeMessage: 'Profile photos must be 5 MB or smaller.',
         });
         if (!Array.isArray(serviceCategories) || serviceCategories.length === 0) {
-            res.status(400).json({ message: 'Please select at least one service category.' });
+            res.status(400).json({ message: 'Please select at least one specific service.' });
             return;
         }
         const normalizedServiceCategories = Array.from(new Set(serviceCategories.map((item) => (0, service_availability_service_1.normalizeServiceKey)(item)).filter(Boolean)));
@@ -1404,7 +1404,7 @@ const registerTechnician = async (req, res) => {
             .map((service) => service.serviceKey));
         const availableServiceCategories = normalizedServiceCategories.filter((serviceKey) => bookableServiceKeys.has(serviceKey));
         if (availableServiceCategories.length === 0) {
-            res.status(400).json({ message: 'Please select at least one active service category in your country or city.' });
+            res.status(400).json({ message: 'Please select at least one active bookable service in your country or city.' });
             return;
         }
         const approvalStatus = technician_model_1.TechnicianApprovalStatus.PENDING_REVIEW;

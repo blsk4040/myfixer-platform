@@ -105,6 +105,11 @@ const technicianDeclinedBooking = (booking: any, technicianId: mongoose.Types.Ob
 
 const getDispatchServiceCategory = (value: unknown): string => {
   const raw = String(value || '').toLowerCase();
+  const normalized = normalizeDispatchServiceKey(value);
+
+  if (normalized && (raw.includes('_') || normalized.endsWith('_repair'))) {
+    return normalized;
+  }
 
   const applianceKeywords = [
     'appliance',
@@ -127,7 +132,7 @@ const getDispatchServiceCategory = (value: unknown): string => {
     return 'appliance_repair';
   }
 
-  return normalizeDispatchServiceKey(value);
+  return normalized;
 };
 
 const getBookingDispatchServiceCategory = (booking: {

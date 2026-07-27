@@ -92,6 +92,10 @@ const technicianDeclinedBooking = (booking, technicianId) => {
 };
 const getDispatchServiceCategory = (value) => {
     const raw = String(value || '').toLowerCase();
+    const normalized = (0, exports.normalizeDispatchServiceKey)(value);
+    if (normalized && (raw.includes('_') || normalized.endsWith('_repair'))) {
+        return normalized;
+    }
     const applianceKeywords = [
         'appliance',
         'fridge',
@@ -111,7 +115,7 @@ const getDispatchServiceCategory = (value) => {
     if (applianceKeywords.some((keyword) => raw.includes(keyword))) {
         return 'appliance_repair';
     }
-    return (0, exports.normalizeDispatchServiceKey)(value);
+    return normalized;
 };
 const getBookingDispatchServiceCategory = (booking) => getDispatchServiceCategory(booking.serviceKey ?? booking.metadata?.serviceKey ?? booking.applianceType ?? booking.generalArea);
 const normalizeSpecialty = (value) => (0, exports.normalizeDispatchServiceKey)(value);

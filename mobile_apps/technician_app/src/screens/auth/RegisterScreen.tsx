@@ -52,8 +52,10 @@ type CategoryOption = {
   label: string;
   groupKey: string;
   groupLabel: string;
-  serviceCount?: number;
-  serviceLabels?: string[];
+  services: Array<{
+    key: string;
+    label: string;
+  }>;
 };
 
 const APPLICATION_STEPS = [
@@ -91,7 +93,7 @@ export function RegisterScreen({
     serviceRadiusKm: '25',
     bio: '',
   });
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
   const [categorySearch, setCategorySearch] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -123,7 +125,7 @@ export function RegisterScreen({
     const countryCode = formData.countryCode.trim().toUpperCase();
     if (!countryCode) {
       setCategoryOptions([]);
-      setSelectedCategories([]);
+      setSelectedServices([]);
       return;
     }
 
@@ -140,12 +142,16 @@ export function RegisterScreen({
               label: category.label,
               groupKey: group.groupKey,
               groupLabel: group.groupLabel || group.label,
-              serviceCount: bookableServices.length,
-              serviceLabels: bookableServices.map((service) => service.label).filter(Boolean),
+              services: bookableServices
+                .map((service) => ({
+                  key: service.serviceKey,
+                  label: service.label,
+                }))
+                .filter((service) => service.key && service.label),
             };
           })
         )
-          .filter((category) => category.key && category.label && category.serviceCount !== 0);
+          .filter((category) => category.key && category.label && category.services.length > 0);
 
         const flatServices = result.availability.services
           .filter((service) => service.canBook && !PROVIDER_MODULE_SERVICES.has(service.serviceKey))
@@ -154,8 +160,10 @@ export function RegisterScreen({
             label: service.label,
             groupKey: 'available_services',
             groupLabel: 'Available Services',
-            serviceCount: service.subcategories?.length,
-            serviceLabels: (service.subcategories || []).map((subcategory) => subcategory.label).filter(Boolean),
+            services: [{
+              key: service.serviceKey,
+              label: service.label,
+            }],
           }));
         const sourceOptions = groupedCategories.length ? groupedCategories : flatServices;
         const dedupedOptions = Array.from(
@@ -164,9 +172,9 @@ export function RegisterScreen({
         const nextOptions = dedupedOptions.sort((a, b) =>
           a.groupLabel.localeCompare(b.groupLabel) || a.label.localeCompare(b.label)
         );
-        const allowedKeys = new Set(nextOptions.map((service) => service.key));
+        const allowedKeys = new Set(nextOptions.flatMap((category) => category.services.map((service) => service.key)));
         setCategoryOptions(nextOptions);
-        setSelectedCategories((current) => current.filter((serviceKey) => allowedKeys.has(serviceKey)));
+        setSelectedServices((current) => current.filter((serviceKey) => allowedKeys.has(serviceKey)));
         setExpandedGroups((current) => {
           const next = { ...current };
           nextOptions.forEach((option) => {
@@ -179,7 +187,7 @@ export function RegisterScreen({
       })
       .catch(() => {
         setCategoryOptions([]);
-        setSelectedCategories([]);
+        setSelectedServices([]);
       });
 
     return () => {
@@ -191,11 +199,11 @@ export function RegisterScreen({
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const toggleCategory = (category: string) => {
-    setSelectedCategories((prev) =>
-      prev.includes(category)
-        ? prev.filter((item) => item !== category)
-        : [...prev, category]
+  const toggleService = (serviceKey: string) => {
+    setSelectedServices((prev) =>
+      prev.includes(serviceKey)
+        ? prev.filter((item) => item !== serviceKey)
+        : [...prev, serviceKey]
     );
   };
 
@@ -209,7 +217,8 @@ export function RegisterScreen({
       if (!query) return true;
       return (
         category.label.toLowerCase().includes(query) ||
-        category.groupLabel.toLowerCase().includes(query)
+        category.groupLabel.toLowerCase().includes(query) ||
+        category.services.some((service) => service.label.toLowerCase().includes(query))
       );
     });
 
@@ -224,11 +233,23 @@ export function RegisterScreen({
     }, []);
   }, [categoryOptions, categorySearch]);
 
-  const selectedCategoryOptions = useMemo(
-    () => selectedCategories
-      .map((categoryKey) => categoryOptions.find((category) => category.key === categoryKey))
-      .filter((category): category is CategoryOption => Boolean(category)),
-    [categoryOptions, selectedCategories]
+  const selectedServiceOptions = useMemo(
+    () => selectedServices
+      .map((serviceKey) => {
+        for (const category of categoryOptions) {
+          const service = category.services.find((item) => item.key === serviceKey);
+          if (service) {
+            return {
+              ...service,
+              categoryLabel: category.label,
+              groupLabel: category.groupLabel,
+            };
+          }
+        }
+        return null;
+      })
+      .filter((service): service is { key: string; label: string; categoryLabel: string; groupLabel: string } => Boolean(service)),
+    [categoryOptions, selectedServices]
   );
 
   const isFinalStep = currentStep === APPLICATION_STEPS.length - 1;
@@ -251,8 +272,8 @@ export function RegisterScreen({
       }
     }
 
-    if (currentStep === 2 && selectedCategories.length === 0) {
-      Alert.alert('Service Required', 'Select at least one service category.');
+    if (currentStep === 2 && selectedServices.length === 0) {
+      Alert.alert('Service Required', 'Select at least one specific service you can provide.');
       return;
     }
 
@@ -274,8 +295,8 @@ export function RegisterScreen({
       return;
     }
 
-    if (selectedCategories.length === 0) {
-      Alert.alert('Service Required', 'Select at least one service category.');
+    if (selectedServices.length === 0) {
+      Alert.alert('Service Required', 'Select at least one specific service you can provide.');
       return;
     }
 
@@ -303,7 +324,7 @@ export function RegisterScreen({
         countryCode: formData.countryCode.trim().toUpperCase(),
         city: formData.city.trim(),
         password: formData.password,
-        serviceCategories: selectedCategories,
+        serviceCategories: selectedServices,
         yearsExperience: Number(formData.yearsExperience) || 0,
         businessName: formData.businessName.trim(),
         idNumber: formData.idNumber.trim(),
@@ -474,10 +495,10 @@ export function RegisterScreen({
                 <View style={styles.serviceSectionHeader}>
                   <View>
                     <Text style={styles.label}>Choose your services</Text>
-                    <Text style={styles.sectionHelp}>Select the service categories you are qualified to provide. Each category shows the kind of jobs customers may request.</Text>
+                    <Text style={styles.sectionHelp}>Select the exact work you are qualified to provide. Broad categories are only used to organise the list.</Text>
                   </View>
                   <View style={styles.selectedCountPill}>
-                    <Text style={styles.selectedCountText}>{selectedCategories.length} selected</Text>
+                    <Text style={styles.selectedCountText}>{selectedServices.length} selected</Text>
                   </View>
                 </View>
                 <View style={styles.searchShell}>
@@ -486,25 +507,25 @@ export function RegisterScreen({
                     style={styles.searchInput}
                     value={categorySearch}
                     onChangeText={setCategorySearch}
-                    placeholder="Search service categories"
+                    placeholder="Search bookable services"
                     placeholderTextColor={Colors.textSubtle}
                     editable={!isLoading}
                   />
                 </View>
-                {selectedCategoryOptions.length > 0 && (
+                {selectedServiceOptions.length > 0 && (
                   <View style={styles.selectedSummary}>
-                    <Text style={styles.selectedSummaryTitle}>Selected skills</Text>
+                    <Text style={styles.selectedSummaryTitle}>Selected work types</Text>
                     <View style={styles.selectedSkillList}>
-                      {selectedCategoryOptions.map((category) => (
+                      {selectedServiceOptions.map((service) => (
                         <TouchableOpacity
-                          key={category.key}
+                          key={service.key}
                           style={styles.selectedSkillPill}
-                          onPress={() => toggleCategory(category.key)}
+                          onPress={() => toggleService(service.key)}
                           activeOpacity={0.82}
                           accessibilityRole="button"
-                          accessibilityLabel={`Remove ${category.label}`}
+                          accessibilityLabel={`Remove ${service.label}`}
                         >
-                          <Text style={styles.selectedSkillText}>{category.label}</Text>
+                          <Text style={styles.selectedSkillText}>{service.label}</Text>
                           <XIcon color={Colors.background} size={12} strokeWidth={3} />
                         </TouchableOpacity>
                       ))}
@@ -513,7 +534,10 @@ export function RegisterScreen({
                 )}
                 <View style={styles.categoryPanel}>
                   {groupedCategoryOptions.map((group) => {
-                    const selectedInGroup = group.categories.filter((category) => selectedCategories.includes(category.key)).length;
+                    const selectedInGroup = group.categories.reduce(
+                      (total, category) => total + category.services.filter((service) => selectedServices.includes(service.key)).length,
+                      0
+                    );
                     const isSearchActive = Boolean(categorySearch.trim());
                     const isExpanded = isSearchActive || expandedGroups[group.groupKey] === true;
                     return (
@@ -543,36 +567,39 @@ export function RegisterScreen({
                         {isExpanded && (
                           <View style={styles.categoryRows}>
                             {group.categories.map((category) => {
-                              const isSelected = selectedCategories.includes(category.key);
-                              const serviceLabels = category.serviceLabels || [];
                               return (
-                                <TouchableOpacity
+                                <View
                                   key={category.key}
-                                  style={[styles.categoryRow, isSelected && styles.categoryRowActive]}
-                                  onPress={() => toggleCategory(category.key)}
-                                  activeOpacity={0.86}
-                                  accessibilityRole="checkbox"
-                                  accessibilityState={{ checked: isSelected }}
-                                  accessibilityLabel={`${category.label}, ${category.groupLabel}`}
+                                  style={styles.categoryBlock}
                                 >
                                   <View style={styles.categoryRowCopy}>
-                                    <Text style={[styles.categoryText, isSelected && styles.categoryTextActive]}>{category.label}</Text>
-                                    <Text style={styles.categoryMeta}>
-                                      {typeof category.serviceCount === 'number'
-                                        ? `${category.serviceCount} bookable ${category.serviceCount === 1 ? 'service' : 'services'}`
-                                        : 'Available for review'}
-                                    </Text>
-                                    {serviceLabels.length > 0 && (
-                                      <Text style={styles.categoryPreview} numberOfLines={2}>
-                                        Includes {serviceLabels.slice(0, 4).join(', ')}
-                                        {serviceLabels.length > 4 ? ` +${serviceLabels.length - 4} more` : ''}
-                                      </Text>
-                                    )}
+                                    <Text style={styles.categoryText}>{category.label}</Text>
+                                    <Text style={styles.categoryMeta}>Choose only the services you can confidently complete.</Text>
                                   </View>
-                                  <View style={[styles.categoryCheck, isSelected && styles.categoryCheckActive]}>
-                                    {isSelected && <CheckIcon color={Colors.background} size={14} strokeWidth={3} />}
+                                  <View style={styles.bookableServiceList}>
+                                    {category.services.map((service) => {
+                                      const isSelected = selectedServices.includes(service.key);
+                                      return (
+                                        <TouchableOpacity
+                                          key={service.key}
+                                          style={[styles.bookableServiceRow, isSelected && styles.categoryRowActive]}
+                                          onPress={() => toggleService(service.key)}
+                                          activeOpacity={0.86}
+                                          accessibilityRole="checkbox"
+                                          accessibilityState={{ checked: isSelected }}
+                                          accessibilityLabel={`${service.label}, ${category.label}`}
+                                        >
+                                          <Text style={[styles.bookableServiceText, isSelected && styles.categoryTextActive]}>
+                                            {service.label}
+                                          </Text>
+                                          <View style={[styles.categoryCheck, isSelected && styles.categoryCheckActive]}>
+                                            {isSelected && <CheckIcon color={Colors.background} size={14} strokeWidth={3} />}
+                                          </View>
+                                        </TouchableOpacity>
+                                      );
+                                    })}
                                   </View>
-                                </TouchableOpacity>
+                                </View>
                               );
                             })}
                           </View>
@@ -582,10 +609,10 @@ export function RegisterScreen({
                   })}
                 </View>
                 {!categoryOptions.length && (
-                  <Text style={styles.helperText}>No active provider services are available for this country or city yet.</Text>
+                  <Text style={styles.helperText}>No active bookable services are available for this country or city yet.</Text>
                 )}
                 {Boolean(categoryOptions.length) && !groupedCategoryOptions.length && (
-                  <Text style={styles.helperText}>No service categories match your search.</Text>
+                  <Text style={styles.helperText}>No bookable services match your search.</Text>
                 )}
               </View>
             )}
@@ -610,7 +637,7 @@ export function RegisterScreen({
               <View style={styles.stepContent}>
                 <View style={styles.reviewBox}>
                   <Text style={styles.reviewTitle}>Application summary</Text>
-                  <Text style={styles.reviewText}>{formData.name.trim() || 'Your profile'} • {formData.city.trim() || 'City'} • {selectedCategories.length} service {selectedCategories.length === 1 ? 'category' : 'categories'}</Text>
+                  <Text style={styles.reviewText}>{formData.name.trim() || 'Your profile'} - {formData.city.trim() || 'City'} - {selectedServices.length} work {selectedServices.length === 1 ? 'type' : 'types'}</Text>
                 </View>
 
                 <Text style={styles.label}>Password</Text>
@@ -902,6 +929,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: Colors.border,
   },
+  categoryBlock: {
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#24242A',
+  },
   categoryRow: {
     minHeight: 64,
     flexDirection: 'row',
@@ -918,6 +952,29 @@ const styles = StyleSheet.create({
   },
   categoryRowCopy: {
     flex: 1,
+  },
+  bookableServiceList: {
+    gap: 8,
+  },
+  bookableServiceRow: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    backgroundColor: Colors.input,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  bookableServiceText: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   selectedSummary: {
     borderRadius: 16,

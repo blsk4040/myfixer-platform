@@ -41,6 +41,7 @@ const mongoose_1 = __importDefault(require("mongoose"));
 const booking_model_1 = __importStar(require("../models/booking.model"));
 const quote_model_1 = __importDefault(require("../models/quote.model"));
 const technician_model_1 = __importStar(require("../models/technician.model"));
+const technician_capability_model_1 = __importStar(require("../models/technician-capability.model"));
 const booking_privacy_service_1 = require("../services/booking-privacy.service");
 const audit_service_1 = require("../services/audit.service");
 const matching_service_1 = __importDefault(require("../services/matching.service"));
@@ -54,13 +55,38 @@ const MAX_TECHNICIAN_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
 const isApprovalStatus = (value) => typeof value === 'string' &&
     Object.values(technician_model_1.TechnicianApprovalStatus).includes(value);
 const isPhotoReviewStatus = (value) => value === technician_model_1.VerificationStatus.VERIFIED || value === technician_model_1.VerificationStatus.REJECTED;
+const capabilityStatusForTechnicianReview = (status) => {
+    if (status === technician_model_1.TechnicianApprovalStatus.APPROVED)
+        return technician_capability_model_1.CapabilityStatus.APPROVED;
+    if (status === technician_model_1.TechnicianApprovalStatus.REJECTED || status === technician_model_1.TechnicianApprovalStatus.SUSPENDED) {
+        return technician_capability_model_1.CapabilityStatus.REJECTED;
+    }
+    return technician_capability_model_1.CapabilityStatus.PENDING;
+};
 const listTechnicianApplications = async (req, res) => {
     try {
         const scopeFilter = (0, admin_market_scope_service_1.countryScopeFilter)(await (0, admin_market_scope_service_1.getAdminMarketScope)(req));
         const technicians = await technician_model_1.default.find(scopeFilter)
             .populate('userId', 'name email phone countryCode currency location')
-            .sort({ createdAt: -1 });
-        res.status(200).json({ success: true, technicians });
+            .sort({ createdAt: -1 })
+            .lean();
+        const technicianIds = technicians.map((technician) => technician._id);
+        const capabilities = await technician_capability_model_1.default.find({ technicianId: { $in: technicianIds } })
+            .sort({ categorySlug: 1 })
+            .lean();
+        const capabilitiesByTechnician = capabilities.reduce((map, capability) => {
+            const key = String(capability.technicianId);
+            map[key] = map[key] || [];
+            map[key].push(capability);
+            return map;
+        }, {});
+        res.status(200).json({
+            success: true,
+            technicians: technicians.map((technician) => ({
+                ...technician,
+                capabilities: capabilitiesByTechnician[String(technician._id)] || [],
+            })),
+        });
     }
     catch (error) {
         if ((0, admin_market_scope_service_1.handleAdminMarketScopeError)(res, error))
@@ -357,6 +383,15 @@ const reviewTechnicianApplication = async (req, res) => {
         technician.review.rejectionReason = body.status === technician_model_1.TechnicianApprovalStatus.REJECTED ? reviewReason : '';
         technician.review.suspensionReason = body.status === technician_model_1.TechnicianApprovalStatus.SUSPENDED ? reviewReason : '';
         await technician.save();
+        await technician_capability_model_1.default.updateMany({ technicianId: technician._id }, {
+            $set: {
+                verificationStatus: capabilityStatusForTechnicianReview(technician.approvalStatus),
+                rejectionReason: technician.approvalStatus === technician_model_1.TechnicianApprovalStatus.REJECTED ||
+                    technician.approvalStatus === technician_model_1.TechnicianApprovalStatus.SUSPENDED
+                    ? reviewReason
+                    : null,
+            },
+        });
         await (0, audit_service_1.logAuditEvent)(req, {
             action: 'technician.review',
             module: 'TECHNICIANS',

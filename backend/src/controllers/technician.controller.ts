@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Booking, { BookingStatus } from '../models/booking.model';
 import JobQuote from '../models/quote.model';
 import Technician, { TechnicianApprovalStatus, VerificationStatus } from '../models/technician.model';
+import TechnicianCapability, { CapabilityStatus } from '../models/technician-capability.model';
 import { serializeBookingForAssignedTechnician } from '../services/booking-privacy.service';
 import { logAuditEvent } from '../services/audit.service';
 import matchingService from '../services/matching.service';
@@ -32,14 +33,40 @@ const isApprovalStatus = (value: unknown): value is TechnicianApprovalStatus =>
 const isPhotoReviewStatus = (value: unknown): value is VerificationStatus =>
   value === VerificationStatus.VERIFIED || value === VerificationStatus.REJECTED;
 
+const capabilityStatusForTechnicianReview = (status: TechnicianApprovalStatus): CapabilityStatus => {
+  if (status === TechnicianApprovalStatus.APPROVED) return CapabilityStatus.APPROVED;
+  if (status === TechnicianApprovalStatus.REJECTED || status === TechnicianApprovalStatus.SUSPENDED) {
+    return CapabilityStatus.REJECTED;
+  }
+  return CapabilityStatus.PENDING;
+};
+
 export const listTechnicianApplications = async (req: Request, res: Response): Promise<void> => {
   try {
     const scopeFilter = countryScopeFilter(await getAdminMarketScope(req));
     const technicians = await Technician.find(scopeFilter)
       .populate('userId', 'name email phone countryCode currency location')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
-    res.status(200).json({ success: true, technicians });
+    const technicianIds = technicians.map((technician) => technician._id);
+    const capabilities = await TechnicianCapability.find({ technicianId: { $in: technicianIds } })
+      .sort({ categorySlug: 1 })
+      .lean();
+    const capabilitiesByTechnician = capabilities.reduce<Record<string, typeof capabilities>>((map, capability) => {
+      const key = String(capability.technicianId);
+      map[key] = map[key] || [];
+      map[key].push(capability);
+      return map;
+    }, {});
+
+    res.status(200).json({
+      success: true,
+      technicians: technicians.map((technician) => ({
+        ...technician,
+        capabilities: capabilitiesByTechnician[String(technician._id)] || [],
+      })),
+    });
   } catch (error) {
     if (handleAdminMarketScopeError(res, error)) return;
     res.status(500).json({ success: false, message: 'Failed to fetch technician applications.' });
@@ -371,6 +398,20 @@ export const reviewTechnicianApplication = async (req: Request, res: Response): 
     technician.review.suspensionReason = body.status === TechnicianApprovalStatus.SUSPENDED ? reviewReason : '';
 
     await technician.save();
+
+    await TechnicianCapability.updateMany(
+      { technicianId: technician._id },
+      {
+        $set: {
+          verificationStatus: capabilityStatusForTechnicianReview(technician.approvalStatus),
+          rejectionReason:
+            technician.approvalStatus === TechnicianApprovalStatus.REJECTED ||
+            technician.approvalStatus === TechnicianApprovalStatus.SUSPENDED
+              ? reviewReason
+              : null,
+        },
+      }
+    );
 
     await logAuditEvent(req, {
       action: 'technician.review',

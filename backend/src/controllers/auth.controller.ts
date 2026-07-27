@@ -1538,7 +1538,7 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
     });
 
     if (!Array.isArray(serviceCategories) || serviceCategories.length === 0) {
-      res.status(400).json({ message: 'Please select at least one service category.' });
+      res.status(400).json({ message: 'Please select at least one specific service.' });
       return;
     }
 
@@ -1573,7 +1573,7 @@ export const registerTechnician = async (req: Request, res: Response): Promise<v
     const availableServiceCategories = normalizedServiceCategories.filter((serviceKey) => bookableServiceKeys.has(serviceKey));
 
     if (availableServiceCategories.length === 0) {
-      res.status(400).json({ message: 'Please select at least one active service category in your country or city.' });
+      res.status(400).json({ message: 'Please select at least one active bookable service in your country or city.' });
       return;
     }
 

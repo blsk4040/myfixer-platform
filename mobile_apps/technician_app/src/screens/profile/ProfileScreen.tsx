@@ -60,7 +60,7 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
     : `Status: ${technicianIdentity.approvalStatus}`;
   const serviceCategories = technicianIdentity.serviceCategories.length
     ? technicianIdentity.serviceCategories.map(formatServiceCategory)
-    : ['No service categories set'];
+    : ['No services set'];
 
   useEffect(() => {
     setReferralLoading(true);
@@ -206,7 +206,7 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.sectionTitle}>Service Categories</Text>
+        <Text style={styles.sectionTitle}>Services</Text>
         <View style={styles.badgeWrapper}>
           {serviceCategories.map((spec) => (
             <View key={spec} style={styles.badge}>
