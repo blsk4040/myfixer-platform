@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.connectRedis = exports.getRedisClient = exports.isRedisEnabled = void 0;
+exports.connectRedis = exports.createRedisClient = exports.getRedisClient = exports.isRedisEnabled = void 0;
 const ioredis_1 = __importDefault(require("ioredis"));
 const isRedisEnabled = () => process.env.REDIS_ENABLED === 'true' && Boolean(process.env.REDIS_URL);
 exports.isRedisEnabled = isRedisEnabled;
@@ -22,6 +22,12 @@ const warnOnce = (message) => {
     warningLogged = true;
     console.warn(message);
 };
+const attachRedisErrorHandler = (client) => {
+    client.on('error', (error) => {
+        warnOnce(`Redis connection failed. Redis-backed features are disabled. ${error.message}`);
+    });
+    return client;
+};
 const getRedisClient = () => {
     if (!(0, exports.isRedisEnabled)()) {
         if (process.env.REDIS_ENABLED === 'true' && !process.env.REDIS_URL) {
@@ -30,14 +36,17 @@ const getRedisClient = () => {
         return null;
     }
     if (!redisClient) {
-        redisClient = new ioredis_1.default(process.env.REDIS_URL, redisOptions);
-        redisClient.on('error', (error) => {
-            warnOnce(`Redis connection failed. Redis-backed features are disabled. ${error.message}`);
-        });
+        redisClient = attachRedisErrorHandler(new ioredis_1.default(process.env.REDIS_URL, redisOptions));
     }
     return redisClient;
 };
 exports.getRedisClient = getRedisClient;
+const createRedisClient = () => {
+    if (!(0, exports.isRedisEnabled)())
+        return null;
+    return attachRedisErrorHandler(new ioredis_1.default(process.env.REDIS_URL, redisOptions));
+};
+exports.createRedisClient = createRedisClient;
 const connectRedis = async () => {
     const client = (0, exports.getRedisClient)();
     if (!client)

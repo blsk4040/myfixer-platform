@@ -70,6 +70,7 @@ apiRouter.post('/managed-collection-subscriptions', auth_middleware_1.authentica
 apiRouter.patch('/managed-collection-subscriptions/:id', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), managed_collection_subscription_controller_1.updateManagedCollectionSubscription);
 // 📅 Dispatch & Booking Allocation Engine
 apiRouter.post('/bookings/finalize-invoice', rate_limit_middleware_1.bookingWriteRateLimiter, auth_middleware_1.authenticateToken, booking_controller_1.finalizeJobInvoice);
+apiRouter.get('/bookings/active', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), booking_controller_1.getMyActiveBookings);
 apiRouter.get('/bookings/active/current', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), booking_controller_1.getMyActiveBooking);
 apiRouter.get('/bookings/history/me', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), booking_controller_1.getMyBookingHistory);
 apiRouter.get('/clients/me/referral', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), customer_referral_controller_1.getMyCustomerReferralProgram);

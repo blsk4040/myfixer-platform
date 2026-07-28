@@ -7,6 +7,15 @@ const API_BASE_URL = getApiBaseUrl();
 
 type PushApp = 'client' | 'technician';
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
 const configureAndroidChannel = async (): Promise<void> => {
   if (Platform.OS !== 'android') return;
 
@@ -16,6 +25,14 @@ const configureAndroidChannel = async (): Promise<void> => {
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#B8FF3D',
     sound: 'default',
+  });
+
+  await Notifications.setNotificationChannelAsync('job-alerts', {
+    name: 'Padi Pro job alerts',
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 350, 180, 350],
+    lightColor: '#B8FF3D',
+    sound: 'incoming_job.wav',
   });
 };
 

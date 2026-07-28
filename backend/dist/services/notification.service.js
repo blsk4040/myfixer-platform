@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.retryNotification = exports.processDueNotifications = exports.deliverNotification = exports.createNotifications = void 0;
+exports.retryNotification = exports.processDueNotifications = exports.processNotificationQueueTask = exports.deliverNotification = exports.createNotifications = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
 const notification_model_1 = __importStar(require("../models/notification.model"));
 const notification_preference_model_1 = __importDefault(require("../models/notification-preference.model"));
@@ -44,6 +44,8 @@ const user_model_1 = __importDefault(require("../models/user.model"));
 const push_token_model_1 = __importDefault(require("../models/push-token.model"));
 const email_service_1 = require("./email/email.service");
 const audit_log_model_1 = __importStar(require("../models/audit-log.model"));
+const metrics_service_1 = require("./metrics.service");
+const worker_queue_service_1 = require("./worker-queue.service");
 const channelPreferenceMap = {
     [notification_model_1.NotificationChannel.IN_APP]: 'inApp',
     [notification_model_1.NotificationChannel.EMAIL]: 'email',
@@ -247,6 +249,13 @@ const createNotifications = async (input) => {
     const dueNotifications = notifications.filter((notification) => notification.scheduledAt.getTime() <= Date.now());
     if (!dueNotifications.length)
         return notifications;
+    if ((0, worker_queue_service_1.isWorkerQueueEnabled)()) {
+        await Promise.all(dueNotifications.map((notification) => (0, worker_queue_service_1.enqueueWorkerTask)({
+            name: worker_queue_service_1.WorkerQueueName.NOTIFICATION_DELIVERY,
+            id: notification._id.toString(),
+        })));
+        return notifications;
+    }
     return Promise.all(dueNotifications.map((notification) => (0, exports.deliverNotification)(notification)));
 };
 exports.createNotifications = createNotifications;
@@ -310,6 +319,15 @@ const deliverNotification = async (notification) => {
     return notification;
 };
 exports.deliverNotification = deliverNotification;
+const processNotificationQueueTask = async (notificationId) => {
+    const notification = await notification_model_1.default.findById(notificationId);
+    if (!notification) {
+        (0, metrics_service_1.incrementMetric)('worker_tasks_missing_total', { queue: worker_queue_service_1.WorkerQueueName.NOTIFICATION_DELIVERY });
+        return null;
+    }
+    return (0, exports.deliverNotification)(notification);
+};
+exports.processNotificationQueueTask = processNotificationQueueTask;
 const processDueNotifications = async (limit = 50) => {
     const now = new Date();
     const notifications = await notification_model_1.default.find({

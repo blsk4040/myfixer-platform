@@ -12,47 +12,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Archive, Bell, CheckCircle2, FileText, MailOpen } from 'lucide-react-native';
 import apiService, { NotificationRecord } from '../../services/api.service';
-
-type NotificationFeedMode = 'alerts' | 'inbox';
-
-const INBOX_NOTIFICATION_TYPES = new Set([
-  'INVOICE_GENERATED',
-  'INVOICE_READY',
-  'INVOICE_PAID',
-  'INVOICE_OVERDUE',
-  'QUOTE_SUBMITTED',
-  'QUOTE_READY',
-  'QUOTE_UPDATED',
-  'QUOTE_APPROVED',
-  'QUOTE_REJECTED',
-  'QUOTE_CLARIFICATION_REQUESTED',
-  'PAYMENT_REQUIRED',
-  'PAYMENT_PENDING',
-  'PAYMENT_RECEIVED',
-  'PAYMENT_CONFIRMED',
-  'PAYMENT_FAILED',
-  'PAYOUT_READY',
-  'PAYOUT_RELEASED',
-  'PAYOUT_PAID',
-  'PAYOUT_FAILED',
-  'SETTLEMENT_READY',
-  'STATEMENT_READY',
-  'RECEIPT_READY',
-  'RECEIPT_GENERATED',
-]);
+import { getFeedForNotification, isUnreadNotification, NotificationFeedMode } from '../../utils/notificationFeed';
 
 const getNotificationTime = (notification: NotificationRecord): number =>
   new Date(notification.sentAt || notification.scheduledAt || Date.now()).getTime();
-
-const getFeedForNotification = (notification: NotificationRecord): NotificationFeedMode => {
-  const metadataFeed = typeof notification.metadata?.feed === 'string'
-    ? notification.metadata.feed.trim().toLowerCase()
-    : '';
-  if (metadataFeed === 'inbox' || metadataFeed === 'alerts') return metadataFeed;
-
-  const type = String(notification.type || '').trim().toUpperCase();
-  return INBOX_NOTIFICATION_TYPES.has(type) ? 'inbox' : 'alerts';
-};
 
 const dedupeNotifications = (items: NotificationRecord[]): NotificationRecord[] => {
   const map = new Map<string, NotificationRecord>();
@@ -94,7 +57,7 @@ const copyByMode: Record<NotificationFeedMode, {
   },
 };
 
-function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React.JSX.Element {
+function NotificationFeedScreen({ mode, navigation }: { mode: NotificationFeedMode; navigation?: any }): React.JSX.Element {
   const copy = copyByMode[mode];
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -105,7 +68,7 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
     const result = await apiService.getNotifications();
     const feedNotifications = (result.notifications || []).filter((notification) => getFeedForNotification(notification) === mode);
     setNotifications(dedupeNotifications(feedNotifications));
-    setUnreadCount(feedNotifications.filter((notification) => !notification.readAt && notification.status !== 'READ').length);
+    setUnreadCount(feedNotifications.filter(isUnreadNotification).length);
   }, [mode]);
 
   useEffect(() => {
@@ -113,6 +76,13 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
       .catch((error: Error) => Alert.alert('Notifications', error.message))
       .finally(() => setLoading(false));
   }, [loadNotifications]);
+
+  useEffect(() => {
+    const unsubscribe = navigation?.addListener?.('focus', () => {
+      void loadNotifications();
+    });
+    return () => unsubscribe?.();
+  }, [loadNotifications, navigation]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -132,6 +102,25 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
     } catch (error) {
       Alert.alert('Notifications', error instanceof Error ? error.message : 'Unable to update notification.');
     }
+  };
+
+  const openNotification = async (notification: NotificationRecord) => {
+    const isRead = !isUnreadNotification(notification);
+    if (!isRead) {
+      setNotifications((current) => current.map((item) => (
+        item._id === notification._id
+          ? { ...item, status: 'READ', readAt: new Date().toISOString() }
+          : item
+      )));
+      setUnreadCount((current) => Math.max(0, current - 1));
+      await apiService.updateNotification(notification._id, 'MARK_READ').catch(() => loadNotifications());
+    }
+
+    const bookingId = typeof notification.metadata?.bookingId === 'string' ? notification.metadata.bookingId : '';
+    Alert.alert(notification.title || copy.title, notification.message || 'No message details available.', [
+      { text: 'Close', style: 'cancel' },
+      bookingId ? { text: 'Open Jobs', onPress: () => navigation?.navigate?.('Jobs') } : { text: 'OK' },
+    ]);
   };
 
   if (loading) {
@@ -165,9 +154,9 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#B8FF3D" />}
         ListEmptyComponent={<Text style={styles.empty}>{copy.empty}</Text>}
         renderItem={({ item }) => {
-          const isRead = Boolean(item.readAt) || item.status === 'READ';
+          const isRead = !isUnreadNotification(item);
           return (
-            <View style={[styles.card, !isRead && styles.unreadCard]}>
+            <TouchableOpacity style={[styles.card, !isRead && styles.unreadCard]} activeOpacity={0.88} onPress={() => openNotification(item)}>
               <View style={styles.cardHeader}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardTitle}>{item.title}</Text>
@@ -189,7 +178,7 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
                   <Text style={styles.actionText}>Archive</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            </TouchableOpacity>
           );
         }}
       />
@@ -197,12 +186,12 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
   );
 }
 
-export function TechnicianAlertsScreen(): React.JSX.Element {
-  return <NotificationFeedScreen mode="alerts" />;
+export function TechnicianAlertsScreen({ navigation }: any): React.JSX.Element {
+  return <NotificationFeedScreen mode="alerts" navigation={navigation} />;
 }
 
-export function TechnicianInboxScreen(): React.JSX.Element {
-  return <NotificationFeedScreen mode="inbox" />;
+export function TechnicianInboxScreen({ navigation }: any): React.JSX.Element {
+  return <NotificationFeedScreen mode="inbox" navigation={navigation} />;
 }
 
 export default TechnicianInboxScreen;

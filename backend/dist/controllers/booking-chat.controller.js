@@ -46,6 +46,7 @@ const user_model_1 = require("../models/user.model");
 const notification_service_1 = require("../services/notification.service");
 const media_storage_service_1 = require("../services/media-storage.service");
 const image_data_uri_1 = require("../utils/image-data-uri");
+const chat_safety_service_1 = require("../services/chat-safety.service");
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 const TWO_YEARS_MS = 2 * ONE_YEAR_MS;
 const MAX_BOOKING_MEDIA_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -223,6 +224,9 @@ const sendBookingMessage = async (req, res) => {
             res.status(400).json({ message: 'Message text or image is required.' });
             return;
         }
+        if (text) {
+            (0, chat_safety_service_1.assertChatTextIsSafe)(text);
+        }
         const authorizedMediaCount = mediaIds.length
             ? await job_media_model_1.default.countDocuments({ _id: { $in: mediaIds }, bookingId: booking._id })
             : 0;
@@ -270,6 +274,10 @@ const sendBookingMessage = async (req, res) => {
         res.status(201).json({ success: true, message: payload });
     }
     catch (error) {
+        if (error instanceof chat_safety_service_1.ChatSafetyError) {
+            res.status(400).json({ message: error.message, code: error.code });
+            return;
+        }
         res.status(400).json({ message: error.message || 'Failed to send message.' });
     }
 };

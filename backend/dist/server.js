@@ -23,8 +23,11 @@ const mongoose_1 = __importDefault(require("mongoose"));
 const socket_io_1 = require("socket.io");
 const api_routes_1 = __importDefault(require("./routes/api.routes"));
 const socket_server_1 = require("./sockets/socket.server");
+const redis_adapter_1 = require("./sockets/redis-adapter");
 const paystack_service_1 = require("./services/paystack.service");
 const payment_capabilities_config_1 = require("./config/payment-capabilities.config");
+const metrics_middleware_1 = require("./middleware/metrics.middleware");
+const metrics_service_1 = require("./services/metrics.service");
 const isProductionRuntime = () => process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
 const requireConfiguredEnv = (name) => {
     const value = process.env[name]?.trim();
@@ -109,6 +112,7 @@ exports.io = new socket_io_1.Server(exports.httpServer, {
 exports.app.use((0, helmet_1.default)());
 exports.app.set('trust proxy', isProductionRuntime() ? 1 : false);
 exports.app.use((0, cors_1.default)(corsOptions));
+exports.app.use(metrics_middleware_1.metricsMiddleware);
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '8mb';
 exports.app.use(express_1.default.json({
     limit: jsonBodyLimit,
@@ -128,7 +132,23 @@ exports.app.get('/api/health', (_req, res) => {
         timestamp: new Date().toISOString(),
     });
 });
-(0, socket_server_1.registerSocketServer)(exports.io);
+exports.app.get('/api/metrics', (req, res) => {
+    const metricsToken = process.env.METRICS_TOKEN?.trim();
+    if (isProductionRuntime()) {
+        if (!metricsToken) {
+            res.status(404).json({ message: 'Not found.' });
+            return;
+        }
+        const provided = req.header('authorization')?.replace(/^Bearer\s+/i, '').trim();
+        if (provided !== metricsToken) {
+            res.status(403).json({ message: 'Metrics access denied.' });
+            return;
+        }
+    }
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+    res.status(200).send((0, metrics_service_1.renderMetrics)());
+});
+void (0, redis_adapter_1.configureSocketRedisAdapter)(exports.io).finally(() => (0, socket_server_1.registerSocketServer)(exports.io));
 const port = Number.parseInt(process.env.PORT ?? '5000', 10);
 const mongoUri = process.env.MONGODB_URI;
 if (!mongoUri) {

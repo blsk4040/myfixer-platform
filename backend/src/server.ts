@@ -22,8 +22,11 @@ import { Server as SocketIOServer } from 'socket.io';
 
 import apiRouter from './routes/api.routes';
 import { registerSocketServer } from './sockets/socket.server';
+import { configureSocketRedisAdapter } from './sockets/redis-adapter';
 import { validatePaystackStartupConfiguration } from './services/paystack.service';
 import { validatePayoutStartupConfiguration } from './config/payment-capabilities.config';
+import { metricsMiddleware } from './middleware/metrics.middleware';
+import { renderMetrics } from './services/metrics.service';
 
 const isProductionRuntime = (): boolean =>
   process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
@@ -122,6 +125,7 @@ export const io = new SocketIOServer(httpServer, {
 app.use(helmet());
 app.set('trust proxy', isProductionRuntime() ? 1 : false);
 app.use(cors(corsOptions));
+app.use(metricsMiddleware);
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '8mb';
 app.use(express.json({
   limit: jsonBodyLimit,
@@ -145,7 +149,24 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
-registerSocketServer(io);
+app.get('/api/metrics', (req: Request, res: Response) => {
+  const metricsToken = process.env.METRICS_TOKEN?.trim();
+  if (isProductionRuntime()) {
+    if (!metricsToken) {
+      res.status(404).json({ message: 'Not found.' });
+      return;
+    }
+    const provided = req.header('authorization')?.replace(/^Bearer\s+/i, '').trim();
+    if (provided !== metricsToken) {
+      res.status(403).json({ message: 'Metrics access denied.' });
+      return;
+    }
+  }
+  res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+  res.status(200).send(renderMetrics());
+});
+
+void configureSocketRedisAdapter(io).finally(() => registerSocketServer(io));
 
 const port = Number.parseInt(process.env.PORT ?? '5000', 10);
 const mongoUri = process.env.MONGODB_URI;

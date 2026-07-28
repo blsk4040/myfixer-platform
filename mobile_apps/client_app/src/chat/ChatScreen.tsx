@@ -33,6 +33,14 @@ const toDataUri = (asset: ImagePicker.ImagePickerAsset): string | null => {
   return `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`;
 };
 
+const chatErrorMessage = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : '';
+  if (message.toLowerCase().includes('private contact') || message.toLowerCase().includes('phone numbers')) {
+    return 'For your safety, please keep phone numbers, email addresses and private contact details out of Padi chat.';
+  }
+  return message || 'Please try again.';
+};
+
 export function ChatScreen({ route }: any): React.JSX.Element {
   const { bookingId, jobId, techName = 'Assigned provider' } = route?.params || {};
   const chatId = bookingId ?? jobId;
@@ -98,7 +106,7 @@ export function ChatScreen({ route }: any): React.JSX.Element {
       appendMessage(result.message);
       setInputText('');
     } catch (error) {
-      Alert.alert('Message not sent', error instanceof Error ? error.message : 'Please try again.');
+      Alert.alert('Message not sent', chatErrorMessage(error));
     } finally {
       setIsSending(false);
     }
@@ -147,7 +155,7 @@ export function ChatScreen({ route }: any): React.JSX.Element {
       });
       appendMessage(sent.message);
     } catch (error) {
-      Alert.alert('Image not sent', error instanceof Error ? error.message : 'Please try again.');
+      Alert.alert('Image not sent', chatErrorMessage(error));
     } finally {
       setIsSending(false);
     }

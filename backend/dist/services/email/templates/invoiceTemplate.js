@@ -14,6 +14,7 @@ const padiWordmarkHtml = `
 `;
 function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLabor, partsAmount, discountAmount = 0, promoCode = '', promotionLabel = '', clientServiceFee = 0, taxAmount = 0, subtotalAmount, totalAmount, currency, }) {
     const displayPromotion = promotionLabel || promoCode || 'Promotion';
+    const hasBaseAmount = baseAmount > 0;
     return `
     <!DOCTYPE html>
     <html>
@@ -61,18 +62,19 @@ function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLa
                 </tr>
               </thead>
               <tbody>
+                ${hasBaseAmount ? `
                 <tr>
-                  <td>Base Diagnostic & Call-Out Fee</td>
+                  <td>Call-out fee</td>
                   <td style="text-align: right;">${formatMoney(baseAmount, currency)}</td>
-                </tr>
+                </tr>` : ''}
                 ${additionalLabor > 0 ? `
                 <tr>
-                  <td>Extended Repair Labor Charges</td>
+                  <td>Labour</td>
                   <td style="text-align: right;">${formatMoney(additionalLabor, currency)}</td>
                 </tr>` : ''}
                 ${partsAmount > 0 ? `
                 <tr>
-                  <td>Acquired Materials & Component Parts</td>
+                  <td>Materials and parts</td>
                   <td style="text-align: right;">${formatMoney(partsAmount, currency)}</td>
                 </tr>` : ''}
                 ${discountAmount > 0 ? `
@@ -96,7 +98,7 @@ function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLa
                   <td style="text-align: right;">${formatMoney(taxAmount, currency)}</td>
                 </tr>` : ''}
                 <tr class="total-row">
-                  <td>Total Settled Balance</td>
+                  <td>Total paid</td>
                   <td style="text-align: right; color: #00B961;">${formatMoney(totalAmount, currency)}</td>
                 </tr>
               </tbody>

@@ -1,4 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
+import { connectRedis } from '../config/redis';
+import { incrementMetric } from '../services/metrics.service';
 
 type RateLimitKeyGenerator = (req: Request) => string;
 
@@ -45,12 +47,42 @@ const emailIpKey = (req: Request): string => {
 };
 
 export const createRateLimiter = (options: RateLimitOptions) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const now = Date.now();
-    cleanExpiredBuckets(now);
-
     const rawKey = options.keyGenerator ? options.keyGenerator(req) : getClientIp(req);
     const key = `${options.keyPrefix}:${rawKey}`;
+
+    const redisClient = await connectRedis();
+    if (redisClient) {
+      try {
+        const count = await redisClient.incr(key);
+        if (count === 1) {
+          await redisClient.pexpire(key, options.windowMs);
+        }
+        const ttl = await redisClient.pttl(key);
+        const resetAt = now + Math.max(ttl, 0);
+        const remaining = Math.max(options.max - count, 0);
+        res.setHeader('RateLimit-Limit', String(options.max));
+        res.setHeader('RateLimit-Remaining', String(remaining));
+        res.setHeader('RateLimit-Reset', String(Math.ceil(resetAt / 1000)));
+
+        if (count > options.max) {
+          incrementMetric('rate_limit_rejections_total', { limiter: options.keyPrefix, store: 'redis' });
+          res.status(429).json({
+            success: false,
+            message: options.message,
+          });
+          return;
+        }
+
+        next();
+        return;
+      } catch (error) {
+        console.warn('Redis rate limit check failed, using in-memory fallback:', error instanceof Error ? error.message : error);
+      }
+    }
+
+    cleanExpiredBuckets(now);
     const existing = buckets.get(key);
     const bucket = existing && existing.resetAt > now
       ? existing
@@ -65,6 +97,7 @@ export const createRateLimiter = (options: RateLimitOptions) => {
     res.setHeader('RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
 
     if (bucket.count > options.max) {
+      incrementMetric('rate_limit_rejections_total', { limiter: options.keyPrefix, store: 'memory' });
       res.status(429).json({
         success: false,
         message: options.message,

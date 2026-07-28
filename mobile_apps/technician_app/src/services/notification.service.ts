@@ -6,6 +6,18 @@ import { BRAND } from '../config/brand';
 export class NotificationService {
   private static notifiedIncomingBookingIds = new Set<string>();
 
+  static async configureJobAlertChannel(): Promise<void> {
+    if (Platform.OS !== 'android') return;
+
+    await Notifications.setNotificationChannelAsync('job-alerts', {
+      name: 'Padi Pro job alerts',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 350, 180, 350],
+      lightColor: '#B8FF3D',
+      sound: 'incoming_job.wav',
+    });
+  }
+
   static async handleIncomingJob(bookingId?: string, details?: { title?: string; body?: string }): Promise<void> {
     if (bookingId && this.notifiedIncomingBookingIds.has(bookingId)) return;
     if (bookingId) {
@@ -49,6 +61,8 @@ export class NotificationService {
 
   private static async showLocalIncomingJobNotification(details?: { title?: string; body?: string }): Promise<void> {
     try {
+      await this.configureJobAlertChannel();
+
       const permissions = await Notifications.getPermissionsAsync();
       if (!permissions.granted) {
         const requested = await Notifications.requestPermissionsAsync();

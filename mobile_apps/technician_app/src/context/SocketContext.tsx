@@ -166,6 +166,14 @@ export function SocketProvider({
       void NotificationService.handlePayment(String(payload?.bookingId || payload?.invoiceId || Date.now()));
     };
 
+    const handleArrival = (payload: any) => {
+      void NotificationService.handleArrival(String(payload?.bookingId || Date.now()));
+    };
+
+    const handleBookingAccepted = (payload: any) => {
+      void NotificationService.handleJobAccepted(String(payload?.bookingId || Date.now()));
+    };
+
     const handleStatusChanged = (payload: any) => {
       if (payload?.status === 'CANCELLED') {
         void NotificationService.handleJobCancelled(String(payload.bookingId || 'cancelled'));
@@ -193,6 +201,9 @@ export function SocketProvider({
     nextSocket.on('job_unavailable', handleUnavailable);
     nextSocket.on('incoming_chat_msg', handleChatMessage);
     nextSocket.on('payment_confirmed', handlePayment);
+    nextSocket.on('payment_secured', handlePayment);
+    nextSocket.on('booking_accepted', handleBookingAccepted);
+    nextSocket.on('technician_arrived', handleArrival);
     nextSocket.on('booking_status_changed', handleStatusChanged);
 
     setSocket(nextSocket);
@@ -207,6 +218,9 @@ export function SocketProvider({
       nextSocket.off('job_unavailable', handleUnavailable);
       nextSocket.off('incoming_chat_msg', handleChatMessage);
       nextSocket.off('payment_confirmed', handlePayment);
+      nextSocket.off('payment_secured', handlePayment);
+      nextSocket.off('booking_accepted', handleBookingAccepted);
+      nextSocket.off('technician_arrived', handleArrival);
       nextSocket.off('booking_status_changed', handleStatusChanged);
       techSocketService.disconnect();
       setSocket(null);

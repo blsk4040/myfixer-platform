@@ -339,7 +339,7 @@ JobQuoteSchema.index({ status: 1, createdAt: -1 });
 JobQuoteSchema.index({ expiresAt: 1, status: 1 });
 JobQuoteSchema.index(
   { quoteNumber: 1 },
-  { unique: true, partialFilterExpression: { quoteNumber: { $type: 'string', $ne: '' } } }
+  { unique: true, partialFilterExpression: { quoteNumber: { $type: 'string', $gt: '' } } }
 );
 
 export const JobQuote =

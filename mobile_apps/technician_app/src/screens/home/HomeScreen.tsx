@@ -30,6 +30,7 @@ import { useJobStore } from '../../store/useJobStore';
 import apiService, { ProviderSettlementRecord } from '../../services/api.service';
 import { acceptBookingWorkflow, normalizeJobPayload } from '../../services/jobWorkflow.service';
 import { BRAND } from '../../config/brand';
+import { getUnreadNotificationCounts } from '../../utils/notificationFeed';
 
 const BellIcon = Bell as any;
 const BriefcaseIcon = Briefcase as any;
@@ -90,6 +91,7 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
   const technicianIdentity = getTechnicianIdentity();
   const [settlements, setSettlements] = useState<ProviderSettlementRecord[]>([]);
   const [settlementsLoading, setSettlementsLoading] = useState(true);
+  const [alertsUnreadCount, setAlertsUnreadCount] = useState(0);
 
   const incomingJobs = useJobStore((state) => state.incomingJobs || []);
   const activeJobs = useJobStore((state) => state.activeJobs || []);
@@ -150,6 +152,26 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
       .finally(() => setSettlementsLoading(false));
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAlertCount = async () => {
+      try {
+        const result = await apiService.getNotifications();
+        if (isMounted) setAlertsUnreadCount(getUnreadNotificationCounts(result.notifications || []).alerts);
+      } catch {
+        if (isMounted) setAlertsUnreadCount(0);
+      }
+    };
+
+    void loadAlertCount();
+    const unsubscribe = navigation.addListener?.('focus', loadAlertCount);
+    return () => {
+      isMounted = false;
+      unsubscribe?.();
+    };
+  }, [navigation]);
+
   const handleAcceptJob = async (job: any) => {
     try {
       await acceptBookingWorkflow(job, technicianIdentity.userId);
@@ -190,12 +212,17 @@ export function HomeScreen({ navigation }: any): React.JSX.Element {
 
           <View style={styles.headerActions}>
             <TouchableOpacity
-              style={styles.alertButton}
+              style={[styles.alertButton, alertsUnreadCount > 0 && styles.alertButtonUnread]}
               onPress={() => navigation.navigate('Alerts')}
               accessibilityRole="button"
-              accessibilityLabel="Open alerts"
+              accessibilityLabel={`Open alerts${alertsUnreadCount > 0 ? `, ${alertsUnreadCount} unread` : ''}`}
             >
-              <BellIcon color="#F7F7F5" size={19} />
+              <BellIcon color={alertsUnreadCount > 0 ? '#B8FF3D' : '#F7F7F5'} size={19} />
+              {alertsUnreadCount > 0 ? (
+                <View style={styles.alertBadge}>
+                  <Text style={styles.alertBadgeText}>{alertsUnreadCount > 99 ? '99+' : alertsUnreadCount}</Text>
+                </View>
+              ) : null}
             </TouchableOpacity>
             <View style={styles.liveControl}>
               <Text style={[styles.liveText, isOnDuty && styles.liveTextActive]}>
@@ -438,6 +465,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#303036',
   },
+  alertButtonUnread: {
+    backgroundColor: 'rgba(184, 255, 61, 0.08)',
+    borderColor: 'rgba(184, 255, 61, 0.42)',
+  },
+  alertBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#B8FF3D',
+    borderWidth: 1,
+    borderColor: '#0B0B0D',
+  },
+  alertBadgeText: { color: '#0B0B0D', fontSize: 10, fontWeight: '900' },
   liveControl: {
     minWidth: 116,
     minHeight: 44,

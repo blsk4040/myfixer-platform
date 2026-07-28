@@ -270,7 +270,7 @@ JobQuoteSchema.index({ customerId: 1, status: 1 });
 JobQuoteSchema.index({ technicianId: 1, status: 1 });
 JobQuoteSchema.index({ status: 1, createdAt: -1 });
 JobQuoteSchema.index({ expiresAt: 1, status: 1 });
-JobQuoteSchema.index({ quoteNumber: 1 }, { unique: true, partialFilterExpression: { quoteNumber: { $type: 'string', $ne: '' } } });
+JobQuoteSchema.index({ quoteNumber: 1 }, { unique: true, partialFilterExpression: { quoteNumber: { $type: 'string', $gt: '' } } });
 exports.JobQuote = mongoose_1.default.models.JobQuote ??
     mongoose_1.default.model('JobQuote', JobQuoteSchema);
 exports.default = exports.JobQuote;

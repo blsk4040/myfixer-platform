@@ -8,6 +8,7 @@ import { normalizeUserRole, UserRole } from '../models/user.model';
 import { createNotifications } from '../services/notification.service';
 import { uploadImageToCloudinary } from '../services/media-storage.service';
 import { parseImageDataUri } from '../utils/image-data-uri';
+import { assertChatTextIsSafe, ChatSafetyError } from '../services/chat-safety.service';
 
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 const TWO_YEARS_MS = 2 * ONE_YEAR_MS;
@@ -204,6 +205,10 @@ export const sendBookingMessage = async (req: Request, res: Response): Promise<v
       return;
     }
 
+    if (text) {
+      assertChatTextIsSafe(text);
+    }
+
     const authorizedMediaCount = mediaIds.length
       ? await JobMedia.countDocuments({ _id: { $in: mediaIds }, bookingId: booking._id })
       : 0;
@@ -256,6 +261,10 @@ export const sendBookingMessage = async (req: Request, res: Response): Promise<v
 
     res.status(201).json({ success: true, message: payload });
   } catch (error: any) {
+    if (error instanceof ChatSafetyError) {
+      res.status(400).json({ message: error.message, code: error.code });
+      return;
+    }
     res.status(400).json({ message: error.message || 'Failed to send message.' });
   }
 };

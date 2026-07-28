@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Archive, Bell, CheckCircle2, MailOpen } from 'lucide-react-native';
 import apiService, { NotificationRecord } from '../../services/api.service';
 import { customerErrorMessage } from '../../utils/userFacingErrors';
+import { getFeedForNotification, isUnreadNotification, NotificationFeedMode } from '../../utils/notificationFeed';
 
 const getNotificationTime = (notification: NotificationRecord): number =>
   new Date(notification.sentAt || notification.scheduledAt || Date.now()).getTime();
@@ -76,38 +77,6 @@ const statusLabelForNotification = (notification: NotificationRecord): string =>
   return labels[notification.type] || prettyServiceName(notification.type);
 };
 
-type NotificationFeedMode = 'inbox' | 'alerts';
-
-const INBOX_NOTIFICATION_TYPES = new Set([
-  'INVOICE_GENERATED',
-  'INVOICE_READY',
-  'INVOICE_PAID',
-  'INVOICE_OVERDUE',
-  'QUOTE_SUBMITTED',
-  'QUOTE_READY',
-  'QUOTE_UPDATED',
-  'QUOTE_APPROVED',
-  'QUOTE_REJECTED',
-  'QUOTE_CLARIFICATION_REQUESTED',
-  'PAYMENT_REQUIRED',
-  'PAYMENT_PENDING',
-  'PAYMENT_RECEIVED',
-  'PAYMENT_CONFIRMED',
-  'PAYMENT_FAILED',
-  'RECEIPT_READY',
-  'RECEIPT_GENERATED',
-]);
-
-const getFeedForNotification = (notification: NotificationRecord): NotificationFeedMode => {
-  const metadataFeed = typeof notification.metadata?.feed === 'string'
-    ? notification.metadata.feed.trim().toLowerCase()
-    : '';
-  if (metadataFeed === 'inbox' || metadataFeed === 'alerts') return metadataFeed;
-
-  const type = String(notification.type || '').trim().toUpperCase();
-  return INBOX_NOTIFICATION_TYPES.has(type) ? 'inbox' : 'alerts';
-};
-
 const notificationCopy: Record<NotificationFeedMode, {
   loading: string;
   title: string;
@@ -128,7 +97,7 @@ const notificationCopy: Record<NotificationFeedMode, {
   },
 };
 
-function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React.JSX.Element {
+function NotificationFeedScreen({ mode, navigation }: { mode: NotificationFeedMode; navigation?: any }): React.JSX.Element {
   const copy = notificationCopy[mode];
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -139,7 +108,7 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
     const result = await apiService.getNotifications();
     const feedNotifications = (result.notifications || []).filter((notification) => getFeedForNotification(notification) === mode);
     setNotifications(dedupeNotifications(feedNotifications));
-    setUnreadCount(feedNotifications.filter((notification) => !notification.readAt && notification.status !== 'READ').length);
+    setUnreadCount(feedNotifications.filter(isUnreadNotification).length);
   }, [mode]);
 
   useEffect(() => {
@@ -147,6 +116,13 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
       .catch((error: Error) => Alert.alert(copy.title, customerErrorMessage(error, `Unable to load your ${copy.title.toLowerCase()} right now.`)))
       .finally(() => setLoading(false));
   }, [copy.title, loadNotifications]);
+
+  useEffect(() => {
+    const unsubscribe = navigation?.addListener?.('focus', () => {
+      void loadNotifications();
+    });
+    return () => unsubscribe?.();
+  }, [loadNotifications, navigation]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -166,6 +142,29 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
     } catch (error) {
       Alert.alert(copy.title, customerErrorMessage(error, 'Unable to update this item right now.'));
     }
+  };
+
+  const openNotification = async (notification: NotificationRecord) => {
+    const isRead = !isUnreadNotification(notification);
+    if (!isRead) {
+      setNotifications((current) => current.map((item) => (
+        item._id === notification._id
+          ? { ...item, status: 'READ', readAt: new Date().toISOString() }
+          : item
+      )));
+      setUnreadCount((current) => Math.max(0, current - 1));
+      await apiService.updateNotification(notification._id, 'MARK_READ').catch(() => loadNotifications());
+    }
+
+    const bookingId = typeof notification.metadata?.bookingId === 'string' ? notification.metadata.bookingId : '';
+    const title = notification.title || copy.title;
+    const message = notification.message || 'No message details available.';
+    Alert.alert(title, message, [
+      { text: 'Close', style: 'cancel' },
+      bookingId
+        ? { text: 'Open Activity', onPress: () => navigation?.navigate?.('Activity') }
+        : { text: 'OK' },
+    ]);
   };
 
   const openRelatedCollection = (notification: NotificationRecord) => {
@@ -205,13 +204,13 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#00FF87" />}
         ListEmptyComponent={<Text style={styles.empty}>{copy.empty}</Text>}
         renderItem={({ item }) => {
-          const isRead = Boolean(item.readAt) || item.status === 'READ';
+          const isRead = !isUnreadNotification(item);
           const serviceName = prettyServiceName(item.metadata?.applianceType || item.metadata?.serviceKey);
           const statusLabel = statusLabelForNotification(item);
           const scheduledText = formatNotificationSchedule(item.metadata?.scheduledAt);
           const bookingId = typeof item.metadata?.bookingId === 'string' ? item.metadata.bookingId : '';
           return (
-            <View style={[styles.card, !isRead && styles.unreadCard]}>
+            <TouchableOpacity style={[styles.card, !isRead && styles.unreadCard]} activeOpacity={0.88} onPress={() => openNotification(item)}>
               <View style={styles.cardHeader}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardTitle}>{item.title}</Text>
@@ -241,7 +240,7 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
                   <Text style={styles.actionText}>Archive</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            </TouchableOpacity>
           );
         }}
       />
@@ -249,12 +248,12 @@ function NotificationFeedScreen({ mode }: { mode: NotificationFeedMode }): React
   );
 }
 
-export function NotificationInboxScreen(): React.JSX.Element {
-  return <NotificationFeedScreen mode="inbox" />;
+export function NotificationInboxScreen({ navigation }: any): React.JSX.Element {
+  return <NotificationFeedScreen mode="inbox" navigation={navigation} />;
 }
 
-export function NotificationAlertsScreen(): React.JSX.Element {
-  return <NotificationFeedScreen mode="alerts" />;
+export function NotificationAlertsScreen({ navigation }: any): React.JSX.Element {
+  return <NotificationFeedScreen mode="alerts" navigation={navigation} />;
 }
 
 const styles = StyleSheet.create({

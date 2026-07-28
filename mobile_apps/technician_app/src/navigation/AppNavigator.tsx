@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer } from '@react-navigation/native';
@@ -21,6 +21,8 @@ import { SecurityScreen } from '../screens/profile/SecurityScreen';
 import { SupportScreen } from '../screens/profile/SupportScreen';
 import TechnicianInboxScreen, { TechnicianAlertsScreen } from '../screens/notifications/NotificationFeedScreen';
 import { MapScreen } from '../map/MapScreen';
+import apiService from '../services/api.service';
+import { getUnreadNotificationCounts } from '../utils/notificationFeed';
 
 const HomeIcon = Home as any;
 const BriefcaseIcon = Briefcase as any;
@@ -101,6 +103,22 @@ function ProfileStackScreen({ setIsAuthenticated }: AppNavigatorProps) {
 
 function MainTabs({ setIsAuthenticated }: AppNavigatorProps): React.JSX.Element {
   const insets = useSafeAreaInsets();
+  const [inboxUnreadCount, setInboxUnreadCount] = useState(0);
+
+  const loadInboxUnreadCount = useCallback(async () => {
+    try {
+      const result = await apiService.getNotifications();
+      setInboxUnreadCount(getUnreadNotificationCounts(result.notifications || []).inbox);
+    } catch {
+      setInboxUnreadCount(0);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadInboxUnreadCount();
+    const timer = setInterval(loadInboxUnreadCount, 30000);
+    return () => clearInterval(timer);
+  }, [loadInboxUnreadCount]);
 
   return (
     <Tab.Navigator
@@ -140,7 +158,18 @@ function MainTabs({ setIsAuthenticated }: AppNavigatorProps): React.JSX.Element 
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Jobs" component={JobsScreen} />
-      <Tab.Screen name="Inbox" component={TechnicianInboxScreen} />
+      <Tab.Screen
+        name="Inbox"
+        component={TechnicianInboxScreen}
+        options={{
+          tabBarBadge: inboxUnreadCount > 0 ? (inboxUnreadCount > 99 ? '99+' : inboxUnreadCount) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: Colors.primary,
+            color: Colors.background,
+            fontWeight: '900',
+          },
+        }}
+      />
       <Tab.Screen name="Earnings" component={EarningsScreen} />
       <Tab.Screen name="Profile">
         {() => <ProfileStackScreen setIsAuthenticated={setIsAuthenticated} />}

@@ -20,6 +20,13 @@ const warnOnce = (message: string): void => {
   console.warn(message);
 };
 
+const attachRedisErrorHandler = (client: Redis): Redis => {
+  client.on('error', (error: Error) => {
+    warnOnce(`Redis connection failed. Redis-backed features are disabled. ${error.message}`);
+  });
+  return client;
+};
+
 export const getRedisClient = (): Redis | null => {
   if (!isRedisEnabled()) {
     if (process.env.REDIS_ENABLED === 'true' && !process.env.REDIS_URL) {
@@ -29,13 +36,15 @@ export const getRedisClient = (): Redis | null => {
   }
 
   if (!redisClient) {
-    redisClient = new Redis(process.env.REDIS_URL as string, redisOptions);
-    redisClient.on('error', (error: Error) => {
-      warnOnce(`Redis connection failed. Redis-backed features are disabled. ${error.message}`);
-    });
+    redisClient = attachRedisErrorHandler(new Redis(process.env.REDIS_URL as string, redisOptions));
   }
 
   return redisClient;
+};
+
+export const createRedisClient = (): Redis | null => {
+  if (!isRedisEnabled()) return null;
+  return attachRedisErrorHandler(new Redis(process.env.REDIS_URL as string, redisOptions));
 };
 
 export const connectRedis = async (): Promise<Redis | null> => {

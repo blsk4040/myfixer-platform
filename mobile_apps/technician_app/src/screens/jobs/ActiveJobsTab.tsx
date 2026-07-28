@@ -60,6 +60,14 @@ const toDataUri = (asset: ImagePicker.ImagePickerAsset): string | null => {
   return `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`;
 };
 
+const chatErrorMessage = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : '';
+  if (message.toLowerCase().includes('private contact') || message.toLowerCase().includes('phone numbers')) {
+    return 'For your safety, please keep phone numbers, email addresses and private contact details out of Padi chat.';
+  }
+  return message || 'Please try again.';
+};
+
 const messageTime = (value: string): string =>
   new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -204,6 +212,7 @@ export function ActiveJobsTab(): React.JSX.Element {
         workAuthorizationStatus: 'AUTHORIZED',
         workAuthorizationReason: '',
       });
+      void NotificationService.handlePayment(String(payload.bookingId));
       Alert.alert('Payment secured', `Padi Pro verified the client payment${payload.reference ? ` (${payload.reference})` : ''}. You may begin work when the button is enabled.`);
     };
     const handlePaymentFailed = (payload: { bookingId?: string }) => {
@@ -343,7 +352,7 @@ export function ActiveJobsTab(): React.JSX.Element {
       appendChatMessage(selectedJob.id, result.message);
       setTypedMessage('');
     } catch (error) {
-      Alert.alert('Message not sent', error instanceof Error ? error.message : 'Please try again.');
+      Alert.alert('Message not sent', chatErrorMessage(error));
     } finally {
       setChatSending(false);
     }
@@ -385,7 +394,7 @@ export function ActiveJobsTab(): React.JSX.Element {
       });
       appendChatMessage(selectedJob.id, sent.message);
     } catch (error) {
-      Alert.alert('Image not sent', error instanceof Error ? error.message : 'Please try again.');
+      Alert.alert('Image not sent', chatErrorMessage(error));
     } finally {
       setChatSending(false);
     }

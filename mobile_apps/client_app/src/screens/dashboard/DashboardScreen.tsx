@@ -44,6 +44,7 @@ import apiService, {
 } from '../../services/api.service';
 import authService from '../../services/auth.service';
 import { Colors, Radius, Spacing, Typography } from '../../theme';
+import { getUnreadNotificationCounts } from '../../utils/notificationFeed';
 
 const BellIcon = Bell as any;
 const BriefcaseIcon = Briefcase as any;
@@ -163,6 +164,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
   const [pendingReview, setPendingReview] = useState<BookingHistoryItem | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [failedRemoteImages, setFailedRemoteImages] = useState<Record<string, true>>({});
+  const [alertsUnreadCount, setAlertsUnreadCount] = useState(0);
 
   const session = authService.getSession();
   const firstName = session?.user.name?.split(' ')[0] || 'there';
@@ -245,6 +247,26 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
   useEffect(() => {
     void loadAvailability();
   }, [loadAvailability]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAlertCount = async () => {
+      try {
+        const result = await apiService.getNotifications();
+        if (isMounted) setAlertsUnreadCount(getUnreadNotificationCounts(result.notifications || []).alerts);
+      } catch {
+        if (isMounted) setAlertsUnreadCount(0);
+      }
+    };
+
+    void loadAlertCount();
+    const unsubscribe = navigation.addListener?.('focus', loadAlertCount);
+    return () => {
+      isMounted = false;
+      unsubscribe?.();
+    };
+  }, [navigation]);
 
   useEffect(() => {
     setActiveBookingLoading(true);
@@ -519,12 +541,17 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
             </View>
           </View>
           <TouchableOpacity
-            style={styles.iconButton}
+            style={[styles.iconButton, alertsUnreadCount > 0 && styles.iconButtonUnread]}
             onPress={() => navigation.navigate('Alerts')}
             accessibilityRole="button"
-            accessibilityLabel="Open alerts"
+            accessibilityLabel={`Open alerts${alertsUnreadCount > 0 ? `, ${alertsUnreadCount} unread` : ''}`}
           >
-            <BellIcon color={Colors.text} size={20} />
+            <BellIcon color={alertsUnreadCount > 0 ? Colors.primary : Colors.text} size={20} />
+            {alertsUnreadCount > 0 ? (
+              <View style={styles.alertBadge}>
+                <Text style={styles.alertBadgeText}>{alertsUnreadCount > 99 ? '99+' : alertsUnreadCount}</Text>
+              </View>
+            ) : null}
           </TouchableOpacity>
         </View>
 
@@ -801,6 +828,29 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.28,
     shadowRadius: 16,
     elevation: 8,
+  },
+  iconButtonUnread: {
+    borderColor: 'rgba(184, 255, 61, 0.42)',
+    backgroundColor: 'rgba(184, 255, 61, 0.08)',
+  },
+  alertBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    borderWidth: 1,
+    borderColor: Colors.background,
+  },
+  alertBadgeText: {
+    color: Colors.background,
+    fontSize: 10,
+    fontWeight: '900',
   },
   greetingBlock: { marginBottom: 20 },
   greeting: { color: Colors.textMuted, fontSize: 14, fontWeight: '700' },

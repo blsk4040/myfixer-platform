@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -7,9 +7,32 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius } from '../theme';
+import apiService from '../services/api.service';
+import { getUnreadNotificationCounts } from '../utils/notificationFeed';
 
 export function CustomTabBar({ state, descriptors, navigation }: any) {
   const insets = useSafeAreaInsets();
+  const [inboxUnreadCount, setInboxUnreadCount] = useState(0);
+
+  const loadInboxUnreadCount = useCallback(async () => {
+    try {
+      const result = await apiService.getNotifications();
+      setInboxUnreadCount(getUnreadNotificationCounts(result.notifications || []).inbox);
+    } catch {
+      setInboxUnreadCount(0);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadInboxUnreadCount();
+    const unsubscribe = navigation.addListener?.('state', loadInboxUnreadCount);
+    const timer = setInterval(loadInboxUnreadCount, 30000);
+
+    return () => {
+      unsubscribe?.();
+      clearInterval(timer);
+    };
+  }, [loadInboxUnreadCount, navigation]);
 
   return (
     <View
@@ -32,6 +55,7 @@ export function CustomTabBar({ state, descriptors, navigation }: any) {
           const isFocused = state.index === index;
 
           const tintColor = isFocused ? Colors.primary : Colors.textSubtle;
+          const badgeCount = route.name === 'Notifications' ? inboxUnreadCount : 0;
 
           const onPress = () => {
             const event = navigation.emit({
@@ -73,6 +97,11 @@ export function CustomTabBar({ state, descriptors, navigation }: any) {
                   color: tintColor,
                   size: 22,
                 })}
+                {badgeCount > 0 ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
+                  </View>
+                ) : null}
               </View>
 
               <Text
@@ -163,6 +192,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(184, 255, 61, 0.13)',
     borderWidth: 1,
     borderColor: 'rgba(184, 255, 61, 0.32)',
+  },
+  badge: {
+    position: 'absolute',
+    top: -6,
+    right: -8,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    borderWidth: 1,
+    borderColor: Colors.background,
+  },
+  badgeText: {
+    color: Colors.background,
+    fontSize: 9,
+    fontWeight: '900',
   },
 });
 

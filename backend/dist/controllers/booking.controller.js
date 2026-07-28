@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.finalizeJobInvoice = exports.confirmArrival = exports.completeInspection = exports.startInspection = exports.startJob = exports.startRoute = exports.updateBookingStatus = exports.declineBooking = exports.acceptBooking = exports.submitBookingReview = exports.getBookingReview = exports.getMyBookingHistory = exports.getMyActiveBooking = exports.getBookingById = exports.createBooking = void 0;
+exports.finalizeJobInvoice = exports.confirmArrival = exports.completeInspection = exports.startInspection = exports.startJob = exports.startRoute = exports.updateBookingStatus = exports.declineBooking = exports.acceptBooking = exports.submitBookingReview = exports.getBookingReview = exports.getMyBookingHistory = exports.getMyActiveBookings = exports.getMyActiveBooking = exports.getBookingById = exports.createBooking = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
 // 1. IMPORT BookingStatus ENUM HERE
 const booking_model_1 = __importStar(require("../models/booking.model"));
@@ -69,6 +69,7 @@ const market_finance_guard_service_1 = require("../services/market-finance-guard
 const provider_referral_service_1 = require("../services/provider-referral.service");
 const customer_referral_service_1 = require("../services/customer-referral.service");
 const provider_reputation_service_1 = require("../services/provider-reputation.service");
+const dispatch_retry_service_1 = require("../services/dispatch-retry.service");
 const toFiniteNumber = (value) => {
     const parsed = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(parsed) ? parsed : null;
@@ -94,45 +95,9 @@ const normalizeFallbackPreference = (value) => {
     const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
     return normalized === 'SCHEDULED' || normalized === 'WAITLIST' ? normalized : 'STANDBY';
 };
-const STANDBY_RETRY_INTERVAL_MS = 60 * 1000;
-const STANDBY_RETRY_WINDOW_MS = 15 * 60 * 1000;
-const DISPATCH_WAVE_SIZE = 3;
 const parseDateInput = (value) => typeof value === 'string' || value instanceof Date ? new Date(value) : null;
 const isValidDate = (value) => Boolean(value && !Number.isNaN(value.getTime()));
 const getAuthenticatedUser = (request) => request.user;
-const getSocketIdentity = (socket) => {
-    const query = socket.handshake.query;
-    const candidate = query.technicianId ??
-        query.technician_id ??
-        query.userId ??
-        query.user_id ??
-        socket.handshake.auth?.technicianId ??
-        socket.data?.technicianId;
-    if (Array.isArray(candidate)) {
-        return candidate[0] ?? null;
-    }
-    return typeof candidate === 'string' ? candidate : null;
-};
-const isSocketDebugEnabled = () => process.env.NODE_ENV !== 'production' || process.env.SOCKET_DEBUG === 'true';
-const logSocketDebug = (message, metadata) => {
-    if (!isSocketDebugEnabled())
-        return;
-    console.info(`[tech-socket-debug] ${message}`, metadata ?? '');
-};
-const emitIncomingRequest = async (io, technicianId, payload) => {
-    io.to(`technician:${technicianId}`).emit('incoming_request', payload);
-    const sockets = await io.fetchSockets();
-    const matchingSockets = sockets.filter((socket) => getSocketIdentity(socket) === technicianId);
-    logSocketDebug('booking broadcast targeting technician', {
-        technicianId,
-        matchingSocketCount: matchingSockets.length,
-        room: `technician:${technicianId}`,
-    });
-    matchingSockets.forEach((socket) => {
-        socket.emit('incoming_request', payload);
-    });
-};
-const buildIncomingRequestPayload = (booking) => (0, booking_privacy_service_1.serializeBookingForUnassignedTechnician)(booking, { categoryMatch: true });
 const safelyLogAuditEvent = async (request, input) => {
     try {
         await (0, audit_service_1.logAuditEvent)(request, input);
@@ -193,127 +158,6 @@ const formatScheduledBookingTime = (value) => value.toLocaleString('en-ZA', {
     hour: '2-digit',
     minute: '2-digit',
 });
-const createTechnicianJobNotification = async (technicianId, booking) => {
-    if (!mongoose_1.default.Types.ObjectId.isValid(technicianId))
-        return [];
-    return (0, notification_service_1.createNotifications)({
-        userId: technicianId,
-        channels: [notification_model_1.NotificationChannel.PUSH],
-        type: 'NEW_JOB_REQUEST',
-        title: 'New job request',
-        message: `${booking.applianceType || 'Service request'} in ${booking.generalArea || 'your area'}.`,
-        metadata: {
-            bookingId: typeof booking.id === 'string' ? booking.id : String(booking._id || ''),
-            applianceType: booking.applianceType || '',
-            priceMinor: booking.priceMinor,
-            currency: booking.currency,
-        },
-    });
-};
-const notifyTechniciansForBooking = async (io, booking, technicianIds) => {
-    if (!technicianIds.length)
-        return;
-    const incomingRequestPayload = buildIncomingRequestPayload(booking);
-    if (io) {
-        await Promise.all(technicianIds.map((technicianId) => emitIncomingRequest(io, technicianId, incomingRequestPayload)));
-        await Promise.all(technicianIds.map(async (technicianId) => {
-            const jobs = await matching_service_1.default.findNearbyPendingBookingsForTechnician(technicianId);
-            io.to(`technician:${technicianId}`).emit('available_jobs', jobs);
-        }));
-    }
-    await Promise.all(technicianIds.map((technicianId) => createTechnicianJobNotification(technicianId, booking)));
-};
-const nextDispatchWave = (booking, candidates, waveSize = DISPATCH_WAVE_SIZE) => {
-    const alreadyInvited = new Set((booking.dispatch?.sentToTechnicians || []).map((id) => id.toString()));
-    const alreadyAttempted = new Set((booking.dispatch?.attempts || []).map((attempt) => attempt.technicianId.toString()));
-    const declined = new Set((booking.dispatch?.declinedByTechnicians || []).map((id) => id.toString()));
-    const wave = Number(booking.dispatch?.currentWave || 0) + 1;
-    return {
-        wave,
-        candidates: candidates
-            .filter((candidate) => !alreadyInvited.has(candidate.technicianId) &&
-            !alreadyAttempted.has(candidate.technicianId) &&
-            !declined.has(candidate.technicianId))
-            .slice(0, waveSize),
-    };
-};
-const recordDispatchWave = (booking, candidates, wave, status, expiresAt) => {
-    const technicianIds = candidates.map((candidate) => candidate.technicianId);
-    const sentToTechnicians = [
-        ...(booking.dispatch?.sentToTechnicians || []),
-        ...technicianIds.map((technicianId) => new mongoose_1.default.Types.ObjectId(technicianId)),
-    ];
-    const attempts = [
-        ...(booking.dispatch?.attempts || []),
-        ...candidates.map((candidate) => ({
-            technicianId: new mongoose_1.default.Types.ObjectId(candidate.technicianId),
-            wave,
-            status: 'SENT',
-            distanceKm: candidate.distanceKm,
-            score: candidate.score,
-            reason: 'ranked_dispatch_wave',
-            sentAt: new Date(),
-            respondedAt: null,
-        })),
-    ];
-    booking.dispatch = {
-        ...(booking.dispatch ?? {
-            declinedByTechnicians: [],
-            preferredTechnicianId: null,
-        }),
-        status,
-        expiresAt: expiresAt ?? booking.dispatch?.expiresAt ?? matching_service_1.default.getDispatchExpiry(booking),
-        sentToTechnicians,
-        declinedByTechnicians: booking.dispatch?.declinedByTechnicians || [],
-        acceptedByTechnician: booking.dispatch?.acceptedByTechnician ?? null,
-        preferredTechnicianId: booking.dispatch?.preferredTechnicianId ?? null,
-        currentWave: wave,
-        nextRetryAt: [booking_model_1.BookingDispatchStatus.BROADCASTING, booking_model_1.BookingDispatchStatus.STANDBY].includes(status)
-            ? new Date(Date.now() + STANDBY_RETRY_INTERVAL_MS)
-            : null,
-        attempts,
-    };
-    booking.set('metadata.dispatchEngine', 'RANKED_PROGRESSIVE_WAVES_V1');
-    booking.set('metadata.lastDispatchWave', wave);
-    return technicianIds;
-};
-const scheduleStandbyProviderRetries = (bookingId, io, retryUntil = new Date(Date.now() + STANDBY_RETRY_WINDOW_MS)) => {
-    if (!mongoose_1.default.Types.ObjectId.isValid(bookingId))
-        return;
-    const timer = setTimeout(async () => {
-        try {
-            const booking = await booking_model_1.default.findById(bookingId);
-            if (!booking)
-                return;
-            if (booking.status !== booking_model_1.BookingStatus.PENDING ||
-                ![booking_model_1.BookingDispatchStatus.BROADCASTING, booking_model_1.BookingDispatchStatus.STANDBY].includes(booking.dispatch?.status))
-                return;
-            const dispatchExpiry = booking.dispatch?.expiresAt ? new Date(booking.dispatch.expiresAt) : retryUntil;
-            const now = new Date();
-            const stopAt = dispatchExpiry < retryUntil ? dispatchExpiry : retryUntil;
-            if (stopAt.getTime() <= now.getTime())
-                return;
-            const rankedCandidates = await matching_service_1.default.rankEligibleOnlineTechniciansForBooking(bookingId);
-            const nextWave = nextDispatchWave(booking, rankedCandidates);
-            if (nextWave.candidates.length) {
-                const nextTechnicianIds = recordDispatchWave(booking, nextWave.candidates, nextWave.wave, booking_model_1.BookingDispatchStatus.BROADCASTING, dispatchExpiry);
-                booking.set('metadata.standbyProviderFoundAt', now);
-                await booking.save();
-                await notifyTechniciansForBooking(io, booking, nextTechnicianIds);
-                await createCustomerBookingNotification(booking, 'PROVIDER_SEARCH_UPDATED', 'Provider search updated', `We found nearby ${providerRoleForService(booking.serviceKey)} options for your ${serviceLabelForNotification(booking)} request.`, {
-                    dispatchStatus: booking_model_1.BookingDispatchStatus.BROADCASTING,
-                    matchedCount: nextTechnicianIds.length,
-                });
-                return;
-            }
-            scheduleStandbyProviderRetries(bookingId, io, stopAt);
-        }
-        catch (error) {
-            console.error('Failed to retry standby dispatch:', error);
-        }
-    }, STANDBY_RETRY_INTERVAL_MS);
-    timer.unref?.();
-};
 const saveCapacityWaitlistEntry = async (input) => {
     return service_waitlist_model_1.default.findOneAndUpdate({
         email: input.email,
@@ -791,7 +635,7 @@ const createBooking = async (request, response) => {
                 ...rankedCandidates.filter((candidate) => candidate.technicianId !== preferredTechnicianUserId),
             ]
             : rankedCandidates;
-        const firstWave = nextDispatchWave(booking, orderedCandidates);
+        const firstWave = (0, dispatch_retry_service_1.nextDispatchWave)(booking, orderedCandidates);
         let notifiedTechnicianIds = firstWave.candidates.map((candidate) => candidate.technicianId);
         console.info('[dispatch-test] findEligibleTechniciansWithTelemetryPipeline output', {
             bookingId,
@@ -803,9 +647,9 @@ const createBooking = async (request, response) => {
             matchedCount: orderedCandidates.length,
         });
         if (firstWave.candidates.length > 0) {
-            notifiedTechnicianIds = recordDispatchWave(booking, firstWave.candidates, firstWave.wave, booking_model_1.BookingDispatchStatus.BROADCASTING, matching_service_1.default.getDispatchExpiry(booking));
+            notifiedTechnicianIds = (0, dispatch_retry_service_1.recordDispatchWave)(booking, firstWave.candidates, firstWave.wave, booking_model_1.BookingDispatchStatus.BROADCASTING, matching_service_1.default.getDispatchExpiry(booking));
             await booking.save();
-            scheduleStandbyProviderRetries(bookingId, io);
+            await (0, dispatch_retry_service_1.scheduleStandbyDispatchRetry)({ bookingId, io });
         }
         else {
             if (fallbackPreference === 'SCHEDULED' || isPreBook) {
@@ -894,7 +738,7 @@ const createBooking = async (request, response) => {
                     fallbackPreference,
                 };
                 await booking.save();
-                scheduleStandbyProviderRetries(bookingId, io);
+                await (0, dispatch_retry_service_1.scheduleStandbyDispatchRetry)({ bookingId, io });
                 await createCustomerBookingNotification(booking, 'PROVIDER_SEARCH_STANDBY', 'Still looking for a provider', `We are still looking for a nearby ${providerRoleForService(requestedServiceKey)}. Your request is open and we will notify you when someone accepts.`, {
                     dispatchStatus: booking_model_1.BookingDispatchStatus.STANDBY,
                     standbyExpiresAt: booking.dispatch?.expiresAt,
@@ -902,7 +746,7 @@ const createBooking = async (request, response) => {
             }
         }
         // 3. Formulate the precise JSON parameters expected by DashboardScreen.tsx
-        await notifyTechniciansForBooking(io, booking, notifiedTechnicianIds);
+        await (0, dispatch_retry_service_1.notifyTechniciansForBooking)(io, booking, notifiedTechnicianIds);
         if (!io && notifiedTechnicianIds.length) {
             console.warn('Socket.io server instance unavailable; skipped technician broadcasts');
         }
@@ -1115,6 +959,92 @@ const getMyActiveBooking = async (request, response) => {
     }
 };
 exports.getMyActiveBooking = getMyActiveBooking;
+const getMyActiveBookings = async (request, response) => {
+    const authUser = getAuthenticatedUser(request);
+    const customerId = String(authUser?.id ?? authUser?._id ?? '').trim();
+    if (!customerId) {
+        response.status(401).json({ message: 'Unauthorized. User context missing.' });
+        return;
+    }
+    try {
+        const bookings = await booking_model_1.default.find({
+            customerId,
+            status: {
+                $in: [
+                    booking_model_1.BookingStatus.PENDING,
+                    booking_model_1.BookingStatus.SCHEDULED,
+                    booking_model_1.BookingStatus.ACCEPTED,
+                    booking_model_1.BookingStatus.IN_ROUTE,
+                    booking_model_1.BookingStatus.ARRIVED,
+                    booking_model_1.BookingStatus.IN_PROGRESS,
+                    booking_model_1.BookingStatus.DIAGNOSTIC_DONE,
+                ],
+            },
+        }).sort({ updatedAt: -1 });
+        const technicianIds = bookings
+            .map((booking) => booking.technicianId)
+            .filter((technicianId) => Boolean(technicianId && mongoose_1.default.Types.ObjectId.isValid(technicianId)));
+        const [technicianUsers, technicianProfiles] = await Promise.all([
+            technicianIds.length
+                ? user_model_2.default.find({ _id: { $in: technicianIds } }).select('name phone profilePhotoUrl').lean()
+                : [],
+            technicianIds.length
+                ? technician_model_1.default.find({ userId: { $in: technicianIds } }).select('userId approvalStatus stats lastLocation documents.profilePhotoUrl documents.profilePhotoStatus updatedAt').lean()
+                : [],
+        ]);
+        const usersById = new Map(technicianUsers.map((user) => [String(user._id), user]));
+        const profilesByUserId = new Map(technicianProfiles.map((profile) => [String(profile.userId), profile]));
+        response.status(200).json({
+            active: bookings.length > 0,
+            bookings: bookings.map((booking) => {
+                const [longitude, latitude] = booking.customerLocation.coordinates;
+                const technicianId = booking.technicianId ? String(booking.technicianId) : '';
+                const technicianUser = technicianId ? usersById.get(technicianId) : null;
+                const technicianProfile = technicianId ? profilesByUserId.get(technicianId) : null;
+                const approvedTechnicianPhotoUrl = technicianProfile?.documents?.profilePhotoStatus === technician_model_1.VerificationStatus.VERIFIED
+                    ? technicianProfile.documents.profilePhotoUrl
+                    : '';
+                return {
+                    id: booking.id,
+                    status: booking.status,
+                    customerId: booking.customerId,
+                    customerName: booking.customerName,
+                    serviceKey: booking.serviceKey,
+                    applianceType: booking.applianceType,
+                    faultDescription: booking.faultDescription,
+                    fullAddress: booking.fullAddress,
+                    complexDetails: booking.complexDetails,
+                    generalArea: booking.generalArea,
+                    price: decimalFromMinor(booking.priceMinor),
+                    priceMinor: booking.priceMinor,
+                    countryCode: booking.countryCode,
+                    currency: booking.currency,
+                    customerLocation: { latitude, longitude },
+                    technicianId: booking.technicianId,
+                    technician: technicianUser ? {
+                        id: technicianId,
+                        name: technicianUser.name,
+                        phone: technicianUser.phone,
+                        profilePhotoUrl: technicianUser.profilePhotoUrl || approvedTechnicianPhotoUrl || '',
+                        lastLocation: technicianProfile?.lastLocation ? {
+                            longitude: technicianProfile.lastLocation.coordinates[0],
+                            latitude: technicianProfile.lastLocation.coordinates[1],
+                        } : null,
+                        lastGpsUpdate: technicianProfile?.updatedAt ?? null,
+                        reputation: (0, provider_reputation_service_1.getProviderReputation)(technicianProfile),
+                    } : null,
+                    createdAt: booking.createdAt,
+                    updatedAt: booking.updatedAt,
+                };
+            }),
+        });
+    }
+    catch (error) {
+        console.error('Failed to fetch active bookings:', error);
+        response.status(500).json({ message: 'Failed to fetch active bookings' });
+    }
+};
+exports.getMyActiveBookings = getMyActiveBookings;
 const getMyBookingHistory = async (request, response) => {
     const authUser = getAuthenticatedUser(request);
     const customerId = String(authUser?.id ?? authUser?._id ?? '').trim();

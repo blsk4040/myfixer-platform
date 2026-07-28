@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.mediaUploadRateLimiter = exports.supportRateLimiter = exports.paymentRateLimiter = exports.bookingWriteRateLimiter = exports.publicReadRateLimiter = exports.passwordResetRateLimiter = exports.bootstrapRateLimiter = exports.authRateLimiter = exports.createRateLimiter = void 0;
+const redis_1 = require("../config/redis");
+const metrics_service_1 = require("../services/metrics.service");
 const buckets = new Map();
 const getClientIp = (req) => {
     const forwardedFor = req.header('x-forwarded-for');
@@ -27,11 +29,39 @@ const emailIpKey = (req) => {
     return `${getClientIp(req)}:${email || 'no-email'}`;
 };
 const createRateLimiter = (options) => {
-    return (req, res, next) => {
+    return async (req, res, next) => {
         const now = Date.now();
-        cleanExpiredBuckets(now);
         const rawKey = options.keyGenerator ? options.keyGenerator(req) : getClientIp(req);
         const key = `${options.keyPrefix}:${rawKey}`;
+        const redisClient = await (0, redis_1.connectRedis)();
+        if (redisClient) {
+            try {
+                const count = await redisClient.incr(key);
+                if (count === 1) {
+                    await redisClient.pexpire(key, options.windowMs);
+                }
+                const ttl = await redisClient.pttl(key);
+                const resetAt = now + Math.max(ttl, 0);
+                const remaining = Math.max(options.max - count, 0);
+                res.setHeader('RateLimit-Limit', String(options.max));
+                res.setHeader('RateLimit-Remaining', String(remaining));
+                res.setHeader('RateLimit-Reset', String(Math.ceil(resetAt / 1000)));
+                if (count > options.max) {
+                    (0, metrics_service_1.incrementMetric)('rate_limit_rejections_total', { limiter: options.keyPrefix, store: 'redis' });
+                    res.status(429).json({
+                        success: false,
+                        message: options.message,
+                    });
+                    return;
+                }
+                next();
+                return;
+            }
+            catch (error) {
+                console.warn('Redis rate limit check failed, using in-memory fallback:', error instanceof Error ? error.message : error);
+            }
+        }
+        cleanExpiredBuckets(now);
         const existing = buckets.get(key);
         const bucket = existing && existing.resetAt > now
             ? existing
@@ -43,6 +73,7 @@ const createRateLimiter = (options) => {
         res.setHeader('RateLimit-Remaining', String(remaining));
         res.setHeader('RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
         if (bucket.count > options.max) {
+            (0, metrics_service_1.incrementMetric)('rate_limit_rejections_total', { limiter: options.keyPrefix, store: 'memory' });
             res.status(429).json({
                 success: false,
                 message: options.message,

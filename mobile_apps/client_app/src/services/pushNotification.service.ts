@@ -8,6 +8,15 @@ const API_BASE_URL = getApiBaseUrl();
 
 type PushApp = 'client' | 'technician';
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
 const configureAndroidChannel = async (): Promise<void> => {
   if (Platform.OS !== 'android') return;
 

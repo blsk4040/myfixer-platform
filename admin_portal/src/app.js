@@ -42,6 +42,7 @@ const state = {
   loading: false,
   error: '',
   idleWarning: '',
+  sidebarCollapsed: localStorage.getItem('padi_admin_sidebar_collapsed') === 'true',
   overviewFilters: {
     countryCode: '',
   },
@@ -126,6 +127,10 @@ const state = {
   },
   adminUsers: {
     expandedStaffId: '',
+  },
+  technicians: {
+    expandedTechnicianId: '',
+    search: '',
   },
   collectionOperationFilters: {
     countryCode: '',
@@ -1498,9 +1503,10 @@ function renderShell() {
   const navViews = visibleViews();
   const activeView = navViews.find((view) => view.id === state.activeView) || navViews[0];
   if (activeView && activeView.id !== state.activeView) state.activeView = activeView.id;
+  const sidebarCollapsed = state.sidebarCollapsed;
 
   app.innerHTML = `
-    <div class="admin-shell">
+    <div class="admin-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}">
       <aside class="sidebar">
         <div class="sidebar-brand">
           <img
@@ -1508,6 +1514,15 @@ function renderShell() {
             alt="Padi logo"
             class="brand-logo small"
           />
+          <button
+            class="sidebar-toggle"
+            type="button"
+            aria-label="${sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}"
+            title="${sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}"
+            onclick="toggleSidebar()"
+          >
+            ${sidebarCollapsed ? '&#8250;' : '&#8249;'}
+          </button>
         </div>
         <div class="sidebar-user">
           <strong>${escapeHtml(state.user?.adminRole || 'ADMIN')}</strong>
@@ -1515,8 +1530,9 @@ function renderShell() {
         </div>
         <nav>
           ${navViews.map((view) => `
-            <button class="nav-item ${state.activeView === view.id ? 'active' : ''}" onclick="setView('${view.id}')">
-              ${view.label}
+            <button class="nav-item ${state.activeView === view.id ? 'active' : ''}" onclick="setView('${view.id}')" title="${escapeHtml(view.label)}" aria-label="${escapeHtml(view.label)}">
+              <span>${escapeHtml(view.label.charAt(0))}</span>
+              <strong>${escapeHtml(view.label)}</strong>
             </button>
           `).join('')}
         </nav>
@@ -1764,6 +1780,12 @@ function getActiveOperatingMarkets() {
   return (state.data.markets || [])
     .map(getMarketView)
     .filter((market) => String(market.status || '').toUpperCase() === 'ACTIVE');
+}
+
+function toggleSidebar() {
+  state.sidebarCollapsed = !state.sidebarCollapsed;
+  localStorage.setItem('padi_admin_sidebar_collapsed', state.sidebarCollapsed ? 'true' : 'false');
+  render();
 }
 
 function getOverviewMarkets() {
@@ -2268,15 +2290,46 @@ function renderCurrencyTotals(totals) {
 }
 
 function renderTechnicians() {
-  const rows = state.data.technicians;
+  const searchTerm = String(state.technicians.search || '').trim().toLowerCase();
+  const rows = state.data.technicians.filter((tech) => {
+    if (!searchTerm) return true;
+    const user = tech.userId || {};
+    const requestedServices = technicianRequestedServices(tech);
+    const haystack = [
+      user.name,
+      user.email,
+      user.phone,
+      tech.businessName,
+      tech.city,
+      tech.countryCode,
+      tech.approvalStatus,
+      tech.vehicleType,
+      formatTechnicianServices(requestedServices),
+      ...requestedServices.flatMap((service) => [
+        service.groupName,
+        service.groupKey,
+        service.categoryName,
+        service.categoryKey,
+        service.serviceName,
+        service.serviceKey,
+      ]),
+    ].filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(searchTerm);
+  });
   const canReview = canMutate('technicians.review');
   return `
     <section class="panel">
       <div class="panel-header">
-        <h2>Service Provider Applications</h2>
-        <span>${rows.length} records</span>
+        <div>
+          <h2>Service Provider Applications</h2>
+          <span>${rows.length} shown from ${state.data.technicians.length} records</span>
+        </div>
+        <label class="provider-search">
+          <span>Search</span>
+          <input type="search" value="${escapeHtml(state.technicians.search || '')}" placeholder="Name, email, city, service..." oninput="setTechnicianSearch(this.value)" />
+        </label>
       </div>
-      <div class="card-list">
+      <div class="card-list provider-application-list">
         ${rows.map((tech) => {
           const user = tech.userId || {};
           const photoUrl = tech.documents?.profilePhotoUrl || user.profilePhotoUrl || '';
@@ -2289,15 +2342,16 @@ function renderTechnicians() {
           const providerLabel = tech.businessName || 'Independent provider';
           const transportLabel = tech.vehicleType || 'Transport not set';
           const idLabel = formatMaskedId(tech.idNumberLast4);
+          const expanded = state.technicians.expandedTechnicianId === tech._id;
           return `
-            <article class="review-card">
+            <article class="review-card provider-application-card ${expanded ? 'expanded' : ''}">
               <div class="technician-review-main">
                 <a class="technician-photo" href="${escapeHtml(photoUrl || '#')}" target="_blank" rel="noopener noreferrer">
                   ${photoUrl
                     ? `<img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(user.name || 'Service Provider')} profile photo" />`
                     : '<span>No photo</span>'}
                 </a>
-                <div>
+                <div class="provider-application-copy">
                   <div class="row-title">
                     ${escapeHtml(user.name || 'Provider')}
                     <span class="status ${statusClass(tech.approvalStatus)}">${escapeHtml(tech.approvalStatus)}</span>
@@ -2322,19 +2376,31 @@ function renderTechnicians() {
               </div>
               ${canReview ? `
                 <div class="review-actions">
+                  <button class="icon-button compact provider-details-toggle" type="button" aria-label="${expanded ? 'Hide provider details' : 'Show provider details'}" onclick="toggleTechnicianDetails('${tech._id}')">${expanded ? '^' : 'v'}</button>
                   <button class="success-button" onclick="reviewTechnicianProfilePhoto('${tech._id}', 'VERIFIED')" ${photoUrl ? '' : 'disabled'}>Approve Photo</button>
                   <button class="ghost-button" onclick="reviewTechnicianProfilePhoto('${tech._id}', 'REJECTED')" ${photoUrl ? '' : 'disabled'}>Reject Photo</button>
                   <button class="success-button" onclick="reviewTechnician('${tech._id}', 'APPROVED')" ${photoStatus === 'VERIFIED' ? '' : 'disabled'}>Approve</button>
                   <button class="ghost-button" onclick="reviewTechnician('${tech._id}', 'REJECTED')">Reject</button>
                   <button class="danger-button" onclick="reviewTechnician('${tech._id}', 'SUSPENDED')">Suspend</button>
                 </div>
-              ` : '<span class="status info">Read only</span>'}
+              ` : `<div class="review-actions"><button class="ghost-button compact" type="button" onclick="toggleTechnicianDetails('${tech._id}')">${expanded ? 'Hide Details' : 'Details'}</button><span class="status info">Read only</span></div>`}
             </article>
           `;
         }).join('') || renderEmpty('No service provider applications yet.')}
       </div>
     </section>
   `;
+}
+
+function setTechnicianSearch(value) {
+  state.technicians.search = value;
+  state.technicians.expandedTechnicianId = '';
+  render();
+}
+
+function toggleTechnicianDetails(technicianId) {
+  state.technicians.expandedTechnicianId = state.technicians.expandedTechnicianId === technicianId ? '' : technicianId;
+  render();
 }
 
 function renderBookings() {
@@ -7690,7 +7756,36 @@ function renderBookingDrawer() {
   `;
 }
 
+const stableScrollSelectors = [
+  '.sidebar',
+  '.services-builder-scroll',
+  '.market-country-scroll',
+  '.market-city-scroll',
+  '.market-area-scroll',
+];
+
+function captureStableScrollPositions() {
+  return stableScrollSelectors.flatMap((selector) =>
+    Array.from(document.querySelectorAll(selector)).map((element, index) => ({
+      selector,
+      index,
+      scrollTop: element.scrollTop,
+      scrollLeft: element.scrollLeft,
+    }))
+  );
+}
+
+function restoreStableScrollPositions(positions) {
+  positions.forEach(({ selector, index, scrollTop, scrollLeft }) => {
+    const element = document.querySelectorAll(selector)[index];
+    if (!element) return;
+    element.scrollTop = scrollTop;
+    element.scrollLeft = scrollLeft;
+  });
+}
+
 function render() {
+  const stableScrollPositions = captureStableScrollPositions();
   if (!state.token) {
     renderLogin();
     return;
@@ -7704,6 +7799,8 @@ function render() {
   if (state.activeView === 'promotions') {
     document.querySelectorAll('form[data-promotion-form]').forEach(updatePromotionFormVisibility);
   }
+  restoreStableScrollPositions(stableScrollPositions);
+  requestAnimationFrame(() => restoreStableScrollPositions(stableScrollPositions));
 }
 
 window.login = login;
@@ -7718,6 +7815,8 @@ window.setView = setView;
 window.revealClientContact = revealClientContact;
 window.hideClientContact = hideClientContact;
 window.reviewTechnician = reviewTechnician;
+window.setTechnicianSearch = setTechnicianSearch;
+window.toggleTechnicianDetails = toggleTechnicianDetails;
 window.openBooking = openBooking;
 window.updateManagedCollectionReminder = updateManagedCollectionReminder;
 window.rescheduleManagedCollectionReminder = rescheduleManagedCollectionReminder;

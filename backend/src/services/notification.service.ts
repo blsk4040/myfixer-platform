@@ -10,6 +10,8 @@ import User from '../models/user.model';
 import PushToken from '../models/push-token.model';
 import { EmailService } from './email/email.service';
 import AuditLog, { AuditModule, AuditSeverity } from '../models/audit-log.model';
+import { incrementMetric } from './metrics.service';
+import { enqueueWorkerTask, isWorkerQueueEnabled, WorkerQueueName } from './worker-queue.service';
 
 interface CreateNotificationInput {
   userId?: string | mongoose.Types.ObjectId;
@@ -275,6 +277,16 @@ export const createNotifications = async (input: CreateNotificationInput) => {
   const dueNotifications = notifications.filter((notification) => notification.scheduledAt.getTime() <= Date.now());
   if (!dueNotifications.length) return notifications;
 
+  if (isWorkerQueueEnabled()) {
+    await Promise.all(dueNotifications.map((notification) =>
+      enqueueWorkerTask({
+        name: WorkerQueueName.NOTIFICATION_DELIVERY,
+        id: notification._id.toString(),
+      })
+    ));
+    return notifications;
+  }
+
   return Promise.all(dueNotifications.map((notification) => deliverNotification(notification)));
 };
 
@@ -337,6 +349,15 @@ export const deliverNotification = async (notification: INotificationDocument) =
     success: result.success,
   });
   return notification;
+};
+
+export const processNotificationQueueTask = async (notificationId: string) => {
+  const notification = await Notification.findById(notificationId);
+  if (!notification) {
+    incrementMetric('worker_tasks_missing_total', { queue: WorkerQueueName.NOTIFICATION_DELIVERY });
+    return null;
+  }
+  return deliverNotification(notification);
 };
 
 export const processDueNotifications = async (limit = 50) => {
