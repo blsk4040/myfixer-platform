@@ -24,7 +24,7 @@ const configureAndroidChannel = async (): Promise<void> => {
     name: 'Padi updates',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#B8FF3D',
+    lightColor: '#EF4444',
     sound: 'default',
   });
 };

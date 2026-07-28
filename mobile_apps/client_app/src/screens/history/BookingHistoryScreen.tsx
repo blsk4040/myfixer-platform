@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { CheckCircle2 as LucideCheckCircle, FileText as LucideFileText, Star as LucideStar, X as LucideX } from 'lucide-react-native';
+import { CheckCircle2 as LucideCheckCircle, FileText as LucideFileText, Star as LucideStar, UserRound as LucideUserRound, X as LucideX } from 'lucide-react-native';
 import apiService, { BookingHistoryItem, SubmitBookingReviewPayload } from '../../services/api.service';
 import { formatBookingStatus } from '../../types/booking';
 import { Colors, Radius, Spacing } from '../../theme';
@@ -31,6 +31,7 @@ import {
 
 const FileText = LucideFileText as any;
 const Star = LucideStar as any;
+const UserRound = LucideUserRound as any;
 const X = LucideX as any;
 const CheckCircle = LucideCheckCircle as any;
 
@@ -48,6 +49,12 @@ const providerReputationText = (provider: BookingHistoryItem['technician']): str
   }
   if (reputation.verified) parts.push('Verified Padi Pro');
   return parts.join(' · ');
+};
+
+const providerInitials = (name?: string): string => {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'P';
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join('');
 };
 
 export function BookingHistoryScreen(): React.JSX.Element {
@@ -235,27 +242,48 @@ export function BookingHistoryScreen(): React.JSX.Element {
   const renderBookingItem = ({ item }: { item: BookingHistoryItem }) => {
     const statusColor = item.status === 'COMPLETED' ? Colors.primary : Colors.danger;
     const completedDate = new Date(item.completedAt || item.cancelledAt || item.updatedAt).toLocaleDateString();
+    const providerName = item.technician?.name || (item.status === 'COMPLETED' ? 'Padi Pro' : 'Service Provider pending');
+    const amountMinor = item.invoice?.totalAmountMinor ?? item.priceMinor ?? 0;
+    const amountLabel = item.invoice ? 'Paid' : item.status === 'COMPLETED' ? 'Job value' : 'Estimate';
 
     return (
       <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <View style={styles.categoryRow}>
+        <View style={styles.providerPanel}>
+          <View style={styles.providerIdentity}>
             {item.technician?.profilePhotoUrl ? (
               <Image source={{ uri: item.technician.profilePhotoUrl }} style={styles.techAvatar} />
             ) : (
-              <Text style={styles.icon}>P</Text>
+              <View style={styles.avatarFallback}>
+                {providerName === 'Service Provider pending' ? (
+                  <UserRound color={Colors.primary} size={20} />
+                ) : (
+                  <Text style={styles.avatarInitials}>{providerInitials(providerName)}</Text>
+                )}
+              </View>
             )}
             <View style={{ flex: 1 }}>
-              <Text style={styles.categoryText}>{item.applianceType}</Text>
-              <Text style={styles.jobId}>{item.generalArea || item.fullAddress || 'Service address'}</Text>
-              {item.technician?.name ? <Text style={styles.techName}>Handled by {item.technician.name}</Text> : null}
+              <Text style={styles.providerLabel}>{item.status === 'COMPLETED' ? 'Handled by' : 'Assigned provider'}</Text>
+              <Text style={styles.techName}>{providerName}</Text>
               {providerReputationText(item.technician) ? (
                 <Text style={styles.techReputation}>{providerReputationText(item.technician)}</Text>
               ) : null}
             </View>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: `${statusColor}10`, borderColor: statusColor }]}>
+          <View style={[styles.statusBadge, { backgroundColor: `${statusColor}12`, borderColor: statusColor }]}>
             <Text style={[styles.statusText, { color: statusColor }]}>{formatBookingStatus(item.status)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.jobSummary}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.categoryText}>{item.applianceType}</Text>
+            <Text style={styles.jobId}>{item.generalArea || item.fullAddress || 'Service address'}</Text>
+          </View>
+          <View style={styles.amountPill}>
+            <Text style={styles.amountLabel}>{amountLabel}</Text>
+            <Text style={styles.amountText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+              {money(item.currency, amountMinor)}
+            </Text>
           </View>
         </View>
 
@@ -466,17 +494,23 @@ const styles = StyleSheet.create({
   screenTitle: { color: Colors.text, fontSize: 28, fontWeight: '900' },
   screenSubtitle: { color: Colors.textSubtle, fontSize: 12, fontWeight: '700', marginTop: 4 },
   card: { backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.lg, borderWidth: 1, borderColor: Colors.border, marginBottom: Spacing.md },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
-  categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  icon: { color: Colors.primary, fontSize: 22, backgroundColor: Colors.surfaceRaised, padding: 8, borderRadius: Radius.sm, overflow: 'hidden' },
-  techAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.primary },
-  categoryText: { color: Colors.text, fontSize: 15, fontWeight: '800' },
-  jobId: { color: Colors.textSubtle, fontSize: 11, fontWeight: '600', marginTop: 1 },
-  techName: { color: Colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 3 },
-  techReputation: { color: Colors.primary, fontSize: 10, fontWeight: '800', marginTop: 3 },
-  statusBadge: { borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  statusText: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  serviceDetails: { color: Colors.text, fontSize: 13, fontWeight: '500', marginVertical: 14, lineHeight: 18 },
+  providerPanel: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+  providerIdentity: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  techAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.primary },
+  avatarFallback: { width: 48, height: 48, borderRadius: 24, backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: 'rgba(184, 255, 61, 0.42)', alignItems: 'center', justifyContent: 'center' },
+  avatarInitials: { color: Colors.primary, fontSize: 15, fontWeight: '900' },
+  providerLabel: { color: Colors.textSubtle, fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
+  techName: { color: Colors.text, fontSize: 16, fontWeight: '900', marginTop: 2 },
+  techReputation: { color: Colors.primary, fontSize: 10, fontWeight: '800', marginTop: 4 },
+  jobSummary: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.background, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, padding: 12, marginTop: 14 },
+  categoryText: { color: Colors.text, fontSize: 15, fontWeight: '900' },
+  jobId: { color: Colors.textSubtle, fontSize: 11, fontWeight: '600', marginTop: 3 },
+  amountPill: { minWidth: 96, maxWidth: 132, backgroundColor: Colors.surfaceRaised, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.borderStrong, paddingHorizontal: 10, paddingVertical: 8, alignItems: 'flex-end' },
+  amountLabel: { color: Colors.textSubtle, fontSize: 9, fontWeight: '900', textTransform: 'uppercase' },
+  amountText: { color: Colors.primary, fontSize: 15, fontWeight: '900', marginTop: 2 },
+  statusBadge: { borderWidth: 1, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  statusText: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
+  serviceDetails: { color: Colors.textMuted, fontSize: 13, fontWeight: '600', marginVertical: 14, lineHeight: 18 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: 12 },
   dateText: { color: Colors.textSubtle, fontSize: 12 },
   footerActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, flexShrink: 1 },

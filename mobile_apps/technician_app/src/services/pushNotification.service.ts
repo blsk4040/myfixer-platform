@@ -23,7 +23,7 @@ const configureAndroidChannel = async (): Promise<void> => {
     name: 'Padi Pro updates',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#B8FF3D',
+    lightColor: '#EF4444',
     sound: 'default',
   });
 
@@ -31,7 +31,7 @@ const configureAndroidChannel = async (): Promise<void> => {
     name: 'Padi Pro job alerts',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 350, 180, 350],
-    lightColor: '#B8FF3D',
+    lightColor: '#EF4444',
     sound: 'incoming_job.wav',
   });
 };

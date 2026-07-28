@@ -466,8 +466,8 @@ const styles = StyleSheet.create({
     borderColor: '#303036',
   },
   alertButtonUnread: {
-    backgroundColor: 'rgba(184, 255, 61, 0.08)',
-    borderColor: 'rgba(184, 255, 61, 0.42)',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderColor: 'rgba(239, 68, 68, 0.5)',
   },
   alertBadge: {
     position: 'absolute',
@@ -479,11 +479,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#B8FF3D',
+    backgroundColor: '#EF4444',
     borderWidth: 1,
-    borderColor: '#0B0B0D',
+    borderColor: '#7F1D1D',
   },
-  alertBadgeText: { color: '#0B0B0D', fontSize: 10, fontWeight: '900' },
+  alertBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
   liveControl: {
     minWidth: 116,
     minHeight: 44,

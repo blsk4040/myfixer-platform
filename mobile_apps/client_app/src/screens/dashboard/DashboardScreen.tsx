@@ -830,8 +830,8 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   iconButtonUnread: {
-    borderColor: 'rgba(184, 255, 61, 0.42)',
-    backgroundColor: 'rgba(184, 255, 61, 0.08)',
+    borderColor: 'rgba(239, 68, 68, 0.5)',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
   },
   alertBadge: {
     position: 'absolute',
@@ -843,12 +843,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.primary,
+    backgroundColor: '#EF4444',
     borderWidth: 1,
-    borderColor: Colors.background,
+    borderColor: '#7F1D1D',
   },
   alertBadgeText: {
-    color: Colors.background,
+    color: '#FFFFFF',
     fontSize: 10,
     fontWeight: '900',
   },

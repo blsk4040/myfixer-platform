@@ -164,8 +164,8 @@ function MainTabs({ setIsAuthenticated }: AppNavigatorProps): React.JSX.Element 
         options={{
           tabBarBadge: inboxUnreadCount > 0 ? (inboxUnreadCount > 99 ? '99+' : inboxUnreadCount) : undefined,
           tabBarBadgeStyle: {
-            backgroundColor: Colors.primary,
-            color: Colors.background,
+            backgroundColor: '#EF4444',
+            color: '#FFFFFF',
             fontWeight: '900',
           },
         }}

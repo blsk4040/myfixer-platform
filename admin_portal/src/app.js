@@ -2179,7 +2179,7 @@ function renderAiInsights(data) {
   if (data.activeMarkets.length === 1) insights.push(`${data.activeMarkets[0].countryName || data.activeMarkets[0].countryCode} is currently 100% of active-market revenue.`);
   return `
     <section class="panel business-panel ai-insights">
-      <div class="panel-header"><div><h2>AI Business Insights</h2><span>Rule-based now, AI-ready later</span></div></div>
+      <div class="panel-header"><div><h2>Business Insights</h2><span>Operational signals from current platform data</span></div></div>
       <div class="insight-list">${insights.map((insight) => `<p>${escapeHtml(insight)}</p>`).join('')}</div>
     </section>
   `;

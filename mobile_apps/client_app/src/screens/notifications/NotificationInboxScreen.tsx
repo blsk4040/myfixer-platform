@@ -10,26 +10,17 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Archive, Bell, CheckCircle2, MailOpen } from 'lucide-react-native';
+import { Bell, CheckCircle2, MailOpen, Trash2 } from 'lucide-react-native';
 import apiService, { NotificationRecord } from '../../services/api.service';
 import { customerErrorMessage } from '../../utils/userFacingErrors';
-import { getFeedForNotification, isUnreadNotification, NotificationFeedMode } from '../../utils/notificationFeed';
+import { getDisplayedNotifications, getFeedForNotification, getNotificationTime, isUnreadNotification, NotificationFeedMode } from '../../utils/notificationFeed';
 
-const getNotificationTime = (notification: NotificationRecord): number =>
-  new Date(notification.sentAt || notification.scheduledAt || Date.now()).getTime();
-
-const dedupeNotifications = (items: NotificationRecord[]): NotificationRecord[] => {
-  const map = new Map<string, NotificationRecord>();
-  items.forEach((item) => {
-    const bookingId = typeof item.metadata?.bookingId === 'string' ? item.metadata.bookingId : '';
-    const key = bookingId ? `${bookingId}:${item.type}` : `${item.title}:${item.message}`;
-    const existing = map.get(key);
-    if (!existing || getNotificationTime(item) > getNotificationTime(existing)) {
-      map.set(key, item);
-    }
-  });
-  return Array.from(map.values()).sort((a, b) => getNotificationTime(b) - getNotificationTime(a));
-};
+const displayNotificationText = (value: string): string =>
+  value
+    .replace(/\btechnicican\b/gi, 'Service Provider')
+    .replace(/\btechnician\b/gi, 'Service Provider')
+    .replace(/\btechnicians\b/gi, 'Service Providers')
+    .replace(/\bsmeone\b/gi, 'someone');
 
 const prettyServiceName = (value: unknown): string => {
   const raw = typeof value === 'string' ? value.trim() : '';
@@ -86,7 +77,7 @@ const notificationCopy: Record<NotificationFeedMode, {
   inbox: {
     loading: 'Loading your Inbox...',
     title: 'Inbox',
-    subtitle: 'Invoices, quotes, receipts, booking messages and support updates',
+    subtitle: 'Invoices, quotes, receipts and booking messages',
     empty: 'No Inbox messages yet.',
   },
   alerts: {
@@ -107,8 +98,9 @@ function NotificationFeedScreen({ mode, navigation }: { mode: NotificationFeedMo
   const loadNotifications = useCallback(async () => {
     const result = await apiService.getNotifications();
     const feedNotifications = (result.notifications || []).filter((notification) => getFeedForNotification(notification) === mode);
-    setNotifications(dedupeNotifications(feedNotifications));
-    setUnreadCount(feedNotifications.filter(isUnreadNotification).length);
+    const displayedNotifications = getDisplayedNotifications(feedNotifications);
+    setNotifications(displayedNotifications);
+    setUnreadCount(displayedNotifications.filter(isUnreadNotification).length);
   }, [mode]);
 
   useEffect(() => {
@@ -144,6 +136,22 @@ function NotificationFeedScreen({ mode, navigation }: { mode: NotificationFeedMo
     }
   };
 
+  const deleteNotification = (notification: NotificationRecord) => {
+    Alert.alert(
+      'Delete notification?',
+      'This will remove it from your notification list.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => updateNotification(notification._id, 'ARCHIVE') },
+      ]
+    );
+  };
+
+  const openBookingActivity = (bookingId: string) => {
+    if (!bookingId) return;
+    navigation?.navigate?.('TrackingMain', { bookingId });
+  };
+
   const openNotification = async (notification: NotificationRecord) => {
     const isRead = !isUnreadNotification(notification);
     if (!isRead) {
@@ -157,12 +165,12 @@ function NotificationFeedScreen({ mode, navigation }: { mode: NotificationFeedMo
     }
 
     const bookingId = typeof notification.metadata?.bookingId === 'string' ? notification.metadata.bookingId : '';
-    const title = notification.title || copy.title;
-    const message = notification.message || 'No message details available.';
+    const title = displayNotificationText(notification.title || copy.title);
+    const message = displayNotificationText(notification.message || 'No message details available.');
     Alert.alert(title, message, [
       { text: 'Close', style: 'cancel' },
       bookingId
-        ? { text: 'Open Activity', onPress: () => navigation?.navigate?.('Activity') }
+        ? { text: 'Open Activity', onPress: () => openBookingActivity(bookingId) }
         : { text: 'OK' },
     ]);
   };
@@ -192,7 +200,6 @@ function NotificationFeedScreen({ mode, navigation }: { mode: NotificationFeedMo
           <Text style={styles.subtitle}>{copy.subtitle}</Text>
         </View>
         <View style={styles.badge}>
-          <Bell color="#00FF87" size={18} />
           <Text style={styles.badgeText}>{unreadCount}</Text>
         </View>
       </View>
@@ -213,7 +220,7 @@ function NotificationFeedScreen({ mode, navigation }: { mode: NotificationFeedMo
             <TouchableOpacity style={[styles.card, !isRead && styles.unreadCard]} activeOpacity={0.88} onPress={() => openNotification(item)}>
               <View style={styles.cardHeader}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.cardTitle}>{item.title}</Text>
+                  <Text style={styles.cardTitle}>{displayNotificationText(item.title)}</Text>
                   <View style={styles.pillRow}>
                     <Text style={styles.servicePill}>{serviceName}</Text>
                     <Text style={styles.stagePill}>{statusLabel}</Text>
@@ -224,20 +231,20 @@ function NotificationFeedScreen({ mode, navigation }: { mode: NotificationFeedMo
                 </Text>
               </View>
               {scheduledText ? <Text style={styles.scheduleText}>Scheduled for {scheduledText}</Text> : null}
-              <Text style={styles.message}>{item.message}</Text>
+              <Text style={styles.message}>{displayNotificationText(item.message)}</Text>
               <Text style={styles.meta}>{new Date(getNotificationTime(item)).toLocaleString()}</Text>
               <View style={styles.actions}>
                 <TouchableOpacity style={styles.actionButton} onPress={() => updateNotification(item._id, isRead ? 'MARK_UNREAD' : 'MARK_READ')}>
-                  {isRead ? <MailOpen color="#CBD5E1" size={16} /> : <CheckCircle2 color="#00FF87" size={16} />}
-                  <Text style={styles.actionText}>{isRead ? 'Unread' : 'Read'}</Text>
+                  {isRead ? <MailOpen color="#CBD5E1" size={16} /> : <CheckCircle2 color="#EF4444" size={16} />}
+                  <Text style={styles.actionText}>{isRead ? 'Mark unread' : 'Mark read'}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => bookingId ? Alert.alert('Booking Update', 'Open the Activity tab to view or track this booking.') : openRelatedCollection(item)}>
+                <TouchableOpacity style={styles.actionButton} onPress={() => bookingId ? openBookingActivity(bookingId) : openRelatedCollection(item)}>
                   <Bell color="#CBD5E1" size={16} />
                   <Text style={styles.actionText}>{bookingId ? 'View' : 'Open'}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => updateNotification(item._id, 'ARCHIVE')}>
-                  <Archive color="#F87171" size={16} />
-                  <Text style={styles.actionText}>Archive</Text>
+                <TouchableOpacity style={styles.actionButton} onPress={() => deleteNotification(item)}>
+                  <Trash2 color="#F87171" size={16} />
+                  <Text style={styles.actionText}>Delete</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
@@ -264,12 +271,12 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   title: { color: '#FFFFFF', fontSize: 28, fontWeight: '800' },
   subtitle: { color: '#94A3B8', fontSize: 12, fontWeight: '600', marginTop: 4 },
-  badge: { minWidth: 58, height: 36, borderRadius: 18, backgroundColor: '#0F172A', borderWidth: 1, borderColor: '#1E293B', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  badge: { minWidth: 44, height: 32, borderRadius: 16, backgroundColor: '#EF4444', borderWidth: 1, borderColor: '#7F1D1D', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   badgeText: { color: '#FFFFFF', fontWeight: '800' },
   list: { paddingBottom: 110, gap: 12 },
   empty: { color: '#94A3B8', textAlign: 'center', marginTop: 80 },
   card: { backgroundColor: '#0F172A', borderWidth: 1, borderColor: '#1E293B', borderRadius: 12, padding: 14 },
-  unreadCard: { borderColor: '#00FF87' },
+  unreadCard: { borderColor: '#EF4444' },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   cardTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   message: { color: '#CBD5E1', fontSize: 13, lineHeight: 20, marginTop: 10 },
@@ -280,7 +287,7 @@ const styles = StyleSheet.create({
   stagePill: { color: '#00FF87', backgroundColor: '#00FF8715', borderWidth: 1, borderColor: '#00FF8740', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, fontSize: 10, fontWeight: '900', lineHeight: 14, overflow: 'hidden' },
   status: { fontSize: 10, fontWeight: '800', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
   statusRead: { color: '#94A3B8', backgroundColor: '#111827' },
-  statusUnread: { color: '#052E16', backgroundColor: '#00FF87' },
+  statusUnread: { color: '#FFFFFF', backgroundColor: '#EF4444' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   actionButton: { height: 34, paddingHorizontal: 10, borderRadius: 8, backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B', flexDirection: 'row', alignItems: 'center', gap: 6 },
   actionText: { color: '#CBD5E1', fontSize: 12, fontWeight: '700' },

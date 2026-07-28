@@ -292,16 +292,7 @@ const stripScheduleMarker = (value: unknown): string => {
   return text.replace(/\s*\((ASAP|Urgent \/ Right Now|[^)]*\d{1,2}:\d{2}[^)]*)\)\s*$/i, '').trim() || text || 'service';
 };
 
-const providerRoleForService = (serviceKey: unknown): string => {
-  const key = normalizeDispatchServiceKey(serviceKey);
-  if (key === 'cleaning') return 'cleaner';
-  if (key === 'plumbing') return 'plumber';
-  if (key === 'electrical') return 'electrician';
-  if (key === 'gardening') return 'gardener';
-  if (key === 'painting') return 'painter';
-  if (key === 'automotive') return 'mechanic';
-  return 'technician';
-};
+const providerRoleForService = (_serviceKey: unknown): string => 'Service Provider';
 
 const serviceLabelForNotification = (booking: { serviceKey?: unknown; applianceType?: unknown; metadata?: Record<string, unknown> | null }): string =>
   stripScheduleMarker(booking.applianceType || booking.metadata?.serviceKey || booking.serviceKey || 'service');

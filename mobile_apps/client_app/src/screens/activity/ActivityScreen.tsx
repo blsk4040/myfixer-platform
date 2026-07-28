@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CalendarClock, ChevronRight, Clock3, MapPin, ShieldCheck } from 'lucide-react-native';
 
-import { LiveTrackScreen } from '../tracking/LiveTrackScreen';
+import TrackingScreen from '../map_tracking/TrackingScreen';
 import apiService, { BookingDetails } from '../../services/api.service';
 import { getProviderRoleForService } from '../../utils/providerRole';
 import { BRAND } from '../../config/brand';
@@ -63,24 +63,13 @@ export function ActivityScreen({ navigation }: any): React.JSX.Element {
   }, []);
 
   const renderTrackingScreen = (job: BookingDetails) => {
-    const technician = job.technician;
-    const providerRole = getProviderRoleForService(job.serviceKey, job.applianceType);
     const routeObject = {
       params: {
         bookingId: job.id,
-        techName: technician?.name || `Assigned ${providerRole.singular}`,
-        techPhone: technician?.phone || '',
-        techPhotoUrl: technician?.profilePhotoUrl || '',
-        providerRole: providerRole.singular,
-        providerRoleCapitalized: providerRole.capitalized,
-        serviceKey: job.serviceKey,
-        applianceType: job.applianceType,
-        currentStatus: job.status,
-        lastGpsUpdate: (technician as any)?.lastGpsUpdate || job.updatedAt,
       },
     };
 
-    return <LiveTrackScreen route={routeObject} navigation={navigation} />;
+    return <TrackingScreen route={routeObject} />;
   };
 
   if (checkingActiveJobs) {
@@ -112,7 +101,7 @@ export function ActivityScreen({ navigation }: any): React.JSX.Element {
             </View>
             <Text style={styles.screenTitle}>Active bookings</Text>
             <Text style={styles.screenSubtitle}>
-              Track every open request separately, with its own provider, quote, invoice and updates.
+              Track every open request separately, with its own Service Provider and live booking progress.
             </Text>
           </View>
 
@@ -197,7 +186,7 @@ export function ActivityScreen({ navigation }: any): React.JSX.Element {
 
         <Text style={styles.emptyTitle}>No active booking</Text>
         <Text style={styles.emptySubtitle}>
-          When a professional is assigned, your live tracking, quote, payment, and completion steps will appear here.
+          When a Service Provider is assigned, your live tracking and booking progress will appear here.
         </Text>
 
         <TouchableOpacity

@@ -13,7 +13,7 @@ export class NotificationService {
       name: 'Padi Pro job alerts',
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 350, 180, 350],
-      lightColor: '#B8FF3D',
+      lightColor: '#EF4444',
       sound: 'incoming_job.wav',
     });
   }
