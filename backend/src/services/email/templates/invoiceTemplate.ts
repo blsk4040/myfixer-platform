@@ -9,6 +9,7 @@ interface InvoiceEmailProps {
   additionalLabor: number;
   partsAmount: number;
   discountAmount?: number;
+  calloutCreditAmount?: number;
   promoCode?: string;
   promotionLabel?: string;
   clientServiceFee?: number;
@@ -38,6 +39,7 @@ export function generateInvoiceHtml({
   additionalLabor,
   partsAmount,
   discountAmount = 0,
+  calloutCreditAmount = 0,
   promoCode = '',
   promotionLabel = '',
   clientServiceFee = 0,
@@ -115,6 +117,11 @@ export function generateInvoiceHtml({
                   <td>${displayPromotion}</td>
                   <td style="text-align: right; color: #DC2626;">-${formatMoney(discountAmount, currency)}</td>
                 </tr>` : ''}
+                ${calloutCreditAmount > 0 ? `
+                <tr>
+                  <td>Call-out fee credit</td>
+                  <td style="text-align: right; color: #00B961;">-${formatMoney(calloutCreditAmount, currency)}</td>
+                </tr>` : ''}
                 ${typeof subtotalAmount === 'number' ? `
                 <tr>
                   <td>Subtotal</td>
@@ -138,7 +145,7 @@ export function generateInvoiceHtml({
             </table>
           </div>
           <div class="footer">
-            Padi &bull; Support: support@myfixer.co.za
+            Padi &bull; Support: onboarding@hellopadi.com
           </div>
         </div>
       </div>

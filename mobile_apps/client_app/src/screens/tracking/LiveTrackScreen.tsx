@@ -247,10 +247,11 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
       ['Subtotal', breakdown.subtotalMinor],
       ['Client Service Fee', breakdown.clientServiceFeeMinor],
       ['Tax', breakdown.taxMinor],
-      ['Total', breakdown.totalMinor],
+      ['Call-out Credit', breakdown.calloutCreditMinor ? -breakdown.calloutCreditMinor : 0],
+      ['Balance to Pay', breakdown.amountDueMinor ?? breakdown.totalMinor],
     ].filter(([, amount], index, list) => {
       const label = list[index][0];
-      return ['Subtotal', 'Tax', 'Total'].includes(String(label)) || Number(amount || 0) !== 0;
+      return ['Subtotal', 'Tax', 'Balance to Pay'].includes(String(label)) || Number(amount || 0) !== 0;
     }).map(([label, amount]) => ({ label: String(label), amountMinor: Number(amount || 0), currency }));
   };
 
@@ -379,9 +380,9 @@ export function LiveTrackScreen({ route, navigation }: any): React.JSX.Element {
             </View>
 
             <View style={styles.quoteTotalRow}>
-              <Text style={styles.quoteTotalLabel}>Total</Text>
+              <Text style={styles.quoteTotalLabel}>Balance to Pay</Text>
                 <Text style={styles.quoteTotalAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
-                  {formatMinorMoney(pendingQuote?.currency || '', quoteBreakdown?.totalMinor ?? pendingQuote?.totalAmountMinor ?? 0)}
+                  {formatMinorMoney(pendingQuote?.currency || '', quoteBreakdown?.amountDueMinor ?? quoteBreakdown?.totalMinor ?? pendingQuote?.totalAmountMinor ?? 0)}
                 </Text>
             </View>
 

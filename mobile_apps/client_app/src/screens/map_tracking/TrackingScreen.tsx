@@ -3,12 +3,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  SafeAreaView,
   StyleSheet,
   Text,
   View,
   TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { 
   Phone as LucidePhone, 
   MessageSquare as LucideMessageSquare, 
@@ -128,6 +128,7 @@ const providerReputationText = (technician: BookingDetails['technician'] | null)
 };
 
 export default function TrackingScreen({ bookingId, customerCoordinate, route }: TrackingScreenProps) {
+  const insets = useSafeAreaInsets();
   const resolvedBookingId = bookingId ?? route?.params?.bookingId ?? '';
   const initialCustomerCoordinate = customerCoordinate ?? route?.params?.customerCoordinate ?? null;
 
@@ -232,6 +233,8 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
     : 'Waiting';
   const providerRole = getProviderRoleForService(bookingService.serviceKey, bookingService.applianceType);
   const hasNativeMap = Boolean(MapLibreNative);
+  const panelBottomPadding = Math.max(34, insets.bottom + 22);
+  const cameraBottomPadding = 248 + panelBottomPadding;
 
   if (isLoadingBooking || !mapCenter || !customerLocation) {
     return (
@@ -248,7 +251,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
       {hasNativeMap ? (
         <MapLibreNative.Map mapStyle={OSM_RASTER_STYLE} style={styles.map}>
           {cameraBounds ? (
-            <MapLibreNative.Camera bounds={cameraBounds} padding={{ top: 110, right: 42, bottom: 260, left: 42 }} />
+            <MapLibreNative.Camera bounds={cameraBounds} padding={{ top: 110, right: 42, bottom: cameraBottomPadding, left: 42 }} />
           ) : (
             <MapLibreNative.Camera center={mapCenter ?? DEFAULT_CENTER} zoom={technicianLocation ? 12 : 14} />
           )}
@@ -289,7 +292,7 @@ export default function TrackingScreen({ bookingId, customerCoordinate, route }:
       </View>
 
       {/* Modern Fixed Bottom Action HUD Panel */}
-      <View style={styles.uberPanel}>
+      <View style={[styles.uberPanel, { paddingBottom: panelBottomPadding }]}>
         <View style={styles.panelHandle} />
         
         <View style={styles.profileRow}>

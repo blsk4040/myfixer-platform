@@ -152,6 +152,7 @@ import {
   registerPushToken,
   unregisterPushToken,
 } from '../controllers/push-token.controller';
+import { getAdminFinancialLedger } from '../controllers/financial-ledger.controller';
 import {
   createAdminSupportMessage,
   createSupportTicket,
@@ -184,6 +185,7 @@ import {
 import { AdminPermission, UserRole } from '../models/user.model';
 import { getMyProviderReferralProgram } from '../controllers/provider-referral.controller';
 import { getMyCustomerReferralProgram } from '../controllers/customer-referral.controller';
+import { getMyCustomerLoyaltyProgram } from '../controllers/customer-loyalty.controller';
 
 // Import the secure PCI-compliant payment gateway endpoints
 import paymentRoutes from './payment.routes';
@@ -237,6 +239,7 @@ apiRouter.get('/bookings/active', authenticateToken, requireRole([UserRole.CUSTO
 apiRouter.get('/bookings/active/current', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyActiveBooking);
 apiRouter.get('/bookings/history/me', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyBookingHistory);
 apiRouter.get('/clients/me/referral', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyCustomerReferralProgram);
+apiRouter.get('/clients/me/loyalty', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getMyCustomerLoyaltyProgram);
 apiRouter.post('/bookings', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), createBooking);
 apiRouter.get('/bookings/:bookingId/review', authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), getBookingReview);
 apiRouter.post('/bookings/:bookingId/review', bookingWriteRateLimiter, authenticateToken, requireRole([UserRole.CUSTOMER, UserRole.ADMIN]), submitBookingReview);
@@ -283,6 +286,7 @@ apiRouter.patch('/admin/managed-collection-reminders/:id', authenticateToken, re
 apiRouter.get('/admin/quotes', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.BOOKINGS_READ), getAdminQuotes);
 apiRouter.get('/admin/invoices', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminInvoices);
 apiRouter.get('/admin/wallet-transactions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminWalletTransactions);
+apiRouter.get('/admin/financial-ledger', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.FINANCE_READ), getAdminFinancialLedger);
 apiRouter.get('/admin/promotions', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_READ), listAdminPromotions);
 apiRouter.get('/admin/promotions/summary', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_PERFORMANCE_READ), getAdminPromotionsSummary);
 apiRouter.get('/admin/referral-rewards', authenticateToken, requireRole([UserRole.ADMIN]), requireAdminPermission(AdminPermission.PROMOTIONS_PERFORMANCE_READ), listAdminReferralRewards);

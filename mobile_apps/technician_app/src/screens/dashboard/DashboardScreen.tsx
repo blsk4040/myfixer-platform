@@ -32,7 +32,7 @@ export function DashboardScreen(): React.JSX.Element {
     id: job.id,
     applianceType: job.applianceType,
     faultDescription: job.faultDescription || '',
-    callOutFee: job.callOutFee || job.price || 450,
+    callOutFee: job.callOutFee || job.price || 0,
     currency: job.currency || 'ZAR',
     distance: job.distance || 'Nearby',
     generalArea: job.generalArea || 'Local Area',

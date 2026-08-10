@@ -104,7 +104,16 @@ const getApprovedQuoteAmount = async (booking, quoteId) => {
     if (quote.totalAmountMinor <= 0) {
         throw new PaymentWorkflowError('Quote total must be greater than zero.', 'INVALID_PAYMENT_AMOUNT');
     }
-    return { quote, amountMinor: quote.totalAmountMinor };
+    const quoteBreakdown = quote.metadata?.priceBreakdown && typeof quote.metadata.priceBreakdown === 'object'
+        ? quote.metadata.priceBreakdown
+        : null;
+    const amountMinor = typeof quoteBreakdown?.totalMinor === 'number' && Number.isFinite(quoteBreakdown.totalMinor)
+        ? Math.max(0, Math.round(quoteBreakdown.totalMinor))
+        : quote.totalAmountMinor;
+    if (amountMinor <= 0) {
+        throw new PaymentWorkflowError('Quote balance must be greater than zero.', 'INVALID_PAYMENT_AMOUNT');
+    }
+    return { quote, amountMinor };
 };
 const resolvePaymentAmount = async (booking, quoteId) => {
     const quoteRequired = booking.pricingMode !== booking_model_1.PricingMode.FIXED_PRICE || booking.inspection?.quoteRequired === true;

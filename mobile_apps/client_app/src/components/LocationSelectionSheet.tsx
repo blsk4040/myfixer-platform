@@ -9,6 +9,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
@@ -114,6 +115,7 @@ export default function LocationSelectionSheet({
   onLocationConfirmed,
   onLocationInvalidated,
 }: LocationSelectionSheetProps) {
+  const { height: windowHeight } = useWindowDimensions();
   const hasAutoLocated = useRef(false);
   const [fullAddress, setFullAddress] = useState(initialFullAddress);
   const [latitude, setLatitude] = useState<number | null>(
@@ -142,6 +144,7 @@ export default function LocationSelectionSheet({
     Number.isFinite(latitude) &&
     typeof longitude === 'number' &&
     Number.isFinite(longitude);
+  const mapHeight = Math.max(360, Math.min(520, Math.round(windowHeight * 0.52)));
 
   useEffect(() => {
     const query = fullAddress.trim();
@@ -394,7 +397,7 @@ export default function LocationSelectionSheet({
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheet}>
-      <View style={styles.mapCard}>
+      <View style={[styles.mapCard, { height: mapHeight }]}>
         {MapLibreNative && hasSelectedCoordinates ? (
           <MapLibreNative.Map mapStyle={OSM_RASTER_STYLE} style={styles.map} logoEnabled={false} attributionEnabled={false}>
             <MapLibreNative.Camera center={toLngLat(longitude, latitude)} zoom={15} />
@@ -554,20 +557,15 @@ export default function LocationSelectionSheet({
 
 const styles = StyleSheet.create({
   sheet: {
-    backgroundColor: '#111827',
-    borderColor: '#1E293B',
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-    gap: 14,
+    backgroundColor: 'transparent',
+    gap: 12,
     zIndex: 20,
   },
   mapCard: {
     backgroundColor: '#0B0B0D',
     borderColor: '#1F2937',
-    borderRadius: 16,
+    borderRadius: 8,
     borderWidth: 1,
-    height: 240,
     overflow: 'hidden',
     position: 'relative',
   },

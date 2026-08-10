@@ -26,6 +26,7 @@ const rate_limit_middleware_1 = require("../middleware/rate-limit.middleware");
 const user_model_1 = require("../models/user.model");
 const provider_referral_controller_1 = require("../controllers/provider-referral.controller");
 const customer_referral_controller_1 = require("../controllers/customer-referral.controller");
+const customer_loyalty_controller_1 = require("../controllers/customer-loyalty.controller");
 // Import the secure PCI-compliant payment gateway endpoints
 const payment_routes_1 = __importDefault(require("./payment.routes"));
 const routing_routes_1 = __importDefault(require("../modules/routing/routing.routes"));
@@ -74,6 +75,7 @@ apiRouter.get('/bookings/active', auth_middleware_1.authenticateToken, (0, auth_
 apiRouter.get('/bookings/active/current', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), booking_controller_1.getMyActiveBooking);
 apiRouter.get('/bookings/history/me', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), booking_controller_1.getMyBookingHistory);
 apiRouter.get('/clients/me/referral', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), customer_referral_controller_1.getMyCustomerReferralProgram);
+apiRouter.get('/clients/me/loyalty', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), customer_loyalty_controller_1.getMyCustomerLoyaltyProgram);
 apiRouter.post('/bookings', rate_limit_middleware_1.bookingWriteRateLimiter, auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), booking_controller_1.createBooking);
 apiRouter.get('/bookings/:bookingId/review', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), booking_controller_1.getBookingReview);
 apiRouter.post('/bookings/:bookingId/review', rate_limit_middleware_1.bookingWriteRateLimiter, auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.CUSTOMER, user_model_1.UserRole.ADMIN]), booking_controller_1.submitBookingReview);

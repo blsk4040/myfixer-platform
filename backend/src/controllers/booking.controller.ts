@@ -66,6 +66,7 @@ import {
   persistWorkStartEligibility,
   startInspectionForBooking,
 } from '../services/inspection-workflow.service';
+import { ledgerType, recordLedgerEntries } from '../services/financial-ledger.service';
 import {
   BookingRecipientValidationError,
   normalizeServiceRecipient,
@@ -701,6 +702,7 @@ export const createBooking = async (
   const priceBreakdown = calculatePriceBreakdown({
     currency: market.currency,
     calloutFeeMinor: originalPriceMinor,
+    calloutFeeDeductible: availability.service?.calloutFeeDeductible !== false && originalPriceMinor > 0,
     promotionDiscountMinor,
     otherDiscountMinor: 0,
     promotionFundingSource: appliedPromotions.some((promotion) => promotion.fundingSource === 'SHARED')
@@ -750,7 +752,7 @@ export const createBooking = async (
     const booking = await Booking.create({
       customerId: new mongoose.Types.ObjectId(customerId),
       customerName,
-      customerEmail: authUser?.email ?? 'client@myfixer.co.za',
+      customerEmail: authUser?.email ?? 'onboarding@hellopadi.com',
       serviceKey: requestedServiceKey,
       applianceType,
       faultDescription,
@@ -930,7 +932,7 @@ export const createBooking = async (
         const email =
           (typeof body.email === 'string' ? body.email.trim().toLowerCase() : '') ||
           authUser?.email ||
-          'client@myfixer.co.za';
+          'onboarding@hellopadi.com';
         const waitlist = await saveCapacityWaitlistEntry({
           customerId,
           email,
@@ -2593,6 +2595,69 @@ export const finalizeJobInvoice = async (
       finalizedInvoiceNumber = invoice.invoiceNumber;
       finalizedInvoiceId = invoice._id.toString();
 
+      await recordLedgerEntries([
+        {
+          idempotencyKey: `invoice:${invoice.id}:issued:v${invoice.updatedAt?.getTime?.() || Date.now()}`,
+          entryType: ledgerType.INVOICE_ISSUED,
+          amountMinor: invoiceTotalMinor,
+          direction: 'DEBIT',
+          component: 'MEMO',
+          description: existingInvoice ? 'Invoice updated' : 'Invoice issued',
+          bookingId: booking._id,
+          invoiceId: invoice._id,
+          quoteId: approvedQuote?._id ?? null,
+          customerId: new mongoose.Types.ObjectId(booking.customerId),
+          technicianId: new mongoose.Types.ObjectId(booking.technicianId),
+          countryCode: booking.countryCode,
+          currency: booking.currency,
+          metadata: {
+            invoiceNumber: invoice.invoiceNumber,
+            priceBreakdown,
+            status: invoice.status,
+          },
+        },
+        {
+          idempotencyKey: `invoice:${invoice.id}:provider-earning:${technicianNetAmountMinor}`,
+          entryType: ledgerType.PROVIDER_EARNING_RECOGNIZED,
+          amountMinor: technicianNetAmountMinor,
+          direction: 'CREDIT',
+          component: 'PAYOUT',
+          description: 'Provider earning recognized',
+          bookingId: booking._id,
+          invoiceId: invoice._id,
+          quoteId: approvedQuote?._id ?? null,
+          customerId: new mongoose.Types.ObjectId(booking.customerId),
+          technicianId: new mongoose.Types.ObjectId(booking.technicianId),
+          countryCode: booking.countryCode,
+          currency: booking.currency,
+          metadata: {
+            invoiceNumber: invoice.invoiceNumber,
+            providerGrossMinor: priceBreakdown?.technicianGrossMinor,
+            platformCommissionBaseMinor: priceBreakdown?.platformCommissionBaseMinor,
+          },
+        },
+        {
+          idempotencyKey: `invoice:${invoice.id}:platform-revenue:${platformCommissionAmountMinor}`,
+          entryType: ledgerType.PLATFORM_REVENUE_RECOGNIZED,
+          amountMinor: platformCommissionAmountMinor,
+          direction: 'CREDIT',
+          component: 'PLATFORM_FEE',
+          description: 'Padi revenue recognized',
+          bookingId: booking._id,
+          invoiceId: invoice._id,
+          quoteId: approvedQuote?._id ?? null,
+          customerId: new mongoose.Types.ObjectId(booking.customerId),
+          technicianId: new mongoose.Types.ObjectId(booking.technicianId),
+          countryCode: booking.countryCode,
+          currency: booking.currency,
+          metadata: {
+            invoiceNumber: invoice.invoiceNumber,
+            platformCommissionBps,
+            platformCommissionBaseMinor: priceBreakdown?.platformCommissionBaseMinor,
+          },
+        },
+      ]);
+
       await logAuditEvent(request, {
         action: existingInvoice ? 'invoice.update' : 'invoice.create',
         module: 'PAYMENTS',
@@ -2715,7 +2780,7 @@ export const finalizeJobInvoice = async (
     }
 
     // 3. Trigger your Resend Email Worker pipeline
-    const recipientEmail = booking.customerEmail || 'admin@myfixer.co.za';
+    const recipientEmail = booking.customerEmail || 'onboarding@hellopadi.com';
 
     // The compiler can now resolve 'EmailService' cleanly 📬
     const emailSent = await EmailService.sendJobInvoiceEmail({
@@ -2727,6 +2792,9 @@ export const finalizeJobInvoice = async (
       partsAmount,
       totalAmount: fromMinorUnits(invoiceTotalMinor, booking.currency),
       discountAmount: fromMinorUnits(applyBookingPromoToInvoice ? promoDiscountMinor : 0, booking.currency),
+      calloutCreditAmount: typeof priceBreakdown.calloutCreditMinor === 'number'
+        ? fromMinorUnits(priceBreakdown.calloutCreditMinor, booking.currency)
+        : 0,
       promoCode: typeof promotionSnapshot?.code === 'string' ? promotionSnapshot.code : '',
       promotionLabel: typeof promotionSnapshot?.campaignName === 'string'
         ? promotionSnapshot.campaignName

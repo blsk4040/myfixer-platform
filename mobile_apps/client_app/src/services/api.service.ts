@@ -269,6 +269,37 @@ export interface CustomerReferralProgramResponse {
   };
 }
 
+export interface CustomerLoyaltyProgramResponse {
+  success: boolean;
+  loyalty: {
+    milestone: number;
+    completedCount: number;
+    remainingCount: number;
+    nextRewardTitle: string;
+    nextRewardDescription: string;
+    nextRewardType: 'PADI_DISCOUNT' | 'FREE_SERVICE' | 'PARTNER_VOUCHER' | 'PADI_CREDIT' | 'BENEFIT';
+    rewards: Array<{
+      id: string;
+      milestone: number;
+      rewardType: string;
+      title: string;
+      description: string;
+      status: 'EARNED' | 'CLAIMED' | 'REDEEMED' | 'EXPIRED' | 'BLOCKED';
+      countryCode: string;
+      city: string;
+      promotionCode?: string;
+      partnerName?: string;
+      partnerVoucherCode?: string;
+      rewardValueMinor?: number | null;
+      currency?: CurrencyCode | null;
+      expiresAt?: string | null;
+      blockReason?: string;
+      fraudSignals?: string[];
+      qualifyingBookingCount: number;
+    }>;
+  };
+}
+
 export interface SubmitBookingReviewPayload {
   rating: number;
   professional: boolean;
@@ -378,6 +409,7 @@ export interface ServiceAvailabilityItem {
   imageUrl?: string;
   calloutFeeMinor?: number;
   calloutFeeEnabled?: boolean;
+  calloutFeeDeductible?: boolean;
   subcategories?: Array<{
     subcategoryKey: string;
     label: string;
@@ -387,6 +419,7 @@ export interface ServiceAvailabilityItem {
     imageUrl?: string;
     calloutFeeMinor?: number;
     calloutFeeEnabled?: boolean;
+    calloutFeeDeductible?: boolean;
   }>;
   status: 'ACTIVE' | 'COMING_SOON' | 'PAUSED' | 'DISABLED';
   canBook: boolean;
@@ -416,6 +449,7 @@ export interface MarketAvailabilityBookableService {
   message: string;
   calloutFeeMinor?: number;
   calloutFeeEnabled?: boolean;
+  calloutFeeDeductible?: boolean;
   minimumChargeMinor?: number;
   estimatedDurationMinutes?: number;
   inspectionRequired?: boolean;
@@ -660,6 +694,10 @@ class ApiService {
 
   getMyReferralProgram(): Promise<CustomerReferralProgramResponse> {
     return this.request('/clients/me/referral');
+  }
+
+  getMyLoyaltyProgram(): Promise<CustomerLoyaltyProgramResponse> {
+    return this.request('/clients/me/loyalty');
   }
 
   createBooking(payload: CreateBookingRequest): Promise<CreateBookingResponse> {

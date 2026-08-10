@@ -134,22 +134,7 @@ const stripScheduleMarker = (value) => {
     const text = typeof value === 'string' ? value.trim() : '';
     return text.replace(/\s*\((ASAP|Urgent \/ Right Now|[^)]*\d{1,2}:\d{2}[^)]*)\)\s*$/i, '').trim() || text || 'service';
 };
-const providerRoleForService = (serviceKey) => {
-    const key = (0, matching_service_1.normalizeDispatchServiceKey)(serviceKey);
-    if (key === 'cleaning')
-        return 'cleaner';
-    if (key === 'plumbing')
-        return 'plumber';
-    if (key === 'electrical')
-        return 'electrician';
-    if (key === 'gardening')
-        return 'gardener';
-    if (key === 'painting')
-        return 'painter';
-    if (key === 'automotive')
-        return 'mechanic';
-    return 'technician';
-};
+const providerRoleForService = (_serviceKey) => 'Service Provider';
 const serviceLabelForNotification = (booking) => stripScheduleMarker(booking.applianceType || booking.metadata?.serviceKey || booking.serviceKey || 'service');
 const formatScheduledBookingTime = (value) => value.toLocaleString('en-ZA', {
     weekday: 'short',
@@ -466,6 +451,7 @@ const createBooking = async (request, response) => {
     const priceBreakdown = (0, price_breakdown_service_1.calculatePriceBreakdown)({
         currency: market.currency,
         calloutFeeMinor: originalPriceMinor,
+        calloutFeeDeductible: availability.service?.calloutFeeDeductible !== false && originalPriceMinor > 0,
         promotionDiscountMinor,
         otherDiscountMinor: 0,
         promotionFundingSource: appliedPromotions.some((promotion) => promotion.fundingSource === 'SHARED')
@@ -511,7 +497,7 @@ const createBooking = async (request, response) => {
         const booking = await booking_model_1.default.create({
             customerId: new mongoose_1.default.Types.ObjectId(customerId),
             customerName,
-            customerEmail: authUser?.email ?? 'client@myfixer.co.za',
+            customerEmail: authUser?.email ?? 'onboarding@hellopadi.com',
             serviceKey: requestedServiceKey,
             applianceType,
             faultDescription,
@@ -674,7 +660,7 @@ const createBooking = async (request, response) => {
             else if (fallbackPreference === 'WAITLIST') {
                 const email = (typeof body.email === 'string' ? body.email.trim().toLowerCase() : '') ||
                     authUser?.email ||
-                    'client@myfixer.co.za';
+                    'onboarding@hellopadi.com';
                 const waitlist = await saveCapacityWaitlistEntry({
                     customerId,
                     email,
@@ -2209,7 +2195,7 @@ const finalizeJobInvoice = async (request, response) => {
             });
         }
         // 3. Trigger your Resend Email Worker pipeline
-        const recipientEmail = booking.customerEmail || 'admin@myfixer.co.za';
+        const recipientEmail = booking.customerEmail || 'onboarding@hellopadi.com';
         // The compiler can now resolve 'EmailService' cleanly 📬
         const emailSent = await email_service_1.EmailService.sendJobInvoiceEmail({
             recipientEmail,
@@ -2220,6 +2206,9 @@ const finalizeJobInvoice = async (request, response) => {
             partsAmount,
             totalAmount: (0, market_config_1.fromMinorUnits)(invoiceTotalMinor, booking.currency),
             discountAmount: (0, market_config_1.fromMinorUnits)(applyBookingPromoToInvoice ? promoDiscountMinor : 0, booking.currency),
+            calloutCreditAmount: typeof priceBreakdown.calloutCreditMinor === 'number'
+                ? (0, market_config_1.fromMinorUnits)(priceBreakdown.calloutCreditMinor, booking.currency)
+                : 0,
             promoCode: typeof promotionSnapshot?.code === 'string' ? promotionSnapshot.code : '',
             promotionLabel: typeof promotionSnapshot?.campaignName === 'string'
                 ? promotionSnapshot.campaignName

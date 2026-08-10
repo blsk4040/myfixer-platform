@@ -28,7 +28,7 @@ export function normalizeJobPayload(payload: any): JobPayload {
     ? priceMinor / 100
     : Number.isFinite(rawPrice)
       ? rawPrice
-      : 450;
+      : 0;
 
   const hasPreciseLocation =
     payload.hasPreciseLocation === true &&

@@ -97,6 +97,7 @@ type HomeService = {
     basePrice: number;
     calloutFeeMinor?: number;
     calloutFeeEnabled?: boolean;
+    calloutFeeDeductible?: boolean;
     feeLabel: string;
     inspectionRequired?: boolean;
     socialProof?: MarketAvailabilityBookableService['socialProof'];
@@ -320,6 +321,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
             canBook: service.canBook,
             message: service.message,
             calloutFeeEnabled: subcategory.calloutFeeEnabled ?? service.calloutFeeEnabled ?? ((subcategory.calloutFeeMinor ?? service.calloutFeeMinor ?? 0) > 0),
+            calloutFeeDeductible: subcategory.calloutFeeDeductible ?? service.calloutFeeDeductible,
             calloutFeeMinor: subcategory.calloutFeeMinor ?? service.calloutFeeMinor ?? 0,
             displayOrder: subIndex * 10,
           }));
@@ -338,6 +340,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
             canBook: service.canBook,
             message: service.message,
             calloutFeeEnabled: service.calloutFeeEnabled ?? ((service.calloutFeeMinor ?? 0) > 0),
+            calloutFeeDeductible: service.calloutFeeDeductible,
             calloutFeeMinor: service.calloutFeeMinor ?? 0,
             displayOrder: 0,
           });
@@ -432,6 +435,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
             basePrice: (service.calloutFeeMinor ?? 0) / 100,
             calloutFeeMinor: service.calloutFeeMinor,
             calloutFeeEnabled: hasVisibleCalloutFee(service.calloutFeeEnabled, service.calloutFeeMinor),
+            calloutFeeDeductible: service.calloutFeeDeductible,
             feeLabel: formatFee(service.calloutFeeMinor, hasVisibleCalloutFee(service.calloutFeeEnabled, service.calloutFeeMinor)),
             inspectionRequired: service.inspectionRequired,
             socialProof: service.socialProof,
@@ -508,7 +512,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
     }
   };
 
-  const handleSubCategorySelect = (sub: { key?: string; serviceKey: string; name: string; basePrice: number; calloutFeeMinor?: number; calloutFeeEnabled?: boolean; inspectionRequired?: boolean }) => {
+  const handleSubCategorySelect = (sub: { key?: string; serviceKey: string; name: string; basePrice: number; calloutFeeMinor?: number; calloutFeeEnabled?: boolean; calloutFeeDeductible?: boolean; inspectionRequired?: boolean }) => {
     if (!selectedCategory) return;
     setModalVisible(false);
     navigation.navigate('BookingWizard', {
@@ -519,6 +523,7 @@ export function DashboardScreen({ navigation }: any): React.JSX.Element {
       basePrice: sub.basePrice,
       calloutFeeMinor: sub.calloutFeeMinor,
       calloutFeeEnabled: sub.calloutFeeEnabled,
+      calloutFeeDeductible: sub.calloutFeeDeductible,
       inspectionRequired: sub.inspectionRequired,
     });
   };

@@ -57,11 +57,7 @@ function ProfileStackScreen({ setIsAuthenticated }: AppNavigatorProps) {
         name="BankingInvoice"
         component={BankingInvoiceScreen}
         options={{
-          headerShown: true,
-          title: 'Banking & Invoices',
-          headerStyle: { backgroundColor: Colors.background },
-          headerTintColor: Colors.text,
-          headerShadowVisible: false,
+          headerShown: false,
         }}
       />
       <ProfileStack.Screen

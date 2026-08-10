@@ -30,6 +30,7 @@ export interface ServiceDefinition {
   synonyms?: string[];
   calloutFeeMinor?: number;
   calloutFeeEnabled?: boolean;
+  calloutFeeDeductible?: boolean;
   minimumChargeMinor?: number;
   fixedPriceSupported?: boolean;
   requiresCapabilityApproval?: boolean;
@@ -54,6 +55,7 @@ export interface ServiceDefinition {
     capabilityRequirements?: Record<string, unknown>;
     calloutFeeMinor?: number;
     calloutFeeEnabled?: boolean;
+    calloutFeeDeductible?: boolean;
     minimumChargeMinor?: number;
     billingModel?: ServiceBillingModel;
     subscriptionEligible?: boolean;
@@ -97,6 +99,7 @@ export interface AvailabilityResult {
     canBook: boolean;
     message: string;
     calloutFeeMinor?: number;
+    calloutFeeDeductible?: boolean;
     pricingSource?: string;
   }>;
 }
@@ -123,6 +126,7 @@ export interface BookableServiceAvailability {
   message: string;
   calloutFeeMinor?: number;
   calloutFeeEnabled?: boolean;
+  calloutFeeDeductible?: boolean;
   minimumChargeMinor?: number;
   billingModel?: ServiceBillingModel;
   subscriptionEligible?: boolean;
@@ -253,6 +257,9 @@ const publishedCatalogue = async (): Promise<Map<string, ServiceDefinition>> => 
             subscriptionCadences: subcategory.subscriptionCadences || [],
             subscriptionNotes: subcategory.subscriptionNotes || '',
             calloutFeeEnabled: isCalloutFeeEnabled(subcategory.calloutFeeEnabled, subcategory.calloutFeeMinor, service.defaultCalloutFeeMinor),
+            calloutFeeDeductible: subcategory.calloutFeeDeductible === undefined
+              ? isCalloutFeeEnabled(subcategory.calloutFeeEnabled, subcategory.calloutFeeMinor, service.defaultCalloutFeeMinor)
+              : subcategory.calloutFeeDeductible === true,
             calloutFeeMinor: isCalloutFeeEnabled(subcategory.calloutFeeEnabled, subcategory.calloutFeeMinor, service.defaultCalloutFeeMinor)
               ? (subcategory.calloutFeeMinor ?? service.defaultCalloutFeeMinor ?? 0)
               : 0,
@@ -374,6 +381,7 @@ const enrichServiceEntries = (
         searchKeywords: entry.searchKeywords?.length ? entry.searchKeywords : catalogued.searchKeywords,
         synonyms: entry.synonyms?.length ? entry.synonyms : catalogued.synonyms,
         calloutFeeMinor: entry.calloutFeeMinor ?? catalogued.calloutFeeMinor,
+        calloutFeeDeductible: entry.calloutFeeDeductible ?? catalogued.calloutFeeDeductible,
         minimumChargeMinor: entry.minimumChargeMinor ?? catalogued.minimumChargeMinor,
         fixedPriceSupported: entry.fixedPriceSupported ?? catalogued.fixedPriceSupported,
         requiresCapabilityApproval: entry.requiresCapabilityApproval ?? catalogued.requiresCapabilityApproval,
@@ -465,6 +473,9 @@ export const normalizeServiceEntry = (entry: unknown): ServiceDefinition | null 
               subscriptionCadences: normalizeSubscriptionCadences(subRecord.subscriptionCadences),
               subscriptionNotes: normalizeText(subRecord.subscriptionNotes).slice(0, 800),
               calloutFeeEnabled: isCalloutFeeEnabled(subRecord.calloutFeeEnabled, subRecordCalloutFeeMinor),
+              calloutFeeDeductible: subRecord.calloutFeeDeductible === undefined
+                ? isCalloutFeeEnabled(subRecord.calloutFeeEnabled, subRecordCalloutFeeMinor)
+                : subRecord.calloutFeeDeductible === true,
               calloutFeeMinor: isCalloutFeeEnabled(subRecord.calloutFeeEnabled, subRecordCalloutFeeMinor) ? (subRecordCalloutFeeMinor ?? 0) : 0,
               minimumChargeMinor: typeof subRecord.minimumChargeMinor === 'number'
                 ? subRecord.minimumChargeMinor
@@ -530,6 +541,7 @@ const buildServiceGroups = (
           canBook: service.canBook && subcategory.status === MarketStatus.ACTIVE,
           message: subcategory.status === MarketStatus.ACTIVE ? service.message : statusMessage(subcategory.label, subcategory.status),
           calloutFeeEnabled: subcategory.calloutFeeEnabled === true,
+          calloutFeeDeductible: subcategory.calloutFeeDeductible === undefined ? subcategory.calloutFeeEnabled === true : subcategory.calloutFeeDeductible === true,
           calloutFeeMinor: subcategory.calloutFeeMinor ?? 0,
           minimumChargeMinor: subcategory.minimumChargeMinor ?? service.minimumChargeMinor,
           estimatedDurationMinutes: subcategory.estimatedDurationMinutes,
@@ -559,6 +571,7 @@ const buildServiceGroups = (
           canBook: service.canBook,
           message: service.message,
           calloutFeeEnabled: service.calloutFeeEnabled === true,
+          calloutFeeDeductible: service.calloutFeeDeductible === undefined ? service.calloutFeeEnabled === true : service.calloutFeeDeductible === true,
           calloutFeeMinor: service.calloutFeeMinor ?? 0,
           minimumChargeMinor: service.minimumChargeMinor,
           fixedPriceSupported: service.fixedPriceSupported,
@@ -923,6 +936,7 @@ export const getMarketAvailability = async (
           ...subcategory,
           status: effectiveStatus === MarketStatus.ACTIVE ? subcategory.status : effectiveStatus,
           calloutFeeEnabled: subcategoryCalloutFeeEnabled,
+          calloutFeeDeductible: subcategory.calloutFeeDeductible === undefined ? subcategoryCalloutFeeEnabled : subcategory.calloutFeeDeductible === true,
           calloutFeeMinor: subcategoryCalloutFeeEnabled ? (resolvedSubcategoryFeeMinor ?? 0) : 0,
           pricingSource: pricingSourceFor(pricingCandidates),
           socialProof: proofForService(
@@ -937,6 +951,7 @@ export const getMarketAvailability = async (
       canBook: effectiveStatus === MarketStatus.ACTIVE,
       message: statusMessage(service.label, effectiveStatus, city, area),
       calloutFeeEnabled: serviceCalloutFeeEnabled,
+      calloutFeeDeductible: service.calloutFeeDeductible === undefined ? serviceCalloutFeeEnabled : service.calloutFeeDeductible === true,
       calloutFeeMinor: serviceCalloutFeeEnabled ? (serviceCalloutFeeMinor ?? 0) : 0,
       pricingSource,
       socialProof: proofForService(socialProof, service.serviceKey, countryCode, city),
@@ -1006,6 +1021,7 @@ export const validateServiceBookable = async (input: {
         service: {
           ...parentWithBookable,
           calloutFeeEnabled: bookable.calloutFeeEnabled === true,
+          calloutFeeDeductible: bookable.calloutFeeDeductible === undefined ? bookable.calloutFeeEnabled === true : bookable.calloutFeeDeductible === true,
           calloutFeeMinor: bookable.calloutFeeMinor ?? 0,
           pricingSource: bookable.pricingSource || 'SUBCATEGORY_RESOLVED_CALLOUT',
         },
@@ -1034,6 +1050,7 @@ export const validateServiceBookable = async (input: {
       service: {
         ...service,
         calloutFeeEnabled: subcategory.calloutFeeEnabled === true,
+        calloutFeeDeductible: subcategory.calloutFeeDeductible === undefined ? subcategory.calloutFeeEnabled === true : subcategory.calloutFeeDeductible === true,
         calloutFeeMinor: subcategory.calloutFeeMinor ?? 0,
         pricingSource: subcategory.pricingSource || 'SUBCATEGORY_RESOLVED_CALLOUT',
       },

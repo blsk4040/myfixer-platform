@@ -76,6 +76,7 @@ import {
 } from '../services/admin-market-scope.service';
 import { listReferralRewardsForAdmin } from '../services/provider-referral.service';
 import { listCustomerReferralRewardsForAdmin } from '../services/customer-referral.service';
+import { listCustomerLoyaltyRewardsForAdmin } from '../services/customer-loyalty-reward.service';
 
 const parseLimit = (value: unknown, fallback = 50): number => {
   const parsed = Number(value);
@@ -521,6 +522,9 @@ const normalizeServiceSubcategories = (value: unknown) =>
           const calloutFeeEnabled = record.calloutFeeEnabled === undefined
             ? calloutFeeMinor !== undefined && calloutFeeMinor > 0
             : record.calloutFeeEnabled === true;
+          const calloutFeeDeductible = record.calloutFeeDeductible === undefined
+            ? calloutFeeEnabled
+            : record.calloutFeeDeductible === true;
           const minimumChargeMinor = minorFromInput(record.minimumChargeMinor, record.minimumCharge);
           const billingModel = normalizeServiceBillingModel(record.billingModel);
           const subscriptionEligible = billingModel === ServiceBillingModel.SUBSCRIPTION || record.subscriptionEligible === true;
@@ -544,6 +548,7 @@ const normalizeServiceSubcategories = (value: unknown) =>
             requiresCapabilityApproval: record.requiresCapabilityApproval === undefined ? true : record.requiresCapabilityApproval === true,
             capabilityRequirements: normalizeCapabilityRequirements(record.capabilityRequirements),
             calloutFeeEnabled,
+            calloutFeeDeductible: calloutFeeEnabled && calloutFeeDeductible,
             billingModel,
             subscriptionEligible,
             subscriptionCadences: subscriptionEligible ? normalizeSubscriptionCadences(record.subscriptionCadences) : [],
@@ -3134,6 +3139,7 @@ export const getAdminGrowthTrust = async (req: Request, res: Response): Promise<
       topProviders,
       rewards,
       customerRewards,
+      loyaltyRewards,
     ] = await Promise.all([
       BookingReview.aggregate([
         { $match: reviewFilter },
@@ -3170,6 +3176,7 @@ export const getAdminGrowthTrust = async (req: Request, res: Response): Promise<
         .lean(),
       listReferralRewardsForAdmin(scopeFilter),
       listCustomerReferralRewardsForAdmin(scopeFilter),
+      listCustomerLoyaltyRewardsForAdmin(scopeFilter),
     ]);
 
     const allRewards = [...rewards, ...customerRewards];
@@ -3188,6 +3195,9 @@ export const getAdminGrowthTrust = async (req: Request, res: Response): Promise<
     const suspiciousReferrals = allRewards
       .filter((reward) => reward.status === 'REWARD_BLOCKED' || reward.rewardBlockReason)
       .slice(0, 50);
+    const blockedLoyaltyRewards = loyaltyRewards
+      .filter((reward) => reward.status === 'BLOCKED' || reward.blockReason || reward.fraudSignals?.length)
+      .slice(0, 50);
 
     res.status(200).json({
       success: true,
@@ -3202,6 +3212,9 @@ export const getAdminGrowthTrust = async (req: Request, res: Response): Promise<
           rewardsIssued: rewardSummary.issued,
           rewardsRedeemed: rewardSummary.redeemed,
           blockedReferrals: rewardSummary.blocked,
+          loyaltyRewardsEarned: loyaltyRewards.filter((reward) => reward.status === 'EARNED' || reward.status === 'CLAIMED').length,
+          loyaltyRewardsRedeemed: loyaltyRewards.filter((reward) => reward.rewardRedeemed || reward.status === 'REDEEMED').length,
+          blockedLoyaltyRewards: blockedLoyaltyRewards.length,
         },
         reviews: recentReviews.map(serializeGrowthTrustReview),
         lowReviews: lowReviews.map(serializeGrowthTrustReview),
@@ -3220,6 +3233,8 @@ export const getAdminGrowthTrust = async (req: Request, res: Response): Promise<
         suspiciousReferrals,
         referralRewards: rewards,
         customerReferralRewards: customerRewards,
+        loyaltyRewards,
+        blockedLoyaltyRewards,
       },
     });
   } catch (error) {

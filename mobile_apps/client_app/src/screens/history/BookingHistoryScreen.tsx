@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Linking,
   Modal,
   Share,
   StatusBar,
@@ -128,10 +129,17 @@ export function BookingHistoryScreen(): React.JSX.Element {
     );
   };
 
-  const handleShareReferral = async () => {
+  const handleShareReferralWhatsApp = async () => {
     try {
       const response = await apiService.getMyReferralProgram();
-      await Share.share({ message: response.referral.shareMessage });
+      const message = response.referral.shareMessage;
+      const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+      const canOpenWhatsApp = await Linking.canOpenURL(whatsappUrl);
+      if (canOpenWhatsApp) {
+        await Linking.openURL(whatsappUrl);
+        return;
+      }
+      await Share.share({ message });
     } catch (error) {
       Alert.alert('Invite a friend', customerErrorMessage(error, 'Unable to prepare your invite right now.'));
     }
@@ -187,7 +195,7 @@ export function BookingHistoryScreen(): React.JSX.Element {
         response.message || 'Your review helps keep Padi trusted.',
         [
           { text: 'Not now', style: 'cancel' },
-          { text: 'Invite a friend', onPress: handleShareReferral },
+          { text: 'Share invite', onPress: handleShareReferralWhatsApp },
         ]
       );
     } catch (error) {
@@ -299,8 +307,8 @@ export function BookingHistoryScreen(): React.JSX.Element {
               </TouchableOpacity>
             ) : null}
             {item.status === 'COMPLETED' ? (
-              <TouchableOpacity style={styles.inviteButton} onPress={handleShareReferral}>
-                <Text style={styles.inviteButtonText}>Invite friend</Text>
+              <TouchableOpacity style={styles.inviteButton} onPress={handleShareReferralWhatsApp}>
+                <Text style={styles.inviteButtonText}>WhatsApp invite</Text>
               </TouchableOpacity>
             ) : null}
             {item.status === 'COMPLETED' ? (
@@ -347,8 +355,9 @@ export function BookingHistoryScreen(): React.JSX.Element {
       ['Subtotal', breakdown.subtotalMinor],
       ['Client Service Fee', breakdown.clientServiceFeeMinor],
       ['Tax', breakdown.taxMinor],
-      ['Total', breakdown.totalMinor],
-    ].filter(([label, amount]) => ['Subtotal', 'Tax', 'Total'].includes(String(label)) || Number(amount || 0) !== 0);
+      ['Call-out Credit', breakdown.calloutCreditMinor ? -breakdown.calloutCreditMinor : 0],
+      ['Balance Paid', breakdown.amountDueMinor ?? breakdown.totalMinor],
+    ].filter(([label, amount]) => ['Subtotal', 'Tax', 'Balance Paid'].includes(String(label)) || Number(amount || 0) !== 0);
   };
 
   return (
@@ -392,9 +401,9 @@ export function BookingHistoryScreen(): React.JSX.Element {
             <View style={styles.invoiceBody}>
               {invoiceBreakdown ? invoiceRows(invoiceBreakdown).map(([label, amount]) => (
                 <View key={String(label)} style={styles.invoiceRow}>
-                  <Text style={Number(amount) < 0 ? styles.discountLabel : String(label) === 'Total' ? styles.totalLabel : styles.billingLabel}>{String(label)}</Text>
+                  <Text style={Number(amount) < 0 ? styles.discountLabel : String(label) === 'Balance Paid' ? styles.totalLabel : styles.billingLabel}>{String(label)}</Text>
                   <Text
-                    style={Number(amount) < 0 ? styles.discountValue : String(label) === 'Total' ? styles.totalValue : styles.billingValue}
+                    style={Number(amount) < 0 ? styles.discountValue : String(label) === 'Balance Paid' ? styles.totalValue : styles.billingValue}
                     numberOfLines={1}
                     adjustsFontSizeToFit
                     minimumFontScale={0.7}

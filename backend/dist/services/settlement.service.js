@@ -55,6 +55,7 @@ const notification_model_1 = require("../models/notification.model");
 const market_finance_guard_service_1 = require("./market-finance-guard.service");
 const provider_referral_service_1 = require("./provider-referral.service");
 const customer_referral_service_1 = require("./customer-referral.service");
+const customer_loyalty_reward_service_1 = require("./customer-loyalty-reward.service");
 const provider_reputation_service_1 = require("./provider-reputation.service");
 class SettlementError extends Error {
     code;
@@ -300,6 +301,7 @@ const confirmCustomerCompletion = async (bookingId, actor, input, req) => {
     }
     await (0, provider_referral_service_1.processReferralRewardForCompletedBooking)(completedBooking);
     await (0, customer_referral_service_1.processCustomerReferralRewardForCompletedBooking)(completedBooking);
+    await (0, customer_loyalty_reward_service_1.processCustomerLoyaltyRewardForCompletedBooking)(completedBooking);
     req?.app.get('io')?.to(`booking:${completedBooking.id}`).emit('completion_confirmed', {
         bookingId: completedBooking.id,
         status: completedBooking.status,

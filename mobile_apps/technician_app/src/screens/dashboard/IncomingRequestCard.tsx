@@ -22,7 +22,7 @@ export function IncomingRequestCard({
           {job.applianceType}
         </Text>
         <Text style={styles.price}>
-          {job.currency || 'ZAR'} {job.callOutFee || 0}
+          {job.callOutFee > 0 ? `${job.currency || 'ZAR'} ${job.callOutFee}` : 'Quote after inspection'}
         </Text>
       </View>
 

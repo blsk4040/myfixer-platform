@@ -68,12 +68,14 @@ export default function BookingWizardScreen() {
     subCategoryKey = '',
     basePrice = 0,
     calloutFeeEnabled,
+    calloutFeeDeductible,
     preferredTechnicianId,
     preferredTechnicianName,
     rebookFromBookingId,
   } = route.params || {};
   const isPreferredProviderRebook = Boolean(preferredTechnicianId && rebookFromBookingId);
   const hasCalloutFee = calloutFeeEnabled === undefined ? basePrice > 0 : calloutFeeEnabled !== false;
+  const deductibleCallout = hasCalloutFee && calloutFeeDeductible !== false;
 
   const [notes, setNotes] = useState('');
   const [promoCode, setPromoCode] = useState('');
@@ -363,6 +365,9 @@ export default function BookingWizardScreen() {
               {hasCalloutFee ? 'Call-out fee: ' : 'No call-out fee'}
               {hasCalloutFee ? <Text style={styles.greenText}>{basePrice > 0 ? `R${basePrice}` : 'Confirmed by Padi'}</Text> : null}
             </Text>
+            {deductibleCallout ? (
+              <Text style={styles.headerFinePrint}>Deducted from your approved repair quote.</Text>
+            ) : null}
             <View style={styles.stepper}>
               {wizardSteps.map((step, index) => (
                 <View key={step} style={styles.stepItem}>
@@ -457,7 +462,7 @@ export default function BookingWizardScreen() {
           {!requestAccepted && !isSearchingProvider && (
             <View style={styles.formContainer}>
               
-              <View style={styles.sectionCard}>
+              <View style={[styles.sectionCard, styles.locationSectionCard]}>
               <Text style={styles.sectionEyebrow}>Step 2</Text>
               <Text style={styles.sectionTitle}>Service address</Text>
               <Text style={styles.sectionHint}>Choose where the professional should arrive. You can book for yourself or for someone else.</Text>
@@ -518,16 +523,30 @@ export default function BookingWizardScreen() {
               </View>
 
               <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Promo code</Text>
-              <TextInput
-                style={styles.promoInput}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                placeholder="Optional"
-                placeholderTextColor={Colors.textSubtle}
-                value={promoCode}
-                onChangeText={(value) => setPromoCode(value.toUpperCase())}
-              />
+              <View style={styles.promoHeaderRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitle}>Padi discount</Text>
+                  <Text style={styles.sectionHint}>Enter a promo or referral code. We will check and apply it when the request is submitted.</Text>
+                </View>
+                {promoCode.trim() ? (
+                  <TouchableOpacity style={styles.clearPromoButton} onPress={() => setPromoCode('')}>
+                    <Text style={styles.clearPromoText}>Clear</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <View style={styles.promoInputShell}>
+                <Text style={styles.promoPrefix}>CODE</Text>
+                <TextInput
+                  style={styles.promoInput}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  placeholder="Enter code"
+                  placeholderTextColor={Colors.textSubtle}
+                  value={promoCode}
+                  onChangeText={(value) => setPromoCode(value.toUpperCase())}
+                />
+              </View>
+              <Text style={styles.promoHelper}>Rewards are tied to your account and can only be used where eligible.</Text>
               </View>
 
               <View style={styles.sectionCard}>
@@ -642,6 +661,7 @@ const styles = StyleSheet.create({
   header: { marginBottom: Spacing.xl },
   headerTitle: { color: Colors.text, fontSize: 28, fontWeight: '900' },
   headerSubtitle: { color: Colors.textMuted, fontSize: 14, marginTop: 5, fontWeight: '600' },
+  headerFinePrint: { color: Colors.textSubtle, fontSize: 12, marginTop: 4, lineHeight: 17 },
   greenText: { color: Colors.primary, fontWeight: '900' },
   stepper: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.xl },
   stepItem: { flex: 1, alignItems: 'center', gap: 6 },
@@ -656,11 +676,18 @@ const styles = StyleSheet.create({
   preferredText: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 5 },
   formContainer: { gap: Spacing.lg },
   sectionCard: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.lg, padding: Spacing.lg, gap: Spacing.md },
+  locationSectionCard: { padding: Spacing.md },
   sectionEyebrow: { color: Colors.primary, fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
   sectionTitle: { color: Colors.text, fontSize: 17, fontWeight: '900' },
   sectionHint: { color: Colors.textMuted, fontSize: 12, fontWeight: '600', lineHeight: 18 },
   instructionInput: { backgroundColor: Colors.input, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.lg, color: Colors.text, fontSize: 14, minHeight: 96, textAlignVertical: 'top' },
-  promoInput: { backgroundColor: Colors.input, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.lg, color: Colors.text, fontSize: 14, fontWeight: '700', letterSpacing: 0 },
+  promoHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  clearPromoButton: { minHeight: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: Colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surfaceRaised },
+  clearPromoText: { color: Colors.text, fontSize: 12, fontWeight: '900' },
+  promoInputShell: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.input, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, paddingLeft: 12 },
+  promoPrefix: { color: Colors.primary, fontSize: 10, fontWeight: '900', marginRight: 10 },
+  promoInput: { flex: 1, minHeight: 52, color: Colors.text, fontSize: 14, fontWeight: '900', letterSpacing: 0, paddingRight: Spacing.lg },
+  promoHelper: { color: Colors.textSubtle, fontSize: 11, fontWeight: '600', lineHeight: 16 },
   estimateBox: { marginTop: 14, backgroundColor: Colors.background, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, padding: 14, gap: 8 },
   estimateTitle: { color: Colors.primary, fontSize: 13, fontWeight: '800' },
   estimateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },

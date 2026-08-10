@@ -12,7 +12,7 @@ export interface IncomingJob {
   id: string;
   applianceType: string;
   faultDescription: string;   // e.g., "Error code 3C, drum won't spin"
-  callOutFee: number;         // Fixed platform call-out rate (e.g., 450)
+  callOutFee: number;
   currency?: string;
   distance: string;           // e.g., "4.5 km"
   generalArea: string;        // Suburb level masking (e.g., "Bryanston")

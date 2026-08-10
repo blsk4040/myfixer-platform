@@ -9,10 +9,15 @@ const bps = (value, fallback = 0) => {
 const calculatePriceBreakdown = (input) => {
     const pricing = input.marketPricing || {};
     const calloutFeeMinor = positiveMinor(input.calloutFeeMinor);
+    const calloutFeeDeductible = input.calloutFeeDeductible === true;
     const labourMinor = positiveMinor(input.labourMinor);
     const partsMinor = positiveMinor(input.partsMinor);
     const additionalServicesMinor = positiveMinor(input.additionalServicesMinor);
     const surchargeMinor = positiveMinor(input.surchargeMinor);
+    const repairWorkMinor = labourMinor + partsMinor + additionalServicesMinor + surchargeMinor;
+    const requestedCalloutCreditMinor = calloutFeeDeductible && repairWorkMinor > 0
+        ? positiveMinor(input.calloutCreditMinor)
+        : 0;
     const explicitPromotionDiscountMinor = positiveMinor(input.promotionDiscountMinor);
     const explicitOtherDiscountMinor = positiveMinor(input.otherDiscountMinor);
     const legacyDiscountMinor = positiveMinor(input.discountMinor);
@@ -57,14 +62,24 @@ const calculatePriceBreakdown = (input) => {
             ? Math.round(taxableBase - taxableBase / (1 + taxRateBps / 10000))
             : Math.round((taxableBase * taxRateBps) / 10000)
         : 0;
-    const totalMinor = subtotalMinor + clientServiceFeeMinor + (taxInclusive ? 0 : taxMinor);
+    const totalBeforeCreditMinor = subtotalMinor + clientServiceFeeMinor + (taxInclusive ? 0 : taxMinor);
+    const calloutCreditMinor = Math.min(requestedCalloutCreditMinor, calloutFeeMinor, totalBeforeCreditMinor);
+    const totalMinor = Math.max(totalBeforeCreditMinor - calloutCreditMinor, 0);
     const platformCommissionBps = bps(pricing.platformCommissionBps);
     const technicianGrossMinor = Math.max(subtotalBeforeDiscount - otherDiscountMinor - promotionTechnicianFundedMinor, 0);
-    const platformCommissionMinor = Math.round((technicianGrossMinor * platformCommissionBps) / 10000);
+    const commissionableBaseBeforeDiscount = (pricing.commissionableCallout === false ? 0 : calloutFeeMinor) +
+        (pricing.commissionableLabour === false ? 0 : labourMinor) +
+        (pricing.commissionableParts === true ? partsMinor : 0) +
+        (pricing.commissionableAdditionalServices === false ? 0 : additionalServicesMinor) +
+        (pricing.commissionableSurcharge === false ? 0 : surchargeMinor);
+    const platformCommissionBaseMinor = Math.max(Math.min(commissionableBaseBeforeDiscount - otherDiscountMinor - promotionTechnicianFundedMinor, technicianGrossMinor), 0);
+    const platformCommissionMinor = Math.round((platformCommissionBaseMinor * platformCommissionBps) / 10000);
     const technicianNetMinor = Math.max(technicianGrossMinor - platformCommissionMinor, 0);
     return {
         currency: input.currency,
         calloutFeeMinor,
+        calloutFeeDeductible,
+        calloutCreditMinor,
         labourMinor,
         partsMinor,
         additionalServicesMinor,
@@ -75,10 +90,13 @@ const calculatePriceBreakdown = (input) => {
         subtotalMinor,
         clientServiceFeeMinor,
         taxMinor,
+        totalBeforeCreditMinor,
         totalMinor,
+        amountDueMinor: totalMinor,
         promotionPlatformFundedMinor,
         promotionTechnicianFundedMinor,
         promotionPartnerFundedMinor,
+        platformCommissionBaseMinor,
         platformCommissionMinor,
         technicianGrossMinor,
         technicianNetMinor,

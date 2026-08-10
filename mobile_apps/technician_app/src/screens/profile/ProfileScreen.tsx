@@ -1,6 +1,6 @@
 // src/screens/profile/ProfileScreen.tsx
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, Share, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Linking, ScrollView, Share, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { NavigationProp, ParamListBase, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -88,6 +88,32 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
 
     if (!message) {
       Alert.alert('Invite unavailable', 'Your invite code is not ready yet. Please try again shortly.');
+      return;
+    }
+
+    await Share.share({ message });
+  };
+
+  const handleWhatsAppInvite = async () => {
+    if (!inviteUnlocked) {
+      Alert.alert(
+        'Invite locked',
+        referralEligibility?.reason || 'Customer invites unlock after your account is approved and you complete your first paid jobs.'
+      );
+      return;
+    }
+
+    const message = referralProgram?.shareMessage || '';
+
+    if (!message) {
+      Alert.alert('Invite unavailable', 'Your invite code is not ready yet. Please try again shortly.');
+      return;
+    }
+
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+    const canOpenWhatsApp = await Linking.canOpenURL(whatsappUrl);
+    if (canOpenWhatsApp) {
+      await Linking.openURL(whatsappUrl);
       return;
     }
 
@@ -218,16 +244,30 @@ export function ProfileScreen({ setIsAuthenticated }: ProfileScreenProps): React
             {referralProgram && !inviteUnlocked && (
               <Text style={styles.inviteStats}>No referral reward is issued at signup.</Text>
             )}
+            {inviteUnlocked ? (
+              <Text style={styles.inviteFinePrint}>Best used with customers who already know your work. Padi still verifies payment, completion and trust rules before rewards.</Text>
+            ) : null}
           </View>
-          <TouchableOpacity
-            style={[styles.inviteButton, !inviteUnlocked && styles.inviteButtonDisabled]}
-            activeOpacity={0.86}
-            onPress={handleShareInvite}
-          >
-            <Text style={[styles.inviteButtonText, !inviteUnlocked && styles.inviteButtonTextDisabled]}>
-              {inviteUnlocked ? 'Share' : 'Locked'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.inviteActionStack}>
+            <TouchableOpacity
+              style={[styles.inviteButton, !inviteUnlocked && styles.inviteButtonDisabled]}
+              activeOpacity={0.86}
+              onPress={handleWhatsAppInvite}
+            >
+              <Text style={[styles.inviteButtonText, !inviteUnlocked && styles.inviteButtonTextDisabled]}>
+                {inviteUnlocked ? 'WhatsApp' : 'Locked'}
+              </Text>
+            </TouchableOpacity>
+            {inviteUnlocked ? (
+              <TouchableOpacity
+                style={styles.inviteSecondaryButton}
+                activeOpacity={0.86}
+                onPress={handleShareInvite}
+              >
+                <Text style={styles.inviteSecondaryButtonText}>Share</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
 
         <Text style={styles.sectionTitle}>Services</Text>
@@ -332,8 +372,10 @@ const styles = StyleSheet.create({
   inviteCode: { color: Colors.primary, fontSize: 14, fontWeight: '900', letterSpacing: 0.6 },
   inviteLockedText: { color: Colors.textMuted, fontSize: 12, fontWeight: '900' },
   inviteStats: { color: Colors.textSubtle, fontSize: 11, fontWeight: '700', marginTop: 8 },
+  inviteFinePrint: { color: Colors.textSubtle, fontSize: 10, fontWeight: '600', lineHeight: 15, marginTop: 8 },
+  inviteActionStack: { gap: 8, alignItems: 'stretch' },
   inviteButton: {
-    minWidth: 74,
+    minWidth: 92,
     minHeight: 42,
     borderRadius: 21,
     alignItems: 'center',
@@ -342,6 +384,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   inviteButtonText: { color: Colors.background, fontSize: 13, fontWeight: '900' },
+  inviteSecondaryButton: { minWidth: 92, minHeight: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.border },
+  inviteSecondaryButtonText: { color: Colors.text, fontSize: 13, fontWeight: '900' },
   inviteButtonDisabled: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.border },
   inviteButtonTextDisabled: { color: Colors.textMuted },
   sectionTitle: { color: Colors.text, fontSize: 13, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 12, marginTop: 5 },

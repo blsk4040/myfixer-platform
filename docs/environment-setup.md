@@ -39,7 +39,7 @@ npm start
 Production:
 
 ```powershell
-$env:ADMIN_API_BASE_URL='https://api.myfixer.co.za/api/v1'
+$env:ADMIN_API_BASE_URL='https://api.hellopadi.com/api/v1'
 npm start
 ```
 
@@ -60,8 +60,8 @@ npm run start
 Production build:
 
 ```powershell
-$env:EXPO_PUBLIC_API_BASE_URL='https://api.myfixer.co.za/api/v1'
-$env:EXPO_PUBLIC_SOCKET_URL='https://api.myfixer.co.za'
+$env:EXPO_PUBLIC_API_BASE_URL='https://api.hellopadi.com/api/v1'
+$env:EXPO_PUBLIC_SOCKET_URL='https://api.hellopadi.com'
 $env:EXPO_PUBLIC_APP_ENV='production'
 ```
 
@@ -80,8 +80,8 @@ npm run start
 Production build:
 
 ```powershell
-$env:EXPO_PUBLIC_API_BASE_URL='https://api.myfixer.co.za/api/v1'
-$env:EXPO_PUBLIC_SOCKET_URL='https://api.myfixer.co.za'
+$env:EXPO_PUBLIC_API_BASE_URL='https://api.hellopadi.com/api/v1'
+$env:EXPO_PUBLIC_SOCKET_URL='https://api.hellopadi.com'
 $env:EXPO_PUBLIC_APP_ENV='production'
 ```
 

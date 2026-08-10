@@ -37,8 +37,8 @@ npm run start
 Set production URLs through the release environment:
 
 ```powershell
-$env:EXPO_PUBLIC_API_BASE_URL='https://api.myfixer.co.za/api/v1'
-$env:EXPO_PUBLIC_SOCKET_URL='https://api.myfixer.co.za'
+$env:EXPO_PUBLIC_API_BASE_URL='https://api.hellopadi.com/api/v1'
+$env:EXPO_PUBLIC_SOCKET_URL='https://api.hellopadi.com'
 $env:EXPO_PUBLIC_APP_ENV='production'
 ```
 

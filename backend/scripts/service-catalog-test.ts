@@ -480,8 +480,66 @@ async function run() {
     assert.strictEqual(breakdown.clientServiceFeeMinor, 5000);
     assert.strictEqual(breakdown.taxMinor, 15750);
     assert.strictEqual(breakdown.totalMinor, 120750);
-    assert.strictEqual(breakdown.platformCommissionMinor, 15000);
-    assert.strictEqual(breakdown.technicianNetMinor, 85000);
+    assert.strictEqual(breakdown.platformCommissionBaseMinor, 85000);
+    assert.strictEqual(breakdown.platformCommissionMinor, 12750);
+    assert.strictEqual(breakdown.technicianNetMinor, 87250);
+
+    const deductibleBreakdown = calculatePriceBreakdown({
+      currency: 'ZAR',
+      calloutFeeMinor: 35000,
+      calloutFeeDeductible: true,
+      calloutCreditMinor: 35000,
+      labourMinor: 80000,
+      marketPricing: {
+        taxLabel: 'VAT',
+        taxRateBps: 0,
+        taxInclusive: false,
+        clientServiceFeeType: 'NONE',
+        platformCommissionBps: 1500,
+      },
+    });
+    assert.strictEqual(deductibleBreakdown.subtotalMinor, 115000);
+    assert.strictEqual(deductibleBreakdown.totalBeforeCreditMinor, 115000);
+    assert.strictEqual(deductibleBreakdown.calloutCreditMinor, 35000);
+    assert.strictEqual(deductibleBreakdown.amountDueMinor, 80000);
+    assert.strictEqual(deductibleBreakdown.totalMinor, 80000);
+    assert.strictEqual(deductibleBreakdown.technicianGrossMinor, 115000);
+    assert.strictEqual(deductibleBreakdown.platformCommissionMinor, 17250);
+    assert.strictEqual(deductibleBreakdown.technicianNetMinor, 97750);
+
+    const partsFriendlyBreakdown = calculatePriceBreakdown({
+      currency: 'ZAR',
+      calloutFeeMinor: 45000,
+      calloutFeeDeductible: true,
+      calloutCreditMinor: 45000,
+      labourMinor: 60000,
+      partsMinor: 650000,
+      marketPricing: {
+        taxRateBps: 0,
+        clientServiceFeeType: 'NONE',
+        platformCommissionBps: 1200,
+      },
+    });
+    assert.strictEqual(partsFriendlyBreakdown.subtotalMinor, 755000);
+    assert.strictEqual(partsFriendlyBreakdown.amountDueMinor, 710000);
+    assert.strictEqual(partsFriendlyBreakdown.technicianGrossMinor, 755000);
+    assert.strictEqual(partsFriendlyBreakdown.platformCommissionBaseMinor, 105000);
+    assert.strictEqual(partsFriendlyBreakdown.platformCommissionMinor, 12600);
+    assert.strictEqual(partsFriendlyBreakdown.technicianNetMinor, 742400);
+
+    const partsCommissionOptInBreakdown = calculatePriceBreakdown({
+      currency: 'ZAR',
+      labourMinor: 60000,
+      partsMinor: 650000,
+      marketPricing: {
+        taxRateBps: 0,
+        clientServiceFeeType: 'NONE',
+        platformCommissionBps: 1200,
+        commissionableParts: true,
+      },
+    });
+    assert.strictEqual(partsCommissionOptInBreakdown.platformCommissionBaseMinor, 710000);
+    assert.strictEqual(partsCommissionOptInBreakdown.platformCommissionMinor, 85200);
 
     const apiRoutes = readFileSync('src/routes/api.routes.ts', 'utf8');
     assert.strictEqual(apiRoutes.includes('cities/:cityName/services'), false, 'Market Step 4 City Services admin routes must not be registered.');

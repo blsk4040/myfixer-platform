@@ -196,6 +196,8 @@ const state = {
       suspiciousReferrals: [],
       referralRewards: [],
       customerReferralRewards: [],
+      loyaltyRewards: [],
+      blockedLoyaltyRewards: [],
     },
     promotionSummary: null,
     promotionMeta: {
@@ -1197,6 +1199,8 @@ async function loadAllData() {
       suspiciousReferrals: [],
       referralRewards: [],
       customerReferralRewards: [],
+      loyaltyRewards: [],
+      blockedLoyaltyRewards: [],
     };
     state.data.promotionMeta = {
       discountTypes: promotions.discountTypes || [],
@@ -4211,6 +4215,8 @@ function renderGrowthTrust() {
   const lowReviews = data.lowReviews || [];
   const topProviders = data.topProviders || [];
   const suspiciousReferrals = data.suspiciousReferrals || [];
+  const loyaltyRewards = data.loyaltyRewards || [];
+  const blockedLoyaltyRewards = data.blockedLoyaltyRewards || [];
   const cards = [
     ['Reviews', summary.totalReviews ?? reviews.length, 'Customer job reviews'],
     ['Average Rating', summary.averageRating ? `${Number(summary.averageRating).toFixed(2)} / 5` : 'New', 'Published review average'],
@@ -4218,6 +4224,8 @@ function renderGrowthTrust() {
     ['Tracked Referrals', summary.trackedReferrals ?? 0, 'Provider and customer invites'],
     ['Rewards Issued', summary.rewardsIssued ?? 0, 'Eligible reward promotions'],
     ['Blocked Referrals', summary.blockedReferrals ?? suspiciousReferrals.length, 'Fraud or safety blocks'],
+    ['Loyalty Rewards', summary.loyaltyRewardsEarned ?? loyaltyRewards.length, 'Milestone rewards earned'],
+    ['Loyalty Blocks', summary.blockedLoyaltyRewards ?? blockedLoyaltyRewards.length, 'Milestone fraud flags'],
   ];
 
   return `
@@ -4258,8 +4266,22 @@ function renderGrowthTrust() {
       </section>
 
       <section class="panel business-panel">
+        <div class="panel-header"><div><h2>Loyalty Rewards</h2><span>Customer milestone rewards such as free services or partner vouchers.</span></div></div>
+        ${loyaltyRewards.length ? renderGenericTable(loyaltyRewards, ['Customer', 'Reward', 'Milestone', 'Status', 'Market', 'Fraud Signals', 'Issued'], (reward) => [
+          `<strong>${escapeHtml(reward.customer?.name || '-')}</strong><span>${escapeHtml(reward.customer?.email || '')}</span>`,
+          `<strong>${escapeHtml(reward.title || '-')}</strong><span>${escapeHtml(reward.rewardType || '')}${reward.promotionCode ? ` - ${escapeHtml(reward.promotionCode)}` : ''}</span>`,
+          `${escapeHtml(reward.qualifyingBookingCount || 0)} / ${escapeHtml(reward.milestone || 0)} jobs`,
+          `<span class="status ${statusClass(reward.status)}">${escapeHtml(reward.status || '-')}</span>`,
+          `${escapeHtml(reward.city || '-')}<span>${escapeHtml(reward.countryCode || '')}</span>`,
+          reward.fraudSignals?.length ? `<span class="status warn">${escapeHtml(reward.fraudSignals.join(', '))}</span>` : '<span class="status good">Clear</span>',
+          formatDate(reward.createdAt),
+        ]) : renderEmpty('No loyalty milestone rewards have been earned yet.')}
+      </section>
+
+      <section class="panel business-panel">
         <div class="panel-header"><div><h2>Suspicious Referral Activity</h2><span>Blocked provider and customer referral rewards.</span></div></div>
-        ${suspiciousReferrals.length ? renderGenericTable(suspiciousReferrals, ['Type', 'Inviter', 'Customer', 'Code', 'Market', 'Reason', 'Timeline'], (reward) => [
+        ${suspiciousReferrals.length || blockedLoyaltyRewards.length ? `
+          ${suspiciousReferrals.length ? renderGenericTable(suspiciousReferrals, ['Type', 'Inviter', 'Customer', 'Code', 'Market', 'Reason', 'Timeline'], (reward) => [
           reward.friendDiscountCode ? 'Customer Invite' : 'Provider Invite',
           `<strong>${escapeHtml(reward.referrer?.name || '-')}</strong><span>${escapeHtml(reward.referrer?.email || '')}</span>`,
           `<strong>${escapeHtml(reward.customer?.name || '-')}</strong><span>${escapeHtml(reward.customer?.email || '')}</span>`,
@@ -4267,7 +4289,16 @@ function renderGrowthTrust() {
           `${escapeHtml(reward.city || '-')}<span>${escapeHtml(reward.countryCode || '')}</span>`,
           `<span class="status bad">${escapeHtml(reward.rewardBlockReason || reward.status || 'Blocked')}</span>`,
           `Registered ${formatDate(reward.registeredAt)}<span>Completed ${formatDate(reward.firstCompletedAt)} - Blocked ${formatDate(reward.rewardBlockedAt)}</span>`,
-        ]) : renderEmpty('No suspicious or blocked referral activity is currently flagged.')}
+        ]) : ''}
+          ${blockedLoyaltyRewards.length ? renderGenericTable(blockedLoyaltyRewards, ['Type', 'Customer', 'Reward', 'Market', 'Reason', 'Timeline'], (reward) => [
+            'Loyalty Reward',
+            `<strong>${escapeHtml(reward.customer?.name || '-')}</strong><span>${escapeHtml(reward.customer?.email || '')}</span>`,
+            `<strong>${escapeHtml(reward.title || '-')}</strong><span>${escapeHtml(reward.rewardType || '')}</span>`,
+            `${escapeHtml(reward.city || '-')}<span>${escapeHtml(reward.countryCode || '')}</span>`,
+            `<span class="status bad">${escapeHtml(reward.blockReason || reward.fraudSignals?.join(', ') || 'Blocked')}</span>`,
+            `Earned ${formatDate(reward.createdAt)}<span>Blocked ${formatDate(reward.blockedAt)}</span>`,
+          ]) : ''}
+        ` : renderEmpty('No suspicious or blocked referral activity is currently flagged.')}
       </section>
     </div>
   `;
@@ -4810,6 +4841,9 @@ function bookableServicesForCategory(serviceKey) {
     label: service.label || service.serviceKey || service.subcategoryKey || 'Unnamed Service',
     description: service.description || '',
     calloutFeeEnabled: calloutFeeEnabledFor(service, category.defaultCalloutFeeMinor),
+    calloutFeeDeductible: service.calloutFeeDeductible === undefined
+      ? calloutFeeEnabledFor(service, category.defaultCalloutFeeMinor)
+      : service.calloutFeeDeductible === true,
     calloutFeeMinor: calloutFeeEnabledFor(service, category.defaultCalloutFeeMinor)
       ? (service.calloutFeeMinor ?? category.defaultCalloutFeeMinor ?? 0)
       : 0,
@@ -4879,6 +4913,11 @@ function renderBookableServiceDrawer(category, bookableService) {
   const serviceNameValue = draft.serviceName !== undefined ? draft.serviceName : bookableService?.label || '';
   const descriptionValue = draft.description !== undefined ? draft.description : bookableService?.description || '';
   const calloutFeeValue = draft.calloutFee !== undefined ? draft.calloutFee : minorToDecimal(calloutFeeEnabledValue ? feeMinor : 0);
+  const calloutFeeDeductibleValue = draft.calloutFeeDeductible !== undefined
+    ? draft.calloutFeeDeductible
+    : bookableService?.calloutFeeDeductible === undefined
+      ? calloutFeeEnabledValue
+      : bookableService.calloutFeeDeductible === true;
   const inspectionRequiredValue = draft.inspectionRequired !== undefined ? draft.inspectionRequired : bookableService?.inspectionRequired === true;
   const billingModelValue = draft.billingModel !== undefined ? draft.billingModel : bookableService?.billingModel || 'ON_DEMAND';
   const subscriptionEligibleValue = draft.subscriptionEligible !== undefined
@@ -4922,6 +4961,11 @@ function renderBookableServiceDrawer(category, bookableService) {
           </span>
           <small>Use this only when the customer must pay for a visit or inspection.</small>
         </label>
+        <label class="checkbox-line">
+          <input name="calloutFeeDeductible" type="checkbox" ${calloutFeeDeductibleValue ? 'checked' : ''} ${calloutFeeEnabledValue ? '' : 'disabled'} ${canUpdate ? '' : 'disabled'} />
+          Deduct call-out from approved repair quote
+        </label>
+        <p class="setting-help tight">If the customer approves the repair quote, Padi applies the paid call-out as a credit against the balance. Provider earnings and Padi commission still use the full job value.</p>
         <label class="checkbox-line">
           <input name="inspectionRequired" type="checkbox" ${inspectionRequiredValue ? 'checked' : ''} ${canUpdate ? '' : 'disabled'} />
           Inspection Required
@@ -5673,6 +5717,7 @@ function captureBookableDraftFromForm() {
     serviceName: String(data.get('serviceName') || ''),
     description: String(data.get('description') || ''),
     calloutFeeEnabled: data.get('calloutFeeEnabled') === 'on',
+    calloutFeeDeductible: data.get('calloutFeeDeductible') === 'on',
     calloutFee: String(data.get('calloutFee') || ''),
     inspectionRequired: data.get('inspectionRequired') === 'on',
     billingModel: String(data.get('billingModel') || 'ON_DEMAND'),
@@ -5685,10 +5730,15 @@ function captureBookableDraftFromForm() {
 function toggleBookableCalloutFee(checkbox) {
   const form = checkbox?.closest?.('form');
   const input = form?.elements?.calloutFee;
+  const deductibleInput = form?.elements?.calloutFeeDeductible;
   if (!input) return;
   input.disabled = !checkbox.checked;
   input.required = checkbox.checked;
   if (!checkbox.checked) input.value = '0.00';
+  if (deductibleInput) {
+    deductibleInput.disabled = !checkbox.checked;
+    deductibleInput.checked = checkbox.checked;
+  }
 }
 
 function captureServiceCategoryDraftFromForm() {
@@ -5816,6 +5866,7 @@ async function saveBookableService(event, publicationStatus) {
     : serviceKey;
   const description = String(form.get('description') || '').trim();
   const calloutFeeEnabled = form.get('calloutFeeEnabled') === 'on';
+  const calloutFeeDeductible = calloutFeeEnabled && form.get('calloutFeeDeductible') === 'on';
   const calloutFeeMinor = calloutFeeEnabled ? decimalToMinor(form.get('calloutFee')) : 0;
   const inspectionRequired = form.get('inspectionRequired') === 'on';
   const billingModel = String(form.get('billingModel') || 'ON_DEMAND') === 'SUBSCRIPTION' ? 'SUBSCRIPTION' : 'ON_DEMAND';
@@ -5829,6 +5880,7 @@ async function saveBookableService(event, publicationStatus) {
     serviceName,
     description,
     calloutFeeEnabled,
+    calloutFeeDeductible,
     calloutFee: String(form.get('calloutFee') || ''),
     inspectionRequired,
     billingModel,
@@ -5913,6 +5965,7 @@ async function saveBookableService(event, publicationStatus) {
     fixedPriceSupported: existingBookable?.fixedPriceSupported === true,
     requiresCapabilityApproval: existingBookable?.requiresCapabilityApproval === undefined ? true : existingBookable.requiresCapabilityApproval !== false,
     calloutFeeEnabled,
+    calloutFeeDeductible,
     calloutFeeMinor,
   };
   const nextSubcategories = editing

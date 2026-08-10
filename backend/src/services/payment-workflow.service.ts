@@ -27,6 +27,7 @@ import {
   releasePromotionReservations,
   reverseRedeemedPromotions,
 } from './promotion-campaign.service';
+import { ledgerType, recordLedgerEntry } from './financial-ledger.service';
 
 export class PaymentWorkflowError extends Error {
   constructor(
@@ -103,7 +104,16 @@ const getApprovedQuoteAmount = async (booking: IBooking, quoteId?: string) => {
   if (quote.totalAmountMinor <= 0) {
     throw new PaymentWorkflowError('Quote total must be greater than zero.', 'INVALID_PAYMENT_AMOUNT');
   }
-  return { quote, amountMinor: quote.totalAmountMinor };
+  const quoteBreakdown = quote.metadata?.priceBreakdown && typeof quote.metadata.priceBreakdown === 'object'
+    ? quote.metadata.priceBreakdown as Record<string, unknown>
+    : null;
+  const amountMinor = typeof quoteBreakdown?.totalMinor === 'number' && Number.isFinite(quoteBreakdown.totalMinor)
+    ? Math.max(0, Math.round(quoteBreakdown.totalMinor))
+    : quote.totalAmountMinor;
+  if (amountMinor <= 0) {
+    throw new PaymentWorkflowError('Quote balance must be greater than zero.', 'INVALID_PAYMENT_AMOUNT');
+  }
+  return { quote, amountMinor };
 };
 
 const resolvePaymentAmount = async (booking: IBooking, quoteId?: string) => {
@@ -139,6 +149,22 @@ const promotionSnapshotsFromTransaction = (transaction: IPaymentTransaction): Ap
     : transaction.metadata?.promotion
       ? [transaction.metadata.promotion as AppliedPromotionSnapshot]
       : [];
+
+const paymentLedgerContext = (transaction: IPaymentTransaction, booking?: IBooking | null) => ({
+  bookingId: transaction.bookingId,
+  quoteId: transaction.quoteId ?? null,
+  paymentTransactionId: transaction._id,
+  customerId: transaction.customerId,
+  technicianId: transaction.technicianId ?? booking?.technicianId ?? null,
+  countryCode: booking?.countryCode || String(transaction.metadata?.countryCode || ''),
+  currency: transaction.currency,
+  metadata: {
+    reference: maskReference(transaction.reference),
+    provider: transaction.provider,
+    providerStatus: transaction.providerStatus || '',
+    quoteId: transaction.quoteId?.toString() || null,
+  },
+});
 
 export const initializeBookingPayment = async (
   input: InitializePaymentInput,
@@ -182,6 +208,8 @@ export const initializeBookingPayment = async (
     bookingId: booking.id,
     quoteId: quote?._id?.toString() || null,
     customerId: booking.customerId.toString(),
+    technicianId: booking.technicianId?.toString() || null,
+    countryCode: booking.countryCode,
     promotion: booking.metadata?.promotion || null,
     promotions: Array.isArray(booking.metadata?.promotions) ? booking.metadata.promotions : [],
     priceBreakdown: quote?.metadata?.priceBreakdown || booking.metadata?.priceBreakdown || null,
@@ -227,6 +255,16 @@ export const initializeBookingPayment = async (
     initializedAt: new Date(),
     idempotencyKey,
     metadata,
+  });
+
+  await recordLedgerEntry({
+    idempotencyKey: `payment:${transaction.id}:initialized`,
+    entryType: quote ? ledgerType.REPAIR_BALANCE_CHARGE_CREATED : ledgerType.BOOKING_CALLOUT_CHARGE_CREATED,
+    amountMinor,
+    direction: 'DEBIT',
+    component: quote ? 'PAYMENT' : 'CALLOUT',
+    description: quote ? 'Repair balance checkout initialized' : 'Call-out payment checkout initialized',
+    ...paymentLedgerContext(transaction, booking),
   });
 
   await Booking.updateOne(
@@ -330,9 +368,19 @@ export const verifyAndSecurePayment = async (reference: string, req?: Request) =
   const amountMatches = Number(data?.amount) === transaction.amountMinor;
   const currencyMatches = String(data?.currency || '').toUpperCase() === transaction.currency;
   const referenceMatches = String(data?.reference || '') === transaction.reference;
+  const booking = await Booking.findById(transaction.bookingId);
 
   if (providerStatus !== 'success') {
     await markTransactionFailure(transaction, PaymentTransactionStatus.FAILED, providerStatus || 'failed');
+    await recordLedgerEntry({
+      idempotencyKey: `payment:${transaction.id}:failed:${providerStatus || 'failed'}`,
+      entryType: ledgerType.PAYMENT_FAILED,
+      amountMinor: transaction.amountMinor,
+      direction: 'MEMO',
+      component: 'PAYMENT',
+      description: 'Payment failed',
+      ...paymentLedgerContext(transaction, booking),
+    });
     await Booking.updateOne(
       { _id: transaction.bookingId, paymentStatus: { $ne: BookingPaymentStatus.SECURED } },
       { $set: { paymentStatus: BookingPaymentStatus.FAILED } }
@@ -353,6 +401,15 @@ export const verifyAndSecurePayment = async (reference: string, req?: Request) =
       providerAmount: data?.amount,
       providerCurrency: data?.currency,
       providerReference: data?.reference,
+    });
+    await recordLedgerEntry({
+      idempotencyKey: `payment:${transaction.id}:under-review`,
+      entryType: ledgerType.PAYMENT_FAILED,
+      amountMinor: transaction.amountMinor,
+      direction: 'MEMO',
+      component: 'PAYMENT',
+      description: 'Payment moved under review',
+      ...paymentLedgerContext(transaction, booking),
     });
     await Booking.updateOne(
       { _id: transaction.bookingId },
@@ -401,7 +458,7 @@ export const verifyAndSecurePayment = async (reference: string, req?: Request) =
     return { transaction: current || transaction, duplicate: true };
   }
 
-  const booking = await Booking.findOneAndUpdate(
+  const securedBooking = await Booking.findOneAndUpdate(
     {
       _id: updatedTransaction.bookingId,
       paymentStatus: { $in: [BookingPaymentStatus.PENDING, BookingPaymentStatus.FAILED, BookingPaymentStatus.UNDER_REVIEW] },
@@ -423,13 +480,23 @@ export const verifyAndSecurePayment = async (reference: string, req?: Request) =
     { new: true }
   );
 
-  if (booking) {
-    const eligibility = await evaluateWorkStartEligibility(booking);
-    await persistWorkStartEligibility(booking, eligibility);
+  if (securedBooking) {
+    await recordLedgerEntry({
+      idempotencyKey: `payment:${updatedTransaction.id}:success`,
+      entryType: ledgerType.PAYMENT_SUCCEEDED,
+      amountMinor: updatedTransaction.amountMinor,
+      direction: 'CREDIT',
+      component: 'PAYMENT',
+      description: 'Payment succeeded',
+      ...paymentLedgerContext(updatedTransaction, securedBooking),
+    });
+
+    const eligibility = await evaluateWorkStartEligibility(securedBooking);
+    await persistWorkStartEligibility(securedBooking, eligibility);
 
     const io = req?.app.get('io');
-    io?.to(`booking:${booking.id}`).emit('payment_secured', {
-      bookingId: booking.id,
+    io?.to(`booking:${securedBooking.id}`).emit('payment_secured', {
+      bookingId: securedBooking.id,
       status: BookingPaymentStatus.SECURED,
       amountMinor: updatedTransaction.amountMinor,
       currency: updatedTransaction.currency,
@@ -439,25 +506,25 @@ export const verifyAndSecurePayment = async (reference: string, req?: Request) =
     });
 
     if (mongoose.connection.readyState === 1) void (async () => {
-      if (booking.technicianId) {
+      if (securedBooking.technicianId) {
         await createNotifications({
-          userId: booking.technicianId,
+          userId: securedBooking.technicianId,
           channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
           type: 'PAYMENT_SECURED',
           title: 'Payment secured',
           message: 'Payment is secured in Padi. You may begin work when all other requirements are met.',
-          metadata: { bookingId: booking.id, transactionId: updatedTransaction.id },
+          metadata: { bookingId: securedBooking.id, transactionId: updatedTransaction.id },
         });
       }
       await createNotifications({
-        userId: booking.customerId,
-        email: booking.customerEmail,
-        name: booking.customerName,
+        userId: securedBooking.customerId,
+        email: securedBooking.customerEmail,
+        name: securedBooking.customerName,
         channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
         type: 'PAYMENT_CONFIRMED',
         title: 'Payment confirmed',
         message: 'Payment confirmed. The provider can now begin work.',
-        metadata: { bookingId: booking.id, transactionId: updatedTransaction.id },
+        metadata: { bookingId: securedBooking.id, transactionId: updatedTransaction.id },
       });
     })().catch((notificationError) => {
       console.warn('Payment secured but notification dispatch failed:', notificationError);
@@ -470,7 +537,7 @@ export const verifyAndSecurePayment = async (reference: string, req?: Request) =
         resourceType: 'PaymentTransaction',
         resourceId: updatedTransaction.id,
         metadata: {
-          bookingId: booking.id,
+          bookingId: securedBooking.id,
           maskedReference: maskReference(updatedTransaction.reference),
           amountMinor: updatedTransaction.amountMinor,
           currency: updatedTransaction.currency,
@@ -506,10 +573,20 @@ export const processPaystackWebhookPayload = async (payload: any, rawBody: Buffe
     if (['charge.failed', 'charge.abandoned'].includes(eventType)) {
       const transaction = await PaymentTransaction.findOne({ provider: PaymentProvider.PAYSTACK, reference });
       if (transaction && transaction.status !== PaymentTransactionStatus.SUCCESS) {
+        const booking = await Booking.findById(transaction.bookingId);
         transaction.status = eventType === 'charge.abandoned' ? PaymentTransactionStatus.ABANDONED : PaymentTransactionStatus.FAILED;
         transaction.providerStatus = String(payload?.data?.status || eventType);
         transaction.failedAt = new Date();
         await transaction.save();
+        await recordLedgerEntry({
+          idempotencyKey: `payment:${transaction.id}:${eventType}`,
+          entryType: ledgerType.PAYMENT_FAILED,
+          amountMinor: transaction.amountMinor,
+          direction: 'MEMO',
+          component: 'PAYMENT',
+          description: eventType === 'charge.abandoned' ? 'Payment abandoned' : 'Payment failed',
+          ...paymentLedgerContext(transaction, booking),
+        });
         const releasedPromotions = await releasePromotionReservations(
           promotionSnapshotsFromTransaction(transaction),
           eventType === 'charge.abandoned' ? 'PAYMENT_ABANDONED' : 'PAYMENT_FAILED'
@@ -540,8 +617,18 @@ export const processPaystackWebhookPayload = async (payload: any, rawBody: Buffe
     if (['refund.processed', 'charge.reversed'].includes(eventType)) {
       const transaction = await PaymentTransaction.findOne({ provider: PaymentProvider.PAYSTACK, reference });
       if (transaction) {
+        const booking = await Booking.findById(transaction.bookingId);
         const status = eventType === 'refund.processed' ? PaymentTransactionStatus.REFUNDED : PaymentTransactionStatus.REVERSED;
         await markTransactionFailure(transaction, status, eventType);
+        await recordLedgerEntry({
+          idempotencyKey: `payment:${transaction.id}:${eventType}`,
+          entryType: ledgerType.PAYMENT_REVERSED,
+          amountMinor: transaction.amountMinor,
+          direction: 'DEBIT',
+          component: 'PAYMENT',
+          description: eventType === 'refund.processed' ? 'Payment refunded' : 'Payment reversed',
+          ...paymentLedgerContext(transaction, booking),
+        });
         const reversedPromotions = await reverseRedeemedPromotions(
           promotionSnapshotsFromTransaction(transaction),
           eventType === 'refund.processed' ? 'PAYMENT_REFUNDED' : 'PAYMENT_REVERSED'

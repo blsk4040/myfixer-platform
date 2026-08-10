@@ -3,11 +3,14 @@ import mongoose from 'mongoose';
 import { Server as SocketIOServer } from 'socket.io';
 import Booking, { BookingPaymentStatus, WorkAuthorizationStatus } from '../models/booking.model';
 import JobQuote, { QuoteStatus } from '../models/quote.model';
+import MarketSetting from '../models/market-setting.model';
 import { NotificationChannel } from '../models/notification.model';
 import { normalizeUserRole, UserRole } from '../models/user.model';
 import { createNotifications } from '../services/notification.service';
 import { logAuditEvent } from '../services/audit.service';
 import { calculateQuoteTotals, QuoteWorkflowError } from '../services/quote-workflow.service';
+import { calculatePriceBreakdown } from '../services/price-breakdown.service';
+import { ledgerType, recordLedgerEntries, recordLedgerEntry } from '../services/financial-ledger.service';
 
 interface QuoteRequestBody {
   lineItems?: unknown;
@@ -93,6 +96,15 @@ const emitQuoteEvent = (request: Request, event: string, quote: any): void => {
   io?.to(`booking:${quote.bookingId.toString()}`).emit(event, serializeQuote(quote));
 };
 
+const quoteLedgerContext = (booking: any, quote: any) => ({
+  bookingId: booking._id,
+  quoteId: quote._id,
+  customerId: booking.customerId,
+  technicianId: booking.technicianId,
+  countryCode: booking.countryCode,
+  currency: booking.currency,
+});
+
 const defaultExpiry = (): Date => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
 const parseExpiry = (value: unknown): Date => {
@@ -102,6 +114,45 @@ const parseExpiry = (value: unknown): Date => {
     throw new QuoteWorkflowError('Quote expiry must be a future timestamp.', 'INVALID_QUOTE_EXPIRY');
   }
   return parsed;
+};
+
+const positiveMinor = (value: unknown): number =>
+  typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+
+const lineTotal = (items: Array<{ type: string; totalAmountMinor: number }>, types: string[]): number =>
+  items
+    .filter((item) => types.includes(String(item.type)))
+    .reduce((sum, item) => sum + positiveMinor(item.totalAmountMinor), 0);
+
+const buildQuotePriceBreakdown = async (booking: any, totals: ReturnType<typeof calculateQuoteTotals>) => {
+  const bookingBreakdown = booking.metadata?.priceBreakdown && typeof booking.metadata.priceBreakdown === 'object'
+    ? booking.metadata.priceBreakdown as Record<string, unknown>
+    : {};
+  const bookingCalloutMinor = positiveMinor(bookingBreakdown.calloutFeeMinor ?? booking.priceMinor);
+  const quoteCalloutMinor = lineTotal(totals.lineItems, ['CALL_OUT', 'CALLOUT']);
+  const labourMinor = lineTotal(totals.lineItems, ['LABOUR', 'LABOR']);
+  const partsMinor = lineTotal(totals.lineItems, ['PART']);
+  const additionalServicesMinor = lineTotal(totals.lineItems, ['ADD_ON']);
+  const surchargeMinor = lineTotal(totals.lineItems, ['SURCHARGE']);
+  const repairWorkMinor = labourMinor + partsMinor + additionalServicesMinor + surchargeMinor;
+  const calloutFeeDeductible = bookingBreakdown.calloutFeeDeductible !== false && quoteCalloutMinor > 0 && repairWorkMinor > 0;
+  const marketSetting = await MarketSetting.findOne({ 'identity.countryCode': booking.countryCode }).lean();
+
+  return calculatePriceBreakdown({
+    currency: booking.currency,
+    calloutFeeMinor: quoteCalloutMinor,
+    calloutFeeDeductible,
+    calloutCreditMinor: calloutFeeDeductible ? Math.min(bookingCalloutMinor, quoteCalloutMinor) : 0,
+    labourMinor,
+    partsMinor,
+    additionalServicesMinor,
+    surchargeMinor,
+    otherDiscountMinor: totals.discountAmountMinor,
+    marketPricing: {
+      ...(marketSetting?.pricing || {}),
+      platformCommissionBps: marketSetting?.pricing?.platformCommissionBps ?? 1500,
+    },
+  });
 };
 
 export const createJobQuote = async (request: Request, response: Response): Promise<void> => {
@@ -156,6 +207,7 @@ export const createJobQuote = async (request: Request, response: Response): Prom
     }
 
     const totals = calculateQuoteTotals(Array.isArray(body.lineItems) ? body.lineItems as any[] : [], booking.currency);
+    const priceBreakdown = await buildQuotePriceBreakdown(booking, totals);
     const now = new Date();
     const status = shouldSubmit ? QuoteStatus.SUBMITTED : QuoteStatus.DRAFT;
     const quoteId = new mongoose.Types.ObjectId();
@@ -181,7 +233,10 @@ export const createJobQuote = async (request: Request, response: Response): Prom
       submittedBy: shouldSubmit ? new mongoose.Types.ObjectId(userId) : undefined,
       createdBy: new mongoose.Types.ObjectId(userId),
       expiresAt: shouldSubmit ? parseExpiry(body.expiresAt) : null,
-      metadata: {},
+      metadata: {
+        priceBreakdown,
+        pricingPolicy: 'callout-credit-v1',
+      },
     });
 
     if (shouldSubmit) {
@@ -214,6 +269,35 @@ export const createJobQuote = async (request: Request, response: Response): Prom
     emitQuoteEvent(request, shouldSubmit ? (version > 1 ? 'quote_revised' : 'quote_submitted') : 'quote_draft_saved', quote);
 
     if (shouldSubmit) {
+      const creditMinor = typeof priceBreakdown.calloutCreditMinor === 'number' ? priceBreakdown.calloutCreditMinor : 0;
+      await recordLedgerEntries([
+        {
+          idempotencyKey: `quote:${quote.id}:submitted`,
+          entryType: ledgerType.QUOTE_SUBMITTED,
+          amountMinor: priceBreakdown.totalBeforeCreditMinor,
+          direction: 'MEMO',
+          component: 'MEMO',
+          description: 'Repair quote submitted',
+          ...quoteLedgerContext(booking, quote),
+          metadata: {
+            quoteNumber: quote.quoteNumber,
+            amountDueMinor: priceBreakdown.amountDueMinor,
+            platformCommissionBaseMinor: priceBreakdown.platformCommissionBaseMinor,
+            platformCommissionMinor: priceBreakdown.platformCommissionMinor,
+          },
+        },
+        ...(creditMinor > 0 ? [{
+          idempotencyKey: `quote:${quote.id}:callout-credit`,
+          entryType: ledgerType.CALLOUT_CREDIT_APPLIED,
+          amountMinor: creditMinor,
+          direction: 'CREDIT' as const,
+          component: 'CREDIT' as const,
+          description: 'Call-out fee credit applied to repair quote',
+          ...quoteLedgerContext(booking, quote),
+          metadata: { quoteNumber: quote.quoteNumber },
+        }] : []),
+      ]);
+
       await createNotifications({
         userId: booking.customerId,
         channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
@@ -280,6 +364,19 @@ export const submitJobQuote = async (request: Request, response: Response): Prom
     }
 
     const now = new Date();
+    if (!quote.metadata?.priceBreakdown) {
+      const totals = {
+        lineItems: quote.lineItems,
+        subtotalAmountMinor: quote.subtotalAmountMinor,
+        discountAmountMinor: quote.discountAmountMinor,
+        totalAmountMinor: quote.totalAmountMinor,
+      };
+      quote.metadata = {
+        ...(quote.metadata || {}),
+        priceBreakdown: await buildQuotePriceBreakdown(booking, totals as ReturnType<typeof calculateQuoteTotals>),
+        pricingPolicy: 'callout-credit-v1',
+      };
+    }
     quote.status = QuoteStatus.SUBMITTED;
     quote.quoteNumber = quote.quoteNumber || buildQuoteNumber(quote._id, Number(quote.version || 1));
     quote.sentAt = now;
@@ -302,6 +399,38 @@ export const submitJobQuote = async (request: Request, response: Response): Prom
     booking.set('workAuthorization.reasonCode', 'QUOTE_NOT_APPROVED');
     booking.set('workAuthorization.evaluatedAt', now);
     await booking.save();
+
+    const priceBreakdown = quote.metadata?.priceBreakdown && typeof quote.metadata.priceBreakdown === 'object'
+      ? quote.metadata.priceBreakdown as Record<string, any>
+      : null;
+    const creditMinor = typeof priceBreakdown?.calloutCreditMinor === 'number' ? Math.max(0, Math.round(priceBreakdown.calloutCreditMinor)) : 0;
+    await recordLedgerEntries([
+      {
+        idempotencyKey: `quote:${quote.id}:submitted`,
+        entryType: ledgerType.QUOTE_SUBMITTED,
+        amountMinor: typeof priceBreakdown?.totalBeforeCreditMinor === 'number' ? Math.max(0, Math.round(priceBreakdown.totalBeforeCreditMinor)) : quote.totalAmountMinor,
+        direction: 'MEMO',
+        component: 'MEMO',
+        description: 'Repair quote submitted',
+        ...quoteLedgerContext(booking, quote),
+        metadata: {
+          quoteNumber: quote.quoteNumber || buildQuoteNumber(quote._id, Number(quote.version || 1)),
+          amountDueMinor: typeof priceBreakdown?.amountDueMinor === 'number' ? Math.max(0, Math.round(priceBreakdown.amountDueMinor)) : quote.totalAmountMinor,
+          platformCommissionBaseMinor: priceBreakdown?.platformCommissionBaseMinor,
+          platformCommissionMinor: priceBreakdown?.platformCommissionMinor,
+        },
+      },
+      ...(creditMinor > 0 ? [{
+        idempotencyKey: `quote:${quote.id}:callout-credit`,
+        entryType: ledgerType.CALLOUT_CREDIT_APPLIED,
+        amountMinor: creditMinor,
+        direction: 'CREDIT' as const,
+        component: 'CREDIT' as const,
+        description: 'Call-out fee credit applied to repair quote',
+        ...quoteLedgerContext(booking, quote),
+        metadata: { quoteNumber: quote.quoteNumber || buildQuoteNumber(quote._id, Number(quote.version || 1)) },
+      }] : []),
+    ]);
 
     emitQuoteEvent(request, quote.version > 1 ? 'quote_revised' : 'quote_submitted', quote);
     await createNotifications({
@@ -426,6 +555,23 @@ const decideJobQuote = async (
     booking.set('workAuthorization.evaluatedAt', now);
     await booking.save();
   }
+
+  await recordLedgerEntry({
+    idempotencyKey: `quote:${updated.id}:${decision.toLowerCase()}`,
+    entryType: decision === QuoteStatus.APPROVED ? ledgerType.QUOTE_APPROVED : ledgerType.QUOTE_REJECTED,
+    amountMinor: typeof updated.metadata?.priceBreakdown === 'object' && typeof (updated.metadata.priceBreakdown as any)?.amountDueMinor === 'number'
+      ? Math.max(0, Math.round((updated.metadata.priceBreakdown as any).amountDueMinor))
+      : updated.totalAmountMinor,
+    direction: 'MEMO',
+    component: 'MEMO',
+    description: decision === QuoteStatus.APPROVED ? 'Repair quote approved' : 'Repair quote rejected',
+    ...quoteLedgerContext(booking, updated),
+    metadata: {
+      quoteNumber: updated.quoteNumber || buildQuoteNumber(updated._id, Number(updated.version || 1)),
+      version: updated.version,
+      decisionNote: note,
+    },
+  });
 
   const event = decision === QuoteStatus.APPROVED ? 'quote_approved' : 'quote_rejected';
   emitQuoteEvent(request, event, updated);

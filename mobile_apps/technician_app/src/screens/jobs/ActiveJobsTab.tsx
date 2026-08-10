@@ -558,7 +558,7 @@ export function ActiveJobsTab(): React.JSX.Element {
   const handleSubmitFinalInvoice = async () => {
     if (!activeInvoiceJob) return;
 
-    const baseCallout = Number(activeInvoiceJob.price) || 450;
+    const baseCallout = Math.max(0, Number(activeInvoiceJob.price) || 0);
     const laborNum = parseFloat(additionalLabor) || 0;
     const partsNum = parseFloat(partsAmount) || 0;
     const totalSettlement = baseCallout + laborNum + partsNum;
@@ -568,12 +568,12 @@ export function ActiveJobsTab(): React.JSX.Element {
 
       if (!isQuoteApprovedForJob(activeInvoiceJob)) {
         const lineItems = [
-          {
+          ...(baseCallout > 0 ? [{
             type: 'CALLOUT' as const,
             label: 'Diagnostic callout fee',
             quantity: 1,
             unitAmount: baseCallout,
-          },
+          }] : []),
           ...(laborNum > 0 ? [{
             type: 'LABOR' as const,
             label: 'Labour',
@@ -667,9 +667,12 @@ export function ActiveJobsTab(): React.JSX.Element {
     }
   };
 
-  const basePriceValue = activeInvoiceJob ? (Number(activeInvoiceJob.price) || 450) : 450;
+  const basePriceValue = activeInvoiceJob ? Math.max(0, Number(activeInvoiceJob.price) || 0) : 0;
   const activeInvoiceCurrency = activeInvoiceJob?.currency || 'ZAR';
   const computedLiveTotal = basePriceValue + (parseFloat(additionalLabor) || 0) + (parseFloat(partsAmount) || 0);
+  const computedRepairTotal = (parseFloat(additionalLabor) || 0) + (parseFloat(partsAmount) || 0);
+  const computedCalloutCredit = basePriceValue > 0 && computedRepairTotal > 0 ? Math.min(basePriceValue, computedLiveTotal) : 0;
+  const computedBalanceDue = Math.max(computedLiveTotal - computedCalloutCredit, 0);
   const isApprovedQuote = !!activeInvoiceJob && isQuoteApprovedForJob(activeInvoiceJob);
 
   const renderChatMedia = (media: JobMediaRecord[] = []) => (
@@ -910,11 +913,11 @@ export function ActiveJobsTab(): React.JSX.Element {
             <Text style={styles.sheetSubtitle}>
               {isApprovedQuote
                 ? 'Confirm the final amount and submit completion for client review.'
-                : 'Add labour and parts so the client can review and approve the quote before work continues.'}
+                : 'Add the full repair amount. If the client approves, Padi credits the call-out already paid against their balance.'}
             </Text>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Base callout</Text>
+              <Text style={styles.inputLabel}>Call-out already paid</Text>
               <View style={[styles.inputWrapper, styles.disabledInputWrapper]}>
                 <Text style={styles.currencyPrefix}>{activeInvoiceCurrency}</Text>
                 <Text style={styles.disabledInputText}>{basePriceValue.toFixed(2)}</Text>
@@ -952,8 +955,13 @@ export function ActiveJobsTab(): React.JSX.Element {
             </View>
 
             <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Client total</Text>
+              <Text style={styles.summaryLabel}>Full job value</Text>
               <Text style={styles.summaryValue}>{activeInvoiceCurrency} {computedLiveTotal.toFixed(2)}</Text>
+              {computedCalloutCredit > 0 ? (
+                <Text style={styles.summaryHint}>Call-out credit: -{activeInvoiceCurrency} {computedCalloutCredit.toFixed(2)} | Balance: {activeInvoiceCurrency} {computedBalanceDue.toFixed(2)}</Text>
+              ) : (
+                <Text style={styles.summaryHint}>No call-out credit applies yet.</Text>
+              )}
             </View>
 
             <View style={styles.invoiceActionRow}>
@@ -1045,9 +1053,10 @@ const styles = StyleSheet.create({
   disabledInputText: { color: Colors.textSubtle, fontSize: 14, fontWeight: '600', marginLeft: 4 },
   currencyPrefix: { color: Colors.text, fontSize: 14, fontWeight: '700', marginRight: 2 },
   textInput: { flex: 1, color: Colors.text, fontSize: 14, padding: 0, fontWeight: '600' },
-  summaryBox: { backgroundColor: 'rgba(184, 255, 61, 0.07)', borderStyle: 'dashed', borderWidth: 1, borderColor: 'rgba(184, 255, 61, 0.28)', borderRadius: Radius.md, padding: 14, marginVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  summaryBox: { backgroundColor: 'rgba(184, 255, 61, 0.07)', borderStyle: 'dashed', borderWidth: 1, borderColor: 'rgba(184, 255, 61, 0.28)', borderRadius: Radius.md, padding: 14, marginVertical: 10 },
   summaryLabel: { color: Colors.text, fontSize: 13, fontWeight: '800' },
-  summaryValue: { color: Colors.primary, fontSize: 18, fontWeight: '900' },
+  summaryValue: { color: Colors.primary, fontSize: 18, fontWeight: '900', marginTop: 4 },
+  summaryHint: { color: Colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 6 },
   toggleRow: { borderWidth: 1, borderColor: Colors.borderStrong, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 14, marginTop: 4, backgroundColor: Colors.background },
   toggleText: { color: Colors.text, fontSize: 13, fontWeight: '800' },
   invoiceActionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },

@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ArrowLeft } from 'lucide-react-native';
 import apiService, { ProviderPayoutMethodRecord } from '../../services/api.service';
 import { getTechnicianIdentity } from '../../services/technicianIdentity.service';
 import { BRAND } from '../../config/brand';
@@ -62,7 +63,7 @@ const Radius = {
   lg: 16,
 };
 
-export function BankingInvoiceScreen(): React.JSX.Element {
+export function BankingInvoiceScreen({ navigation }: any): React.JSX.Element {
   const technicianIdentity = getTechnicianIdentity();
   const payoutCapabilities = technicianIdentity.payoutCapabilities;
   const payoutOptions = payoutCapabilities.providerPayoutMethods;
@@ -201,6 +202,22 @@ export function BankingInvoiceScreen(): React.JSX.Element {
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.screenHeader}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation?.canGoBack?.() ? navigation.goBack() : navigation?.navigate?.('ProfileMain')}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Back to Profile"
+        >
+          <ArrowLeft color={Colors.text} size={22} />
+        </TouchableOpacity>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerTitle}>Banking & Invoices</Text>
+          <Text style={styles.headerSubtitle}>Payout details and job invoice records</Text>
+        </View>
+      </View>
+
       <View style={styles.tabHeaderContainer}>
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'banking' && styles.activeTabButton]}
@@ -370,7 +387,12 @@ export function BankingInvoiceScreen(): React.JSX.Element {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  tabHeaderContainer: { flexDirection: 'row', backgroundColor: Colors.surface, margin: 16, borderRadius: 10, padding: 4, borderWidth: 1, borderColor: Colors.border },
+  screenHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10 },
+  backButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
+  headerCopy: { flex: 1 },
+  headerTitle: { color: Colors.text, fontSize: 22, fontWeight: '900' },
+  headerSubtitle: { color: Colors.textSubtle, fontSize: 12, fontWeight: '700', marginTop: 3 },
+  tabHeaderContainer: { flexDirection: 'row', backgroundColor: Colors.surface, marginHorizontal: 16, marginTop: 4, marginBottom: 16, borderRadius: 10, padding: 4, borderWidth: 1, borderColor: Colors.border },
   tabButton: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: Radius.sm },
   activeTabButton: { backgroundColor: Colors.surfaceRaised },
   tabButtonText: { color: Colors.textSubtle, fontSize: 14, fontWeight: '700' },

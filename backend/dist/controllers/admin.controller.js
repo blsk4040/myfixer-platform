@@ -75,6 +75,7 @@ const price_breakdown_service_1 = require("../services/price-breakdown.service")
 const admin_market_scope_service_1 = require("../services/admin-market-scope.service");
 const provider_referral_service_1 = require("../services/provider-referral.service");
 const customer_referral_service_1 = require("../services/customer-referral.service");
+const customer_loyalty_reward_service_1 = require("../services/customer-loyalty-reward.service");
 const parseLimit = (value, fallback = 50) => {
     const parsed = Number(value);
     if (!Number.isFinite(parsed))
@@ -451,6 +452,9 @@ const normalizeServiceSubcategories = (value) => Array.isArray(value)
         const calloutFeeEnabled = record.calloutFeeEnabled === undefined
             ? calloutFeeMinor !== undefined && calloutFeeMinor > 0
             : record.calloutFeeEnabled === true;
+        const calloutFeeDeductible = record.calloutFeeDeductible === undefined
+            ? calloutFeeEnabled
+            : record.calloutFeeDeductible === true;
         const minimumChargeMinor = minorFromInput(record.minimumChargeMinor, record.minimumCharge);
         const billingModel = normalizeServiceBillingModel(record.billingModel);
         const subscriptionEligible = billingModel === service_catalog_model_1.ServiceBillingModel.SUBSCRIPTION || record.subscriptionEligible === true;
@@ -474,6 +478,7 @@ const normalizeServiceSubcategories = (value) => Array.isArray(value)
             requiresCapabilityApproval: record.requiresCapabilityApproval === undefined ? true : record.requiresCapabilityApproval === true,
             capabilityRequirements: normalizeCapabilityRequirements(record.capabilityRequirements),
             calloutFeeEnabled,
+            calloutFeeDeductible: calloutFeeEnabled && calloutFeeDeductible,
             billingModel,
             subscriptionEligible,
             subscriptionCadences: subscriptionEligible ? normalizeSubscriptionCadences(record.subscriptionCadences) : [],
@@ -2875,7 +2880,7 @@ const getAdminGrowthTrust = async (req, res) => {
             ...scopeFilter,
             status: booking_review_model_1.BookingReviewStatus.PUBLISHED,
         };
-        const [reviewSummary, recentReviews, lowReviews, topProviders, rewards, customerRewards,] = await Promise.all([
+        const [reviewSummary, recentReviews, lowReviews, topProviders, rewards, customerRewards, loyaltyRewards,] = await Promise.all([
             booking_review_model_1.default.aggregate([
                 { $match: reviewFilter },
                 {
@@ -2911,6 +2916,7 @@ const getAdminGrowthTrust = async (req, res) => {
                 .lean(),
             (0, provider_referral_service_1.listReferralRewardsForAdmin)(scopeFilter),
             (0, customer_referral_service_1.listCustomerReferralRewardsForAdmin)(scopeFilter),
+            (0, customer_loyalty_reward_service_1.listCustomerLoyaltyRewardsForAdmin)(scopeFilter),
         ]);
         const allRewards = [...rewards, ...customerRewards];
         const summaryRow = reviewSummary[0] || {};
@@ -2927,6 +2933,9 @@ const getAdminGrowthTrust = async (req, res) => {
         const suspiciousReferrals = allRewards
             .filter((reward) => reward.status === 'REWARD_BLOCKED' || reward.rewardBlockReason)
             .slice(0, 50);
+        const blockedLoyaltyRewards = loyaltyRewards
+            .filter((reward) => reward.status === 'BLOCKED' || reward.blockReason || reward.fraudSignals?.length)
+            .slice(0, 50);
         res.status(200).json({
             success: true,
             growthTrust: {
@@ -2940,6 +2949,9 @@ const getAdminGrowthTrust = async (req, res) => {
                     rewardsIssued: rewardSummary.issued,
                     rewardsRedeemed: rewardSummary.redeemed,
                     blockedReferrals: rewardSummary.blocked,
+                    loyaltyRewardsEarned: loyaltyRewards.filter((reward) => reward.status === 'EARNED' || reward.status === 'CLAIMED').length,
+                    loyaltyRewardsRedeemed: loyaltyRewards.filter((reward) => reward.rewardRedeemed || reward.status === 'REDEEMED').length,
+                    blockedLoyaltyRewards: blockedLoyaltyRewards.length,
                 },
                 reviews: recentReviews.map(serializeGrowthTrustReview),
                 lowReviews: lowReviews.map(serializeGrowthTrustReview),
@@ -2958,6 +2970,8 @@ const getAdminGrowthTrust = async (req, res) => {
                 suspiciousReferrals,
                 referralRewards: rewards,
                 customerReferralRewards: customerRewards,
+                loyaltyRewards,
+                blockedLoyaltyRewards,
             },
         });
     }

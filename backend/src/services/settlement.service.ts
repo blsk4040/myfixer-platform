@@ -22,7 +22,9 @@ import { NotificationChannel } from '../models/notification.model';
 import { assertActiveMarket, assertMarketAllowsNewPayout } from './market-finance-guard.service';
 import { processReferralRewardForCompletedBooking } from './provider-referral.service';
 import { processCustomerReferralRewardForCompletedBooking } from './customer-referral.service';
+import { processCustomerLoyaltyRewardForCompletedBooking } from './customer-loyalty-reward.service';
 import { refreshProviderReputationStats } from './provider-reputation.service';
+import { ledgerType, recordLedgerEntry } from './financial-ledger.service';
 
 export class SettlementError extends Error {
   constructor(message: string, public readonly code: string, public readonly statusCode = 400) {
@@ -66,6 +68,17 @@ const serializeSettlement = (settlement: IProviderSettlement) => ({
   createdAt: settlement.createdAt,
   updatedAt: settlement.updatedAt,
   metadata: settlement.metadata || {},
+});
+
+const settlementLedgerContext = (settlement: IProviderSettlement) => ({
+  bookingId: settlement.bookingId,
+  quoteId: settlement.quoteId ?? null,
+  settlementId: settlement._id,
+  paymentTransactionId: settlement.paymentTransactionId ?? null,
+  customerId: settlement.customerId,
+  technicianId: settlement.technicianId,
+  countryCode: settlement.countryCode,
+  currency: settlement.currency,
 });
 
 const ensureObjectId = (value: string, label: string) => {
@@ -246,6 +259,21 @@ const createSettlementFromBooking = async (booking: IBooking, payment: any, stat
     },
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
+  await recordLedgerEntry({
+    idempotencyKey: `settlement:${settlement.id}:created`,
+    entryType: ledgerType.SETTLEMENT_CREATED,
+    amountMinor: settlement.netAmountMinor,
+    direction: 'CREDIT',
+    component: 'PAYOUT',
+    description: 'Provider settlement created',
+    ...settlementLedgerContext(settlement),
+    metadata: {
+      grossAmountMinor: settlement.grossAmountMinor,
+      commissionAmountMinor: settlement.commissionAmountMinor,
+      netAmountMinor: settlement.netAmountMinor,
+      status: settlement.status,
+    },
+  });
   return settlement;
 };
 
@@ -296,6 +324,7 @@ export const confirmCustomerCompletion = async (bookingId: string, actor: Actor 
   }
   await processReferralRewardForCompletedBooking(completedBooking);
   await processCustomerReferralRewardForCompletedBooking(completedBooking);
+  await processCustomerLoyaltyRewardForCompletedBooking(completedBooking);
   req?.app.get('io')?.to(`booking:${completedBooking.id}`).emit('completion_confirmed', {
     bookingId: completedBooking.id,
     status: completedBooking.status,
@@ -471,6 +500,16 @@ export const holdSettlement = async (settlementId: string, actor: Actor | undefi
     { new: true }
   );
   if (!settlement) throw new SettlementError('Settlement cannot be placed on hold.', 'HOLD_CONFLICT', 409);
+  await recordLedgerEntry({
+    idempotencyKey: `settlement:${settlement.id}:hold:${settlement.heldAt?.getTime?.() || Date.now()}`,
+    entryType: ledgerType.SETTLEMENT_ON_HOLD,
+    amountMinor: settlement.netAmountMinor,
+    direction: 'MEMO',
+    component: 'PAYOUT',
+    description: 'Provider settlement placed on hold',
+    ...settlementLedgerContext(settlement),
+    metadata: { reason: trimmed },
+  });
   req?.app.get('io')?.to(`technician:${settlement.technicianId.toString()}`).emit('settlement_on_hold', serializeSettlement(settlement));
   return settlement;
 };
@@ -551,6 +590,20 @@ export const processPaystackTransferWebhookPayload = async (payload: any, req?: 
     settlement.status = ProviderSettlementStatus.PAID;
     settlement.paidAt = settlement.paidAt || now;
     await settlement.save();
+    await recordLedgerEntry({
+      idempotencyKey: `settlement:${settlement.id}:paid:${payout.id}`,
+      entryType: ledgerType.SETTLEMENT_PAID,
+      amountMinor: payout.amountMinor,
+      direction: 'DEBIT',
+      component: 'PAYOUT',
+      description: 'Provider payout paid',
+      ...settlementLedgerContext(settlement),
+      metadata: {
+        payoutTransactionId: payout.id,
+        payoutReference: maskReference(payout.reference),
+        providerStatus: payout.providerStatus,
+      },
+    });
     req?.app.get('io')?.to(`technician:${settlement.technicianId.toString()}`).emit('payout_paid', serializeSettlement(settlement));
     return { processed: true };
   }
@@ -564,6 +617,20 @@ export const processPaystackTransferWebhookPayload = async (payload: any, req?: 
     await payout.save();
     settlement.status = reversed ? ProviderSettlementStatus.REVERSED : ProviderSettlementStatus.PAYOUT_FAILED;
     await settlement.save();
+    await recordLedgerEntry({
+      idempotencyKey: `settlement:${settlement.id}:${eventType}:${payout.id}`,
+      entryType: reversed ? ledgerType.SETTLEMENT_REVERSED : ledgerType.SETTLEMENT_PAYOUT_FAILED,
+      amountMinor: payout.amountMinor,
+      direction: 'MEMO',
+      component: 'PAYOUT',
+      description: reversed ? 'Provider payout reversed' : 'Provider payout failed',
+      ...settlementLedgerContext(settlement),
+      metadata: {
+        payoutTransactionId: payout.id,
+        payoutReference: maskReference(payout.reference),
+        providerStatus: payout.providerStatus,
+      },
+    });
     req?.app.get('io')?.to(`technician:${settlement.technicianId.toString()}`).emit(reversed ? 'payout_reversed' : 'payout_failed', serializeSettlement(settlement));
     return { processed: true };
   }

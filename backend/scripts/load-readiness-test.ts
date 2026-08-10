@@ -39,7 +39,13 @@ const assertSafeTarget = (baseUrl: string): void => {
   const url = new URL(baseUrl);
   const hostname = url.hostname.toLowerCase();
   const localhost = ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(hostname);
-  const knownProductionHosts = new Set(['myfixer-platform.onrender.com']);
+  const knownProductionHosts = new Set([
+    'myfixer-platform.onrender.com',
+    'myfixer-admin.onrender.com',
+    'www.hellopadi.com',
+    'api.hellopadi.com',
+    'admin.hellopadi.com',
+  ]);
   if (knownProductionHosts.has(hostname)) {
     throw new Error(`Refusing to run against known production host: ${hostname}`);
   }

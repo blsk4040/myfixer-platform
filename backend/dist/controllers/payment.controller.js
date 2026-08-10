@@ -323,7 +323,12 @@ class PaymentController {
                     res.status(409).json({ error: 'An approved quote is required before charging a saved card.' });
                     return;
                 }
-                normalizedAmount = quote.totalAmountMinor;
+                const quoteBreakdown = quote.metadata?.priceBreakdown && typeof quote.metadata.priceBreakdown === 'object'
+                    ? quote.metadata.priceBreakdown
+                    : null;
+                normalizedAmount = typeof quoteBreakdown?.totalMinor === 'number' && Number.isFinite(quoteBreakdown.totalMinor)
+                    ? Math.max(0, Math.round(quoteBreakdown.totalMinor))
+                    : quote.totalAmountMinor;
             }
             if (!Number.isInteger(normalizedAmount) || normalizedAmount <= 0 || !bookingId) {
                 res.status(400).json({ error: 'A valid server-side booking amount is required.' });

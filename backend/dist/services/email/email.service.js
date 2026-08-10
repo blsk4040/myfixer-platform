@@ -203,6 +203,7 @@ class EmailService {
                 additionalLabor: args.additionalLabor,
                 partsAmount: args.partsAmount,
                 discountAmount: args.discountAmount,
+                calloutCreditAmount: args.calloutCreditAmount,
                 promoCode: args.promoCode,
                 promotionLabel: args.promotionLabel,
                 clientServiceFee: args.clientServiceFee,
@@ -278,7 +279,7 @@ class EmailService {
                     <span style="color:#00B961;">${args.currency} ${args.totalAmount.toFixed(2)}</span>
                   </div>
                 </div>
-                <div style="text-align:center;padding:22px;background:#F8FAFC;border-top:1px solid #E2E8F0;color:#94A3B8;font-size:12px;">Padi &bull; Support: support@myfixer.co.za</div>
+                <div style="text-align:center;padding:22px;background:#F8FAFC;border-top:1px solid #E2E8F0;color:#94A3B8;font-size:12px;">Padi &bull; Support: onboarding@hellopadi.com</div>
               </div>
             </div>
           </body>

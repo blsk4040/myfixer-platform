@@ -13,13 +13,20 @@ export interface AppliedPromotionSnapshot {
 
 export interface PriceBreakdown {
   currency?: string;
+  calloutFeeMinor?: number;
+  calloutFeeDeductible?: boolean;
+  calloutCreditMinor?: number;
   promotionDiscountMinor?: number;
   promotionPlatformFundedMinor?: number;
   promotionTechnicianFundedMinor?: number;
   promotionPartnerFundedMinor?: number;
+  platformCommissionBaseMinor?: number;
   platformCommissionMinor?: number;
   technicianGrossMinor?: number;
   technicianNetMinor?: number;
+  totalBeforeCreditMinor?: number;
+  totalMinor?: number;
+  amountDueMinor?: number;
   partsMinor?: number;
   labourMinor?: number;
   laborMinor?: number;

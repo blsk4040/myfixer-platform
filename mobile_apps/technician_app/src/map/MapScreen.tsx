@@ -254,7 +254,7 @@ export function MapScreen({ route }: MapScreenProps): React.JSX.Element {
     <View style={styles.container}>
       <MapLibreMap mapStyle={OSM_RASTER_STYLE} style={styles.map}>
         {cameraBounds ? (
-          <Camera bounds={cameraBounds} padding={{ top: 90, right: 36, bottom: 240, left: 36 }} />
+          <Camera bounds={cameraBounds} padding={{ top: 80, right: 32, bottom: 196, left: 32 }} />
         ) : (
           <Camera center={DEFAULT_CENTER} zoom={11} />
         )}
@@ -363,25 +363,25 @@ const styles = StyleSheet.create({
   lockSubtitle: { color: Colors.textMuted, fontSize: 13, textAlign: 'center', marginTop: 6, marginBottom: 20, lineHeight: 18 },
   btnGoOnline: { backgroundColor: Colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
   btnOnlineText: { color: Colors.background, fontWeight: '900', fontSize: 14 },
-  hudOverlayContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', padding: 20 },
-  hudCard: { backgroundColor: Colors.surface, borderRadius: 18, padding: 20, borderWidth: 1, borderColor: Colors.border },
-  hudHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  hudOverlayContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', paddingHorizontal: 14, paddingBottom: 14 },
+  hudCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: Colors.border },
+  hudHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 8 },
   hudTitle: { color: Colors.text, fontSize: 15, fontWeight: '800' },
   etaBadge: { backgroundColor: Colors.primary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   etaText: { color: Colors.background, fontSize: 11, fontWeight: '900' },
   addressText: { color: Colors.text, fontSize: 15, fontWeight: '700', marginBottom: 2 },
-  distanceText: { color: Colors.textSubtle, fontSize: 13, marginBottom: 15 },
+  distanceText: { color: Colors.textSubtle, fontSize: 12, marginBottom: 10 },
   routeErrorText: { color: Colors.amber, fontSize: 12, fontWeight: '800', marginBottom: 10 },
   routeHintText: { color: Colors.textMuted, fontSize: 12, fontWeight: '700', marginBottom: 10 },
-  btnArrival: { backgroundColor: Colors.amber, paddingVertical: 12, alignItems: 'center', borderRadius: 10, marginBottom: 10 },
+  btnArrival: { backgroundColor: Colors.amber, paddingVertical: 10, alignItems: 'center', borderRadius: 10, marginBottom: 8 },
   btnArrivalDisabled: { opacity: 0.65 },
   btnArrivalText: { color: Colors.background, fontSize: 13, fontWeight: '900' },
   actionRow: { flexDirection: 'row', gap: 10 },
-  btnPrimary: { flex: 1, backgroundColor: Colors.primary, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderRadius: 10 },
+  btnPrimary: { flex: 1, backgroundColor: Colors.primary, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderRadius: 10 },
   btnPrimaryText: { color: Colors.background, fontWeight: '900', fontSize: 14 },
-  btnSecondary: { flex: 1, backgroundColor: Colors.surfaceRaised, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderRadius: 10, borderWidth: 1, borderColor: Colors.borderStrong },
+  btnSecondary: { flex: 1, backgroundColor: Colors.surfaceRaised, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderRadius: 10, borderWidth: 1, borderColor: Colors.borderStrong },
   btnSecondaryText: { color: Colors.text, fontWeight: '800', fontSize: 14 },
-  btnPhoneMaps: { marginTop: 10, backgroundColor: Colors.background, paddingVertical: 12, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: Colors.borderStrong },
+  btnPhoneMaps: { marginTop: 8, backgroundColor: Colors.background, paddingVertical: 10, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: Colors.borderStrong },
   btnPhoneMapsText: { color: Colors.textMuted, fontWeight: '800', fontSize: 13 },
   noSelectionCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
   noSelectionText: { color: Colors.textMuted, fontSize: 13, fontWeight: '700' },

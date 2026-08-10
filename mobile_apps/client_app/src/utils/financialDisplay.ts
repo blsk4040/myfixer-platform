@@ -24,6 +24,8 @@ export interface AppliedPromotionSnapshot {
 export interface PriceBreakdown {
   currency?: string;
   calloutFeeMinor?: number;
+  calloutFeeDeductible?: boolean;
+  calloutCreditMinor?: number;
   labourMinor?: number;
   laborMinor?: number;
   partsMinor?: number;
@@ -35,7 +37,10 @@ export interface PriceBreakdown {
   subtotalMinor?: number;
   clientServiceFeeMinor?: number;
   taxMinor?: number;
+  totalBeforeCreditMinor?: number;
   totalMinor?: number;
+  amountDueMinor?: number;
+  platformCommissionBaseMinor?: number;
   platformCommissionMinor?: number;
   technicianGrossMinor?: number;
   technicianNetMinor?: number;

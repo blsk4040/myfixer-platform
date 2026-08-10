@@ -40,11 +40,13 @@ exports.requestQuoteClarification = exports.rejectJobQuote = exports.approveJobQ
 const mongoose_1 = __importDefault(require("mongoose"));
 const booking_model_1 = __importStar(require("../models/booking.model"));
 const quote_model_1 = __importStar(require("../models/quote.model"));
+const market_setting_model_1 = __importDefault(require("../models/market-setting.model"));
 const notification_model_1 = require("../models/notification.model");
 const user_model_1 = require("../models/user.model");
 const notification_service_1 = require("../services/notification.service");
 const audit_service_1 = require("../services/audit.service");
 const quote_workflow_service_1 = require("../services/quote-workflow.service");
+const price_breakdown_service_1 = require("../services/price-breakdown.service");
 const getAuthUser = (request) => request.user;
 const getUserId = (request) => String(getAuthUser(request)?.id ?? getAuthUser(request)?._id ?? '').trim();
 const isOwnerOrAdmin = (booking, userId, role) => role === user_model_1.UserRole.ADMIN || String(booking.customerId) === userId;
@@ -110,6 +112,39 @@ const parseExpiry = (value) => {
     }
     return parsed;
 };
+const positiveMinor = (value) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+const lineTotal = (items, types) => items
+    .filter((item) => types.includes(String(item.type)))
+    .reduce((sum, item) => sum + positiveMinor(item.totalAmountMinor), 0);
+const buildQuotePriceBreakdown = async (booking, totals) => {
+    const bookingBreakdown = booking.metadata?.priceBreakdown && typeof booking.metadata.priceBreakdown === 'object'
+        ? booking.metadata.priceBreakdown
+        : {};
+    const bookingCalloutMinor = positiveMinor(bookingBreakdown.calloutFeeMinor ?? booking.priceMinor);
+    const quoteCalloutMinor = lineTotal(totals.lineItems, ['CALL_OUT', 'CALLOUT']);
+    const labourMinor = lineTotal(totals.lineItems, ['LABOUR', 'LABOR']);
+    const partsMinor = lineTotal(totals.lineItems, ['PART']);
+    const additionalServicesMinor = lineTotal(totals.lineItems, ['ADD_ON']);
+    const surchargeMinor = lineTotal(totals.lineItems, ['SURCHARGE']);
+    const repairWorkMinor = labourMinor + partsMinor + additionalServicesMinor + surchargeMinor;
+    const calloutFeeDeductible = bookingBreakdown.calloutFeeDeductible !== false && quoteCalloutMinor > 0 && repairWorkMinor > 0;
+    const marketSetting = await market_setting_model_1.default.findOne({ 'identity.countryCode': booking.countryCode }).lean();
+    return (0, price_breakdown_service_1.calculatePriceBreakdown)({
+        currency: booking.currency,
+        calloutFeeMinor: quoteCalloutMinor,
+        calloutFeeDeductible,
+        calloutCreditMinor: calloutFeeDeductible ? Math.min(bookingCalloutMinor, quoteCalloutMinor) : 0,
+        labourMinor,
+        partsMinor,
+        additionalServicesMinor,
+        surchargeMinor,
+        otherDiscountMinor: totals.discountAmountMinor,
+        marketPricing: {
+            ...(marketSetting?.pricing || {}),
+            platformCommissionBps: marketSetting?.pricing?.platformCommissionBps ?? 1500,
+        },
+    });
+};
 const createJobQuote = async (request, response) => {
     const { bookingId } = request.params;
     const body = request.body;
@@ -158,6 +193,7 @@ const createJobQuote = async (request, response) => {
             version = latest ? Number(latest.version || 1) + 1 : 1;
         }
         const totals = (0, quote_workflow_service_1.calculateQuoteTotals)(Array.isArray(body.lineItems) ? body.lineItems : [], booking.currency);
+        const priceBreakdown = await buildQuotePriceBreakdown(booking, totals);
         const now = new Date();
         const status = shouldSubmit ? quote_model_1.QuoteStatus.SUBMITTED : quote_model_1.QuoteStatus.DRAFT;
         const quoteId = new mongoose_1.default.Types.ObjectId();
@@ -183,7 +219,10 @@ const createJobQuote = async (request, response) => {
             submittedBy: shouldSubmit ? new mongoose_1.default.Types.ObjectId(userId) : undefined,
             createdBy: new mongoose_1.default.Types.ObjectId(userId),
             expiresAt: shouldSubmit ? parseExpiry(body.expiresAt) : null,
-            metadata: {},
+            metadata: {
+                priceBreakdown,
+                pricingPolicy: 'callout-credit-v1',
+            },
         });
         if (shouldSubmit) {
             await quote_model_1.default.updateMany({
@@ -272,6 +311,19 @@ const submitJobQuote = async (request, response) => {
             return;
         }
         const now = new Date();
+        if (!quote.metadata?.priceBreakdown) {
+            const totals = {
+                lineItems: quote.lineItems,
+                subtotalAmountMinor: quote.subtotalAmountMinor,
+                discountAmountMinor: quote.discountAmountMinor,
+                totalAmountMinor: quote.totalAmountMinor,
+            };
+            quote.metadata = {
+                ...(quote.metadata || {}),
+                priceBreakdown: await buildQuotePriceBreakdown(booking, totals),
+                pricingPolicy: 'callout-credit-v1',
+            };
+        }
         quote.status = quote_model_1.QuoteStatus.SUBMITTED;
         quote.quoteNumber = quote.quoteNumber || buildQuoteNumber(quote._id, Number(quote.version || 1));
         quote.sentAt = now;

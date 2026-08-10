@@ -12,7 +12,7 @@ const padiWordmarkHtml = `
     Pad<span style="position:relative;display:inline-block;color:#F7F7F5;vertical-align:baseline;top:-0.05em;">i<span style="position:absolute;left:50%;top:-0.12em;display:block;width:0.18em;height:0.18em;margin-left:-0.09em;border-radius:999px;background:#B8FF3D;font-size:1em;line-height:1;">&nbsp;</span></span>
   </span>
 `;
-function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLabor, partsAmount, discountAmount = 0, promoCode = '', promotionLabel = '', clientServiceFee = 0, taxAmount = 0, subtotalAmount, totalAmount, currency, }) {
+function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLabor, partsAmount, discountAmount = 0, calloutCreditAmount = 0, promoCode = '', promotionLabel = '', clientServiceFee = 0, taxAmount = 0, subtotalAmount, totalAmount, currency, }) {
     const displayPromotion = promotionLabel || promoCode || 'Promotion';
     const hasBaseAmount = baseAmount > 0;
     return `
@@ -82,6 +82,11 @@ function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLa
                   <td>${displayPromotion}</td>
                   <td style="text-align: right; color: #DC2626;">-${formatMoney(discountAmount, currency)}</td>
                 </tr>` : ''}
+                ${calloutCreditAmount > 0 ? `
+                <tr>
+                  <td>Call-out fee credit</td>
+                  <td style="text-align: right; color: #00B961;">-${formatMoney(calloutCreditAmount, currency)}</td>
+                </tr>` : ''}
                 ${typeof subtotalAmount === 'number' ? `
                 <tr>
                   <td>Subtotal</td>
@@ -105,7 +110,7 @@ function generateInvoiceHtml({ customerName, bookingId, baseAmount, additionalLa
             </table>
           </div>
           <div class="footer">
-            Padi &bull; Support: support@myfixer.co.za
+            Padi &bull; Support: onboarding@hellopadi.com
           </div>
         </div>
       </div>

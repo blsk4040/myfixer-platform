@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   ScrollView,
   Share,
   StyleSheet,
@@ -12,7 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import authService from '../../services/auth.service';
-import apiService, { CustomerProfile, CustomerReferralProgramResponse } from '../../services/api.service';
+import apiService, { CustomerLoyaltyProgramResponse, CustomerProfile, CustomerReferralProgramResponse } from '../../services/api.service';
 import { Colors, Radius } from '../../theme';
 import { customerErrorMessage } from '../../utils/userFacingErrors';
 
@@ -26,7 +27,9 @@ interface ProfileOption {
 export function ProfileScreen({ navigation }: any): React.JSX.Element {
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [referral, setReferral] = useState<CustomerReferralProgramResponse['referral'] | null>(null);
+  const [loyalty, setLoyalty] = useState<CustomerLoyaltyProgramResponse['loyalty'] | null>(null);
   const [referralLoading, setReferralLoading] = useState(true);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [managedCollectionPaymentsAvailable, setManagedCollectionPaymentsAvailable] = useState(false);
 
@@ -40,6 +43,11 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
       .then((response) => setReferral(response.referral))
       .catch(() => setReferral(null))
       .finally(() => setReferralLoading(false));
+
+    apiService.getMyLoyaltyProgram()
+      .then((response) => setLoyalty(response.loyalty))
+      .catch(() => setLoyalty(null))
+      .finally(() => setLoyaltyLoading(false));
   }, []);
 
   useEffect(() => {
@@ -117,6 +125,22 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
     await Share.share({ message: referral.shareMessage });
   };
 
+  const handleWhatsAppInvite = async () => {
+    if (!referral?.shareMessage) {
+      Alert.alert('Invite friends', 'Your invite code is not ready yet. Please try again shortly.');
+      return;
+    }
+
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(referral.shareMessage)}`;
+    const canOpenWhatsApp = await Linking.canOpenURL(whatsappUrl);
+    if (canOpenWhatsApp) {
+      await Linking.openURL(whatsappUrl);
+      return;
+    }
+
+    await Share.share({ message: referral.shareMessage });
+  };
+
   const formatRewardOffer = (reward: NonNullable<CustomerReferralProgramResponse['referral']['rewards']>[number]) => {
     if (reward.discountType === 'FREE_CALLOUT') return 'Free call-out';
     const amountMinor = reward.maxDiscountMinor ?? reward.discountValue;
@@ -174,37 +198,122 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
           ) : null}
         </View>
 
+        <View style={styles.loyaltyCard}>
+          <View style={styles.loyaltyHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.loyaltyEyebrow}>Padi rewards</Text>
+              <Text style={styles.loyaltyTitle}>
+                {loyalty?.rewards?.length ? 'You have loyalty rewards' : loyalty?.nextRewardTitle || 'Keep booking, keep earning'}
+              </Text>
+              <Text style={styles.loyaltyCopy}>
+                Rewards unlock from real paid jobs completed through Padi. No cash payouts, no shortcuts.
+              </Text>
+            </View>
+            <View style={styles.loyaltyProgressBadge}>
+              {loyaltyLoading ? (
+                <ActivityIndicator color={Colors.primary} />
+              ) : (
+                <>
+                  <Text style={styles.loyaltyProgressValue}>
+                    {Math.min(loyalty?.completedCount || 0, loyalty?.milestone || 5)}/{loyalty?.milestone || 5}
+                  </Text>
+                  <Text style={styles.loyaltyProgressLabel}>Jobs</Text>
+                </>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${Math.min(
+                    100,
+                    Math.round(((loyalty?.completedCount || 0) / Math.max(loyalty?.milestone || 5, 1)) * 100)
+                  )}%`,
+                },
+              ]}
+            />
+          </View>
+
+          <Text style={styles.loyaltyMeta}>
+            {loyalty?.remainingCount
+              ? `${loyalty.remainingCount} more completed paid job${loyalty.remainingCount === 1 ? '' : 's'} to unlock ${loyalty.nextRewardTitle}.`
+              : loyalty?.rewards?.length
+                ? 'Your earned reward is ready below.'
+                : 'Your first loyalty milestone is being prepared.'}
+          </Text>
+
+          {loyalty?.rewards?.length ? (
+            <View style={styles.loyaltyRewardStack}>
+              {loyalty.rewards.map((reward) => (
+                <View key={reward.id} style={styles.loyaltyRewardRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.loyaltyRewardTitle}>{reward.title}</Text>
+                    <Text style={styles.loyaltyRewardMeta}>
+                      {reward.status} {reward.partnerName ? `- ${reward.partnerName}` : ''}{reward.promotionCode ? ` - code ${reward.promotionCode}` : ''}
+                    </Text>
+                  </View>
+                  <Text style={styles.loyaltyRewardType}>{reward.rewardType.replace(/_/g, ' ')}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+
         <View style={styles.referralCard}>
           <View style={styles.referralHeader}>
             <View style={{ flex: 1 }}>
               <Text style={styles.referralEyebrow}>Invite friends</Text>
               <Text style={styles.referralTitle}>Give a friend a Padi discount</Text>
               <Text style={styles.referralCopy}>
-                Share your code. Your reward unlocks after your friend completes a real paid booking.
+                Share your code with someone who needs a trusted service. Rewards only unlock after a real paid completed booking.
               </Text>
             </View>
-            <TouchableOpacity style={styles.shareButton} activeOpacity={0.86} onPress={handleShareInvite}>
-              <Text style={styles.shareButtonText}>Share</Text>
-            </TouchableOpacity>
           </View>
 
-          <View style={styles.referralCodeBox}>
-            {referralLoading ? (
-              <ActivityIndicator color={Colors.primary} />
-            ) : (
-              <Text style={styles.referralCode}>{referral?.referralCode || 'CODE READY SOON'}</Text>
-            )}
+          <View style={styles.referralCodePanel}>
+            <View>
+              <Text style={styles.referralCodeLabel}>Your invite code</Text>
+              <View style={styles.referralCodeBox}>
+                {referralLoading ? (
+                  <ActivityIndicator color={Colors.primary} />
+                ) : (
+                  <Text style={styles.referralCode}>{referral?.referralCode || 'CODE READY SOON'}</Text>
+                )}
+              </View>
+            </View>
+            <View style={styles.referralActionStack}>
+              <TouchableOpacity style={styles.whatsAppButton} activeOpacity={0.86} onPress={handleWhatsAppInvite}>
+                <Text style={styles.whatsAppButtonText}>WhatsApp</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.shareButton} activeOpacity={0.86} onPress={handleShareInvite}>
+                <Text style={styles.shareButtonText}>Share</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {referral ? (
-            <Text style={styles.referralStats}>
-              {referral.summary.registeredCount} invited - {referral.summary.completedCount} completed - {referral.summary.rewardEligibleCount} rewards
-            </Text>
+            <View style={styles.referralStatsGrid}>
+              <View style={styles.referralStatPill}>
+                <Text style={styles.referralStatValue}>{referral.summary.registeredCount}</Text>
+                <Text style={styles.referralStatLabel}>Invited</Text>
+              </View>
+              <View style={styles.referralStatPill}>
+                <Text style={styles.referralStatValue}>{referral.summary.completedCount}</Text>
+                <Text style={styles.referralStatLabel}>Completed</Text>
+              </View>
+              <View style={styles.referralStatPill}>
+                <Text style={styles.referralStatValue}>{referral.summary.rewardEligibleCount}</Text>
+                <Text style={styles.referralStatLabel}>Rewards</Text>
+              </View>
+            </View>
           ) : null}
 
           {referral?.rewards?.length ? (
             <View style={styles.rewardStack}>
-              <Text style={styles.rewardSectionTitle}>Available rewards</Text>
+              <Text style={styles.rewardSectionTitle}>Your rewards</Text>
               {referral.rewards.map((reward) => (
                 <View key={reward.id || reward.code} style={styles.rewardRow}>
                   <View style={{ flex: 1 }}>
@@ -216,7 +325,9 @@ export function ProfileScreen({ navigation }: any): React.JSX.Element {
               ))}
             </View>
           ) : (
-            <Text style={styles.noRewardText}>No reward code yet. Invite friends to earn future discounts.</Text>
+            <Text style={styles.noRewardText}>
+              No reward code yet. Your next reward appears here after an invited friend completes a paid booking.
+            </Text>
           )}
         </View>
 
@@ -268,16 +379,40 @@ const styles = StyleSheet.create({
   addressBox: { marginTop: 18, width: '100%', backgroundColor: Colors.input, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, padding: 12 },
   addressLabel: { color: Colors.textSubtle, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
   addressText: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  loyaltyCard: { backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: 18, borderWidth: 1, borderColor: Colors.border, marginBottom: 18 },
+  loyaltyHeader: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  loyaltyEyebrow: { color: '#FFB547', fontSize: 10, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+  loyaltyTitle: { color: Colors.text, fontSize: 17, fontWeight: '900', marginTop: 4 },
+  loyaltyCopy: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 6 },
+  loyaltyProgressBadge: { width: 68, height: 68, borderRadius: 34, borderWidth: 1, borderColor: '#FFB547', backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center' },
+  loyaltyProgressValue: { color: Colors.text, fontSize: 16, fontWeight: '900' },
+  loyaltyProgressLabel: { color: Colors.textSubtle, fontSize: 9, fontWeight: '900', textTransform: 'uppercase' },
+  progressTrack: { height: 8, backgroundColor: Colors.background, borderRadius: 4, overflow: 'hidden', marginTop: 16 },
+  progressFill: { height: '100%', backgroundColor: '#FFB547', borderRadius: 4 },
+  loyaltyMeta: { color: Colors.textSubtle, fontSize: 11, fontWeight: '700', lineHeight: 16, marginTop: 10 },
+  loyaltyRewardStack: { marginTop: 14, gap: 8 },
+  loyaltyRewardRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, padding: 12 },
+  loyaltyRewardTitle: { color: Colors.text, fontSize: 13, fontWeight: '900' },
+  loyaltyRewardMeta: { color: Colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 3 },
+  loyaltyRewardType: { maxWidth: 96, color: '#FFB547', fontSize: 9, fontWeight: '900', textAlign: 'right' },
   referralCard: { backgroundColor: '#141511', borderRadius: Radius.lg, padding: 18, borderWidth: 1, borderColor: 'rgba(184, 255, 61, 0.28)', marginBottom: 24 },
   referralHeader: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   referralEyebrow: { color: Colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
   referralTitle: { color: Colors.text, fontSize: 17, fontWeight: '900', marginTop: 4 },
   referralCopy: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 6 },
-  shareButton: { minHeight: 42, minWidth: 76, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.primary, paddingHorizontal: 16 },
-  shareButtonText: { color: Colors.background, fontSize: 13, fontWeight: '900' },
-  referralCodeBox: { alignSelf: 'flex-start', minHeight: 36, minWidth: 140, paddingHorizontal: 12, marginTop: 14, borderRadius: 10, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
+  referralCodePanel: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginTop: 16 },
+  referralCodeLabel: { color: Colors.textSubtle, fontSize: 10, fontWeight: '900', textTransform: 'uppercase', marginBottom: 7 },
+  referralActionStack: { flexDirection: 'row', gap: 8, flexShrink: 0 },
+  shareButton: { minHeight: 40, minWidth: 72, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.borderStrong, paddingHorizontal: 14 },
+  shareButtonText: { color: Colors.text, fontSize: 13, fontWeight: '900' },
+  whatsAppButton: { minHeight: 40, minWidth: 92, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.primary, paddingHorizontal: 14 },
+  whatsAppButtonText: { color: Colors.background, fontSize: 13, fontWeight: '900' },
+  referralCodeBox: { alignSelf: 'flex-start', minHeight: 38, minWidth: 144, paddingHorizontal: 12, borderRadius: 10, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
   referralCode: { color: Colors.primary, fontSize: 15, fontWeight: '900', letterSpacing: 0.7 },
-  referralStats: { color: Colors.textSubtle, fontSize: 11, fontWeight: '700', marginTop: 10 },
+  referralStatsGrid: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  referralStatPill: { flex: 1, minWidth: 0, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, paddingVertical: 10, alignItems: 'center' },
+  referralStatValue: { color: Colors.text, fontSize: 16, fontWeight: '900' },
+  referralStatLabel: { color: Colors.textSubtle, fontSize: 9, fontWeight: '900', textTransform: 'uppercase', marginTop: 2 },
   rewardStack: { marginTop: 14, gap: 8 },
   rewardSectionTitle: { color: Colors.text, fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
   rewardRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.background, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, padding: 12 },
