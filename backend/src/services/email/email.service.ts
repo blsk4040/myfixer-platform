@@ -78,10 +78,9 @@ interface SendTechnicianReviewEmailArgs {
   rejectionReason?: string;
 }
 
-const padiWordmarkHtml = `
-  <span style="display:inline-block;color:#FFFFFF;font-size:34px;line-height:1;font-weight:900;letter-spacing:0;">
-    Pad<span style="position:relative;display:inline-block;color:#FFFFFF;vertical-align:baseline;top:-0.05em;">i<span style="position:absolute;left:50%;top:-0.12em;display:block;width:0.18em;height:0.18em;margin-left:-0.09em;border-radius:999px;background:#B8FF3D;font-size:1em;line-height:1;">&nbsp;</span></span>
-  </span>
+const padiLogoUrl = 'https://res.cloudinary.com/vyvx5tco/image/upload/v1787588752/email_head.png';
+const padiLogoHtml = `
+  <img src="${padiLogoUrl}" width="156" alt="Padi" style="display:block;width:156px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />
 `;
 
 const renderPadiEmail = (args: {
@@ -107,7 +106,7 @@ const renderPadiEmail = (args: {
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#151518;border:1px solid #2A2A30;border-radius:22px;overflow:hidden;">
             <tr>
               <td style="padding:30px 28px 18px;background:#101013;">
-                ${padiWordmarkHtml}
+                ${padiLogoHtml}
               </td>
             </tr>
             <tr>
@@ -349,7 +348,7 @@ export class EmailService {
           <body style="margin:0;padding:0;background:#F8FAFC;color:#0F172A;font-family:Helvetica,Arial,sans-serif;">
             <div style="width:100%;padding:40px 0;background:#F8FAFC;">
               <div style="max-width:600px;margin:0 auto;background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden;">
-                <div style="background:#090D14;padding:30px;text-align:center;">${padiWordmarkHtml}</div>
+                <div style="background:#090D14;padding:30px;text-align:center;"><div style="display:inline-block;">${padiLogoHtml}</div></div>
                 <div style="padding:32px;">
                   <h1 style="margin:0 0 12px;font-size:22px;line-height:1.25;">Quote ready for review</h1>
                   <p style="margin:0 0 16px;color:#334155;">Hello ${escapeHtml(args.customerName || 'Client')},</p>

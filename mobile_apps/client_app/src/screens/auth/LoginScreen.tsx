@@ -16,7 +16,7 @@ import {
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, ShieldCheck, Sparkles } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Colors, IconSizes, Radius, Shadows, Spacing, Typography } from '../../theme';
+import { Colors, IconSizes, Radius, Spacing, Typography } from '../../theme';
 import authService, { AuthSession as LocalAuthSession } from '../../services/auth.service';
 import apiService from '../../services/api.service';
 import { assertConfiguredUrl, getApiBaseUrl } from '../../config/runtime.config';
@@ -196,9 +196,9 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
               />
             </View>
             <Text style={styles.kicker}>Trusted home services, on demand</Text>
-            <Text style={styles.heroTitle}>Welcome back</Text>
+            <Text style={styles.heroTitle}>Book trusted help, fast.</Text>
             <Text style={styles.heroCopy}>
-              Sign in to book verified providers, track active jobs, and manage your Padi account.
+              Sign in to manage bookings, track jobs, and keep your home services moving.
             </Text>
             <View style={styles.signalRow}>
               <View style={styles.signalPill}>
@@ -341,7 +341,7 @@ export function LoginScreen({ navigation }: any): React.JSX.Element {
             </TouchableOpacity>
           </View>
 
-          <View style={styles.footerCard}>
+          <View style={styles.footerRow}>
             <Text style={styles.footerText}>New to Padi?</Text>
             <TouchableOpacity
               style={styles.registerButton}
@@ -367,13 +367,13 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
     paddingHorizontal: Spacing.xxl,
-    paddingTop: Spacing.xxxl,
+    paddingTop: Spacing.xxl,
     paddingBottom: Spacing.huge,
     justifyContent: 'center',
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: Spacing.xxxl,
+    marginBottom: Spacing.xxl,
   },
   logoFrame: {
     width: '100%',
@@ -426,8 +426,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     borderRadius: Radius.pill,
     borderWidth: 1,
-    borderColor: Colors.borderStrong,
-    backgroundColor: Colors.surface,
+    borderColor: 'rgba(184, 255, 61, 0.2)',
+    backgroundColor: 'rgba(184, 255, 61, 0.06)',
   },
   signalText: {
     color: Colors.text,
@@ -440,10 +440,9 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     padding: Spacing.xl,
     borderWidth: 1,
-    borderColor: Colors.borderStrong,
-    borderRadius: Radius.xl,
-    backgroundColor: Colors.card,
-    ...Shadows.card,
+    borderColor: 'rgba(247, 247, 245, 0.1)',
+    borderRadius: Radius.lg,
+    backgroundColor: 'rgba(23, 23, 26, 0.84)',
   },
   formHeader: {
     marginBottom: Spacing.xl,
@@ -542,20 +541,17 @@ const styles = StyleSheet.create({
   },
   googleIconText: { color: '#4285F4', fontSize: 16, fontWeight: '900' },
   googleButtonText: { color: '#111827', fontSize: Typography.body.fontSize, fontWeight: '900' },
-  footerCard: {
+  footerRow: {
     width: '100%',
     maxWidth: 460,
     alignSelf: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
     gap: Spacing.md,
     marginTop: Spacing.xl,
-    padding: Spacing.lg,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surface,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.sm,
   },
   footerText: { color: Colors.textMuted, fontSize: Typography.label.fontSize, fontWeight: '700' },
   registerButton: {

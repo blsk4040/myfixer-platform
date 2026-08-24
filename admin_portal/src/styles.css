@@ -58,7 +58,7 @@ select:disabled {
   min-height: 100vh;
   background:
     linear-gradient(90deg, rgba(8, 11, 16, 0.28), rgba(8, 11, 16, 0.88)),
-    url("https://res.cloudinary.com/dz7dr3wku/image/upload/v1783802787/admin-login-operations_nvmv6i.png") center/cover;
+    url("https://res.cloudinary.com/vyvx5tco/image/upload/v1783802787/admin-login-operations_nvmv6i.png") center/cover;
 }
 
 .media-overlay {

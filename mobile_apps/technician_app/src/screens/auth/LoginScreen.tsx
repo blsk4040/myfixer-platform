@@ -164,7 +164,7 @@ export function LoginScreen({ onLoginSuccess, onRegisterPress, onVerificationReq
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <View style={styles.heroCard}>
+          <View style={styles.heroHeader}>
             <Image
               source={appLogo}
               style={styles.logoImage}
@@ -299,18 +299,16 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 32,
     justifyContent: 'center',
-    gap: 18,
+    gap: 20,
   },
-  heroCard: {
+  heroHeader: {
     alignItems: 'center',
-    paddingVertical: 26,
-    paddingHorizontal: 18,
-    borderRadius: 28,
-    backgroundColor: Colors.card,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    paddingVertical: 16,
+    paddingHorizontal: 10,
   },
   logoImage: {
     width: 180,
@@ -337,9 +335,9 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#B8FF3D12',
+    backgroundColor: '#B8FF3D10',
     borderWidth: 1,
-    borderColor: '#B8FF3D33',
+    borderColor: '#B8FF3D26',
   },
   signalText: {
     color: Colors.primary,
@@ -347,11 +345,11 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   formCard: {
-    padding: 18,
-    borderRadius: 24,
-    backgroundColor: Colors.card,
+    padding: 20,
+    borderRadius: 18,
+    backgroundColor: 'rgba(20, 20, 23, 0.86)',
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(247, 247, 245, 0.1)',
   },
   formHeader: {
     marginBottom: 18,
@@ -452,7 +450,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  registerLink: { alignItems: 'center', paddingVertical: 18 },
+  registerLink: { alignItems: 'center', paddingVertical: 12 },
   registerBrandRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
