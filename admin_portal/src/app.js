@@ -1514,7 +1514,7 @@ function renderShell() {
       <aside class="sidebar">
         <div class="sidebar-brand">
           <img
-            src="https://res.cloudinary.com/vyvx5tco/image/upload/v1784232641/final_logo_main_xx1y3f.png"
+            src="https://res.cloudinary.com/vyvx5tco/image/upload/v1787588752/email_head.png"
             alt="Padi logo"
             class="brand-logo small"
           />
