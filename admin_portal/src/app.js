@@ -7,6 +7,7 @@ function resolveApiBaseUrl() {
 }
 
 let API_BASE_URL = resolveApiBaseUrl();
+const ADMIN_STAFF_EMAIL_DOMAIN = 'hellopadi.com';
 
 function resolveApiHealthUrl() {
   try {
@@ -249,6 +250,19 @@ const views = [
 ];
 
 const app = document.getElementById('app');
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isAdminStaffEmail(value) {
+  const email = normalizeEmail(value);
+  return email.endsWith(`@${ADMIN_STAFF_EMAIL_DOMAIN}`);
+}
+
+function adminStaffEmailMessage() {
+  return `Admin portal access is restricted to @${ADMIN_STAFF_EMAIL_DOMAIN} staff emails.`;
+}
 
 const rolePermissions = {
   SUPER_ADMIN: ['*'],
@@ -963,9 +977,14 @@ async function api(path, options = {}) {
 async function login(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
-  const email = String(form.get('email') || '').trim();
+  const email = normalizeEmail(form.get('email'));
   const password = String(form.get('password') || '');
   const errorBox = document.querySelector('[data-login-error]');
+
+  if (!isAdminStaffEmail(email)) {
+    if (errorBox) errorBox.textContent = adminStaffEmailMessage();
+    return;
+  }
 
   try {
     state.loading = true;
@@ -1292,7 +1311,13 @@ async function openBooking(id) {
     alert(error.message);
   }
 }
-
+
+
+
+
+
+
+
 async function createAdminUser(event) {
   event.preventDefault();
   if (!canMutate('admins.create')) {
@@ -1302,7 +1327,7 @@ async function createAdminUser(event) {
   const form = new FormData(event.currentTarget);
   const payload = {
     name: String(form.get('name') || '').trim(),
-    email: String(form.get('email') || '').trim(),
+    email: normalizeEmail(form.get('email')),
     phone: String(form.get('phone') || '').trim(),
     adminRole: String(form.get('adminRole') || 'READ_ONLY_ADMIN'),
     adminPermissions: [
@@ -1312,6 +1337,11 @@ async function createAdminUser(event) {
     countryCode: String(form.get('countryCode') || 'ZA'),
     location: { city: String(form.get('city') || 'Head Office') },
   };
+
+  if (!isAdminStaffEmail(payload.email)) {
+    alert(adminStaffEmailMessage());
+    return;
+  }
 
   try {
     const result = await api('/admin/users', {
@@ -1415,7 +1445,7 @@ function renderLogin() {
             </div>
 
             <label>Email</label>
-            <input name="email" type="email" autocomplete="username" required />
+            <input name="email" type="email" autocomplete="username" pattern="^[^\\s@]+@hellopadi\\.com$" title="Use your hellopadi.com staff email" required />
 
             <label>Password</label>
             ${renderPasswordInput({ name: 'password', autocomplete: 'current-password' })}
@@ -1435,7 +1465,7 @@ function renderLogin() {
         <div class="media-overlay">
           <div class="brand-lockup">
             <img
-              src="https://res.cloudinary.com/vyvx5tco/image/upload/v1784232641/final_logo_main_xx1y3f.png"
+              src="https://res.cloudinary.com/vyvx5tco/image/upload/v1787588752/email_head.png"
               alt="Padi logo"
               class="brand-logo"
             />
@@ -4553,10 +4583,10 @@ function renderAdminUsers() {
           <label>Name</label>
           <input name="name" required placeholder="Operations Manager" ${canCreateAdmins ? '' : 'disabled'} />
           <label>Email</label>
-          <input name="email" type="email" required placeholder="ops@padi.com" ${canCreateAdmins ? '' : 'disabled'} />
+          <input name="email" type="email" required pattern="^[^\\s@]+@hellopadi\\.com$" title="Use a hellopadi.com staff email" placeholder="ops@hellopadi.com" ${canCreateAdmins ? '' : 'disabled'} />
           <label>Phone</label>
           <input name="phone" required placeholder="+27000000000" ${canCreateAdmins ? '' : 'disabled'} />
-          <p class="setting-help">A temporary password is generated and sent by onboarding email.</p>
+          <p class="setting-help">Only @hellopadi.com staff emails can be invited. A temporary password is generated and sent by onboarding email.</p>
           <div class="form-grid">
             <div>
               <label>Role</label>
@@ -7980,6 +8010,13 @@ window.state = state;
 window.render = render;
 
 setupIdleSecurity();
+
+if (state.token && !isAdminStaffEmail(state.user?.email)) {
+  state.token = '';
+  state.user = null;
+  localStorage.removeItem('myfixer_admin_token');
+  localStorage.removeItem('myfixer_admin_user');
+}
 
 if (state.token && state.user?.mustChangePassword) {
   state.authView = 'changePassword';

@@ -24,6 +24,7 @@ const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const adminPassword = process.env.ADMIN_PASSWORD || '';
 const adminName = (process.env.ADMIN_NAME || '').trim();
 const adminPhone = (process.env.ADMIN_PHONE || '').trim();
+const ADMIN_STAFF_EMAIL_DOMAIN = 'hellopadi.com';
 
 const assertSafeToRun = () => {
   if (!setupKey) {
@@ -36,6 +37,10 @@ const assertSafeToRun = () => {
 
   if (!adminEmail) {
     throw new Error('ADMIN_EMAIL is required.');
+  }
+
+  if (!adminEmail.endsWith(`@${ADMIN_STAFF_EMAIL_DOMAIN}`)) {
+    throw new Error(`ADMIN_EMAIL must use @${ADMIN_STAFF_EMAIL_DOMAIN}.`);
   }
 };
 

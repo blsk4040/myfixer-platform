@@ -2,6 +2,11 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import User, { AdminPermission, AdminRole, normalizeUserRole, UserRole } from '../models/user.model';
 
+const ADMIN_STAFF_EMAIL_DOMAIN = 'hellopadi.com';
+
+const isAdminStaffEmail = (value: unknown): boolean =>
+  String(value || '').trim().toLowerCase().endsWith(`@${ADMIN_STAFF_EMAIL_DOMAIN}`);
+
 const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
   [AdminRole.SUPER_ADMIN]: Object.values(AdminPermission),
   [AdminRole.OPERATIONS_MANAGER]: [
@@ -147,9 +152,14 @@ export const requireAdminPermission =
       return;
     }
 
-    const admin = await User.findById(authUser.id).select('role adminRole adminPermissions isActive accountStatus');
+    const admin = await User.findById(authUser.id).select('role email adminRole adminPermissions isActive accountStatus');
     if (!admin || admin.role !== UserRole.ADMIN || admin.isActive === false) {
       res.status(403).json({ message: 'This admin account is not active.' });
+      return;
+    }
+
+    if (!isAdminStaffEmail(admin.email)) {
+      res.status(403).json({ message: `Admin portal access is restricted to @${ADMIN_STAFF_EMAIL_DOMAIN} staff emails.` });
       return;
     }
 

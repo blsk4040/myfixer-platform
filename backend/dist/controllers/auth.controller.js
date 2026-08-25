@@ -60,6 +60,7 @@ const provider_referral_service_1 = require("../services/provider-referral.servi
 const customer_referral_service_1 = require("../services/customer-referral.service");
 const image_data_uri_1 = require("../utils/image-data-uri");
 const MAX_TECHNICIAN_REGISTRATION_PHOTO_BYTES = 5 * 1024 * 1024;
+const ADMIN_STAFF_EMAIL_DOMAIN = 'hellopadi.com';
 // --- JWT Helper Generator ---
 const generateToken = (userId, role, email, tokenVersion = 0) => {
     const secret = process.env.JWT_SECRET;
@@ -69,6 +70,8 @@ const generateToken = (userId, role, email, tokenVersion = 0) => {
     return jsonwebtoken_1.default.sign({ id: userId, _id: userId, role, email, tokenVersion }, secret, { expiresIn: '30d' });
 };
 const hashResetToken = (token) => crypto_1.default.createHash('sha256').update(token).digest('hex');
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const isAdminStaffEmail = (value) => normalizeEmail(value).endsWith(`@${ADMIN_STAFF_EMAIL_DOMAIN}`);
 const generateEmailVerificationToken = () => crypto_1.default.randomBytes(32).toString('hex');
 const getClientBaseUrl = (req) => (process.env.CLIENT_APP_URL || `${req.protocol}://${req.get('host') || ''}`).replace(/\/$/, '');
 const isMarketActiveForOnboarding = async (countryCode) => {
@@ -654,7 +657,7 @@ const loginUser = async (req, res) => {
             return;
         }
         // 2. Lookup Identity Footprint Match
-        const normalizedEmail = email.toLowerCase().trim();
+        const normalizedEmail = normalizeEmail(email);
         const user = await user_model_1.default.findOne({ email: normalizedEmail }).select('+password +refreshTokenVersion');
         if (!user) {
             res.status(401).json({ message: 'Invalid credentials. Access Denied.' });
@@ -676,6 +679,10 @@ const loginUser = async (req, res) => {
         }
         // 4. Issue Valid Session Handshake Token
         const normalizedRole = (0, user_model_1.normalizeUserRole)(user.role);
+        if (normalizedRole === user_model_1.UserRole.ADMIN && !isAdminStaffEmail(user.email)) {
+            res.status(403).json({ message: `Admin portal access is restricted to @${ADMIN_STAFF_EMAIL_DOMAIN} staff emails.` });
+            return;
+        }
         let technicianProfile = null;
         if (normalizedRole === user_model_1.UserRole.TECHNICIAN) {
             technicianProfile = await technician_model_1.default.findOne({ userId: user._id });
@@ -1220,12 +1227,17 @@ const bootstrapAdmin = async (req, res) => {
             res.status(400).json({ message: 'Name, email, phone, and password are required.' });
             return;
         }
+        const normalizedEmail = normalizeEmail(email);
+        if (!isAdminStaffEmail(normalizedEmail)) {
+            res.status(400).json({ message: `Admin staff emails must use @${ADMIN_STAFF_EMAIL_DOMAIN}.` });
+            return;
+        }
         const resolvedCountryCode = (0, market_config_1.normalizeCountryCode)(countryCode ?? location?.country);
         const market = await (0, market_finance_guard_service_2.assertActiveMarket)(resolvedCountryCode);
         const hashedPassword = await bcrypt_1.default.hash(password, 10);
         const admin = await user_model_1.default.create({
             name: name.trim(),
-            email: email.toLowerCase().trim(),
+            email: normalizedEmail,
             phone: phone.trim(),
             location: {
                 country: market.identity.countryName,

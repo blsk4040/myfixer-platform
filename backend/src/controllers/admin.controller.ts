@@ -302,6 +302,14 @@ const normalizeAdminPermissionsInput = (value: unknown): AdminPermission[] =>
 const generateTemporaryPassword = (): string =>
   `${crypto.randomBytes(9).toString('base64url')}A1!`;
 
+const ADMIN_STAFF_EMAIL_DOMAIN = 'hellopadi.com';
+
+const normalizeEmail = (value: unknown): string =>
+  String(value || '').trim().toLowerCase();
+
+const isAdminStaffEmail = (value: unknown): boolean =>
+  normalizeEmail(value).endsWith(`@${ADMIN_STAFF_EMAIL_DOMAIN}`);
+
 const normalizePromotionCode = (value: unknown): string =>
   String(value || '').trim().toUpperCase().replace(/\s+/g, '');
 
@@ -2861,7 +2869,12 @@ export const createAdminUser = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const normalizedEmail = String(email).toLowerCase().trim();
+    const normalizedEmail = normalizeEmail(email);
+    if (!isAdminStaffEmail(normalizedEmail)) {
+      res.status(400).json({ message: `Admin staff emails must use @${ADMIN_STAFF_EMAIL_DOMAIN}.` });
+      return;
+    }
+
     const exists = await User.findOne({ email: normalizedEmail });
     if (exists) {
       res.status(409).json({ message: 'A user with this email already exists.' });

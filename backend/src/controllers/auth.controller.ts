@@ -23,6 +23,7 @@ import { recordCustomerToCustomerReferral } from '../services/customer-referral.
 import { parseImageDataUri } from '../utils/image-data-uri';
 
 const MAX_TECHNICIAN_REGISTRATION_PHOTO_BYTES = 5 * 1024 * 1024;
+const ADMIN_STAFF_EMAIL_DOMAIN = 'hellopadi.com';
 
 // --- JWT Helper Generator ---
 const generateToken = (userId: string, role: UserRole, email: string, tokenVersion = 0): string => {
@@ -36,6 +37,12 @@ const generateToken = (userId: string, role: UserRole, email: string, tokenVersi
 
 const hashResetToken = (token: string): string =>
   crypto.createHash('sha256').update(token).digest('hex');
+
+const normalizeEmail = (value: unknown): string =>
+  String(value || '').trim().toLowerCase();
+
+const isAdminStaffEmail = (value: unknown): boolean =>
+  normalizeEmail(value).endsWith(`@${ADMIN_STAFF_EMAIL_DOMAIN}`);
 
 const generateEmailVerificationToken = (): string => crypto.randomBytes(32).toString('hex');
 
@@ -690,7 +697,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
     }
 
     // 2. Lookup Identity Footprint Match
-    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedEmail = normalizeEmail(email);
     const user = await User.findOne({ email: normalizedEmail }).select('+password +refreshTokenVersion');
     if (!user) {
       res.status(401).json({ message: 'Invalid credentials. Access Denied.' });
@@ -716,6 +723,11 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
 
     // 4. Issue Valid Session Handshake Token
     const normalizedRole = normalizeUserRole(user.role);
+    if (normalizedRole === UserRole.ADMIN && !isAdminStaffEmail(user.email)) {
+      res.status(403).json({ message: `Admin portal access is restricted to @${ADMIN_STAFF_EMAIL_DOMAIN} staff emails.` });
+      return;
+    }
+
     let technicianProfile: any = null;
     if (normalizedRole === UserRole.TECHNICIAN) {
       technicianProfile = await Technician.findOne({ userId: user._id });
@@ -1339,13 +1351,19 @@ export const bootstrapAdmin = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    const normalizedEmail = normalizeEmail(email);
+    if (!isAdminStaffEmail(normalizedEmail)) {
+      res.status(400).json({ message: `Admin staff emails must use @${ADMIN_STAFF_EMAIL_DOMAIN}.` });
+      return;
+    }
+
     const resolvedCountryCode = normalizeCountryCode(countryCode ?? location?.country);
     const market = await assertActiveMarket(resolvedCountryCode);
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const admin = await User.create({
       name: name.trim(),
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       phone: phone.trim(),
       location: {
         country: market.identity.countryName,

@@ -39,6 +39,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.requireAdminPermission = exports.requireRole = exports.authenticateToken = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const user_model_1 = __importStar(require("../models/user.model"));
+const ADMIN_STAFF_EMAIL_DOMAIN = 'hellopadi.com';
+const isAdminStaffEmail = (value) => String(value || '').trim().toLowerCase().endsWith(`@${ADMIN_STAFF_EMAIL_DOMAIN}`);
 const ADMIN_ROLE_PERMISSIONS = {
     [user_model_1.AdminRole.SUPER_ADMIN]: Object.values(user_model_1.AdminPermission),
     [user_model_1.AdminRole.OPERATIONS_MANAGER]: [
@@ -168,9 +170,13 @@ const requireAdminPermission = (permission) => async (req, res, next) => {
         res.status(403).json({ message: 'This portal is only available to internal admin staff.' });
         return;
     }
-    const admin = await user_model_1.default.findById(authUser.id).select('role adminRole adminPermissions isActive accountStatus');
+    const admin = await user_model_1.default.findById(authUser.id).select('role email adminRole adminPermissions isActive accountStatus');
     if (!admin || admin.role !== user_model_1.UserRole.ADMIN || admin.isActive === false) {
         res.status(403).json({ message: 'This admin account is not active.' });
+        return;
+    }
+    if (!isAdminStaffEmail(admin.email)) {
+        res.status(403).json({ message: `Admin portal access is restricted to @${ADMIN_STAFF_EMAIL_DOMAIN} staff emails.` });
         return;
     }
     const adminRole = admin.adminRole || user_model_1.AdminRole.READ_ONLY_ADMIN;

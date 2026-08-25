@@ -260,6 +260,9 @@ const normalizeAdminPermissionsInput = (value) => Array.isArray(value)
     ? Array.from(new Set(value.filter((permission) => Object.values(user_model_1.AdminPermission).includes(permission))))
     : [];
 const generateTemporaryPassword = () => `${crypto_1.default.randomBytes(9).toString('base64url')}A1!`;
+const ADMIN_STAFF_EMAIL_DOMAIN = 'hellopadi.com';
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const isAdminStaffEmail = (value) => normalizeEmail(value).endsWith(`@${ADMIN_STAFF_EMAIL_DOMAIN}`);
 const normalizePromotionCode = (value) => String(value || '').trim().toUpperCase().replace(/\s+/g, '');
 const normalizePromotionKeys = (value) => Array.from(new Set(splitCsv(value).map((item) => (0, service_availability_service_1.normalizeServiceKey)(item)).filter(Boolean)));
 const normalizeObjectIds = (value) => splitCsv(value)
@@ -2619,7 +2622,11 @@ const createAdminUser = async (req, res) => {
             res.status(400).json({ message: 'Name, email, and phone are required.' });
             return;
         }
-        const normalizedEmail = String(email).toLowerCase().trim();
+        const normalizedEmail = normalizeEmail(email);
+        if (!isAdminStaffEmail(normalizedEmail)) {
+            res.status(400).json({ message: `Admin staff emails must use @${ADMIN_STAFF_EMAIL_DOMAIN}.` });
+            return;
+        }
         const exists = await user_model_1.default.findOne({ email: normalizedEmail });
         if (exists) {
             res.status(409).json({ message: 'A user with this email already exists.' });
