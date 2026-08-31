@@ -63,6 +63,7 @@ const notification_service_1 = require("../services/notification.service");
 const notification_model_1 = require("../models/notification.model");
 const booking_workflow_service_1 = require("../services/booking-workflow.service");
 const inspection_workflow_service_1 = require("../services/inspection-workflow.service");
+const financial_ledger_service_1 = require("../services/financial-ledger.service");
 const booking_recipient_service_1 = require("../services/booking-recipient.service");
 const booking_privacy_service_1 = require("../services/booking-privacy.service");
 const market_finance_guard_service_1 = require("../services/market-finance-guard.service");
@@ -2086,6 +2087,68 @@ const finalizeJobInvoice = async (request, response) => {
             }, { upsert: true, new: true, setDefaultsOnInsert: true });
             finalizedInvoiceNumber = invoice.invoiceNumber;
             finalizedInvoiceId = invoice._id.toString();
+            await (0, financial_ledger_service_1.recordLedgerEntries)([
+                {
+                    idempotencyKey: `invoice:${invoice.id}:issued:v${invoice.updatedAt?.getTime?.() || Date.now()}`,
+                    entryType: financial_ledger_service_1.ledgerType.INVOICE_ISSUED,
+                    amountMinor: invoiceTotalMinor,
+                    direction: 'DEBIT',
+                    component: 'MEMO',
+                    description: existingInvoice ? 'Invoice updated' : 'Invoice issued',
+                    bookingId: booking._id,
+                    invoiceId: invoice._id,
+                    quoteId: approvedQuote?._id ?? null,
+                    customerId: new mongoose_1.default.Types.ObjectId(booking.customerId),
+                    technicianId: new mongoose_1.default.Types.ObjectId(booking.technicianId),
+                    countryCode: booking.countryCode,
+                    currency: booking.currency,
+                    metadata: {
+                        invoiceNumber: invoice.invoiceNumber,
+                        priceBreakdown,
+                        status: invoice.status,
+                    },
+                },
+                {
+                    idempotencyKey: `invoice:${invoice.id}:provider-earning:${technicianNetAmountMinor}`,
+                    entryType: financial_ledger_service_1.ledgerType.PROVIDER_EARNING_RECOGNIZED,
+                    amountMinor: technicianNetAmountMinor,
+                    direction: 'CREDIT',
+                    component: 'PAYOUT',
+                    description: 'Provider earning recognized',
+                    bookingId: booking._id,
+                    invoiceId: invoice._id,
+                    quoteId: approvedQuote?._id ?? null,
+                    customerId: new mongoose_1.default.Types.ObjectId(booking.customerId),
+                    technicianId: new mongoose_1.default.Types.ObjectId(booking.technicianId),
+                    countryCode: booking.countryCode,
+                    currency: booking.currency,
+                    metadata: {
+                        invoiceNumber: invoice.invoiceNumber,
+                        providerGrossMinor: priceBreakdown?.technicianGrossMinor,
+                        platformCommissionBaseMinor: priceBreakdown?.platformCommissionBaseMinor,
+                    },
+                },
+                {
+                    idempotencyKey: `invoice:${invoice.id}:platform-revenue:${platformCommissionAmountMinor}`,
+                    entryType: financial_ledger_service_1.ledgerType.PLATFORM_REVENUE_RECOGNIZED,
+                    amountMinor: platformCommissionAmountMinor,
+                    direction: 'CREDIT',
+                    component: 'PLATFORM_FEE',
+                    description: 'Padi revenue recognized',
+                    bookingId: booking._id,
+                    invoiceId: invoice._id,
+                    quoteId: approvedQuote?._id ?? null,
+                    customerId: new mongoose_1.default.Types.ObjectId(booking.customerId),
+                    technicianId: new mongoose_1.default.Types.ObjectId(booking.technicianId),
+                    countryCode: booking.countryCode,
+                    currency: booking.currency,
+                    metadata: {
+                        invoiceNumber: invoice.invoiceNumber,
+                        platformCommissionBps,
+                        platformCommissionBaseMinor: priceBreakdown?.platformCommissionBaseMinor,
+                    },
+                },
+            ]);
             await (0, audit_service_1.logAuditEvent)(request, {
                 action: existingInvoice ? 'invoice.update' : 'invoice.create',
                 module: 'PAYMENTS',

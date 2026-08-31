@@ -57,6 +57,7 @@ const provider_referral_service_1 = require("./provider-referral.service");
 const customer_referral_service_1 = require("./customer-referral.service");
 const customer_loyalty_reward_service_1 = require("./customer-loyalty-reward.service");
 const provider_reputation_service_1 = require("./provider-reputation.service");
+const financial_ledger_service_1 = require("./financial-ledger.service");
 class SettlementError extends Error {
     code;
     statusCode;
@@ -94,6 +95,16 @@ const serializeSettlement = (settlement) => ({
     createdAt: settlement.createdAt,
     updatedAt: settlement.updatedAt,
     metadata: settlement.metadata || {},
+});
+const settlementLedgerContext = (settlement) => ({
+    bookingId: settlement.bookingId,
+    quoteId: settlement.quoteId ?? null,
+    settlementId: settlement._id,
+    paymentTransactionId: settlement.paymentTransactionId ?? null,
+    customerId: settlement.customerId,
+    technicianId: settlement.technicianId,
+    countryCode: settlement.countryCode,
+    currency: settlement.currency,
 });
 const ensureObjectId = (value, label) => {
     if (!mongoose_1.default.Types.ObjectId.isValid(value))
@@ -259,6 +270,21 @@ const createSettlementFromBooking = async (booking, payment, status) => {
         },
         $set: { status },
     }, { new: true, upsert: true, setDefaultsOnInsert: true });
+    await (0, financial_ledger_service_1.recordLedgerEntry)({
+        idempotencyKey: `settlement:${settlement.id}:created`,
+        entryType: financial_ledger_service_1.ledgerType.SETTLEMENT_CREATED,
+        amountMinor: settlement.netAmountMinor,
+        direction: 'CREDIT',
+        component: 'PAYOUT',
+        description: 'Provider settlement created',
+        ...settlementLedgerContext(settlement),
+        metadata: {
+            grossAmountMinor: settlement.grossAmountMinor,
+            commissionAmountMinor: settlement.commissionAmountMinor,
+            netAmountMinor: settlement.netAmountMinor,
+            status: settlement.status,
+        },
+    });
     return settlement;
 };
 const confirmCustomerCompletion = async (bookingId, actor, input, req) => {
@@ -473,6 +499,16 @@ const holdSettlement = async (settlementId, actor, reason, req) => {
     }, { new: true });
     if (!settlement)
         throw new SettlementError('Settlement cannot be placed on hold.', 'HOLD_CONFLICT', 409);
+    await (0, financial_ledger_service_1.recordLedgerEntry)({
+        idempotencyKey: `settlement:${settlement.id}:hold:${settlement.heldAt?.getTime?.() || Date.now()}`,
+        entryType: financial_ledger_service_1.ledgerType.SETTLEMENT_ON_HOLD,
+        amountMinor: settlement.netAmountMinor,
+        direction: 'MEMO',
+        component: 'PAYOUT',
+        description: 'Provider settlement placed on hold',
+        ...settlementLedgerContext(settlement),
+        metadata: { reason: trimmed },
+    });
     req?.app.get('io')?.to(`technician:${settlement.technicianId.toString()}`).emit('settlement_on_hold', serializeSettlement(settlement));
     return settlement;
 };
@@ -553,6 +589,20 @@ const processPaystackTransferWebhookPayload = async (payload, req) => {
         settlement.status = provider_settlement_model_1.ProviderSettlementStatus.PAID;
         settlement.paidAt = settlement.paidAt || now;
         await settlement.save();
+        await (0, financial_ledger_service_1.recordLedgerEntry)({
+            idempotencyKey: `settlement:${settlement.id}:paid:${payout.id}`,
+            entryType: financial_ledger_service_1.ledgerType.SETTLEMENT_PAID,
+            amountMinor: payout.amountMinor,
+            direction: 'DEBIT',
+            component: 'PAYOUT',
+            description: 'Provider payout paid',
+            ...settlementLedgerContext(settlement),
+            metadata: {
+                payoutTransactionId: payout.id,
+                payoutReference: maskReference(payout.reference),
+                providerStatus: payout.providerStatus,
+            },
+        });
         req?.app.get('io')?.to(`technician:${settlement.technicianId.toString()}`).emit('payout_paid', serializeSettlement(settlement));
         return { processed: true };
     }
@@ -567,6 +617,20 @@ const processPaystackTransferWebhookPayload = async (payload, req) => {
         await payout.save();
         settlement.status = reversed ? provider_settlement_model_1.ProviderSettlementStatus.REVERSED : provider_settlement_model_1.ProviderSettlementStatus.PAYOUT_FAILED;
         await settlement.save();
+        await (0, financial_ledger_service_1.recordLedgerEntry)({
+            idempotencyKey: `settlement:${settlement.id}:${eventType}:${payout.id}`,
+            entryType: reversed ? financial_ledger_service_1.ledgerType.SETTLEMENT_REVERSED : financial_ledger_service_1.ledgerType.SETTLEMENT_PAYOUT_FAILED,
+            amountMinor: payout.amountMinor,
+            direction: 'MEMO',
+            component: 'PAYOUT',
+            description: reversed ? 'Provider payout reversed' : 'Provider payout failed',
+            ...settlementLedgerContext(settlement),
+            metadata: {
+                payoutTransactionId: payout.id,
+                payoutReference: maskReference(payout.reference),
+                providerStatus: payout.providerStatus,
+            },
+        });
         req?.app.get('io')?.to(`technician:${settlement.technicianId.toString()}`).emit(reversed ? 'payout_reversed' : 'payout_failed', serializeSettlement(settlement));
         return { processed: true };
     }

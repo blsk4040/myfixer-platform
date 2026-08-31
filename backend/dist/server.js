@@ -1,10 +1,10 @@
 "use strict";
+// src/server.ts
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.io = exports.httpServer = exports.app = void 0;
-// src/server.ts
 const dns_1 = __importDefault(require("dns"));
 const dns_2 = require("dns");
 dns_1.default.setDefaultResultOrder('ipv4first');
@@ -22,6 +22,7 @@ const morgan_1 = __importDefault(require("morgan"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const socket_io_1 = require("socket.io");
 const api_routes_1 = __importDefault(require("./routes/api.routes"));
+const prelaunch_registration_routes_1 = __importDefault(require("./routes/prelaunch-registration.routes"));
 const socket_server_1 = require("./sockets/socket.server");
 const redis_adapter_1 = require("./sockets/redis-adapter");
 const paystack_service_1 = require("./services/paystack.service");
@@ -48,7 +49,9 @@ const assertNoLocalProductionOrigin = (origin) => {
     }
 };
 const validateStartupConfiguration = () => {
-    const routingProvider = (process.env.ROUTING_PROVIDER || 'osrm').trim().toLowerCase();
+    const routingProvider = (process.env.ROUTING_PROVIDER || 'osrm')
+        .trim()
+        .toLowerCase();
     const isProduction = isProductionRuntime();
     if (isProduction) {
         requireConfiguredEnv('MONGODB_URI');
@@ -66,21 +69,30 @@ const validateStartupConfiguration = () => {
         requireConfiguredEnv('CLOUDINARY_API_SECRET');
         requireConfiguredEnv('GOOGLE_WEB_CLIENT_ID');
         requireConfiguredEnv('GOOGLE_ANDROID_CLIENT_ID');
-        const configuredOrigins = (process.env.CORS_ORIGIN ?? process.env.CORS_ORIGINS ?? '').trim();
+        const configuredOrigins = (process.env.CORS_ORIGIN ??
+            process.env.CORS_ORIGINS ??
+            '').trim();
         if (!configuredOrigins) {
             throw new Error('CORS_ORIGINS must be configured in production.');
         }
-        configuredOrigins.split(',').map((origin) => origin.trim()).filter(Boolean).forEach((origin) => {
+        configuredOrigins
+            .split(',')
+            .map((origin) => origin.trim())
+            .filter(Boolean)
+            .forEach((origin) => {
             if (!/^https:\/\/[^\s]+$/i.test(origin)) {
                 throw new Error('CORS_ORIGINS must contain only HTTPS origins in production.');
             }
             assertNoLocalProductionOrigin(origin);
         });
     }
-    if (isProduction && routingProvider === 'osrm' && !process.env.OSRM_BASE_URL?.trim()) {
+    if (isProduction &&
+        routingProvider === 'osrm' &&
+        !process.env.OSRM_BASE_URL?.trim()) {
         throw new Error('OSRM_BASE_URL must be configured when ROUTING_PROVIDER=osrm in production.');
     }
-    if (process.env.NODE_ENV === 'production' || (process.env.PAYSTACK_ENABLED || '').trim().toLowerCase() === 'true') {
+    if (process.env.NODE_ENV === 'production' ||
+        (process.env.PAYSTACK_ENABLED || '').trim().toLowerCase() === 'true') {
         (0, paystack_service_1.validatePaystackStartupConfiguration)();
     }
     (0, payment_capabilities_config_1.validatePayoutStartupConfiguration)();
@@ -91,7 +103,10 @@ const parseAllowedOrigins = () => {
     if (!configuredOrigins) {
         return [process.env.ADMIN_PORTAL_URL].filter((origin) => Boolean(origin));
     }
-    return configuredOrigins.split(',').map((o) => o.trim()).filter(Boolean);
+    return configuredOrigins
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean);
 };
 const allowedOrigins = parseAllowedOrigins();
 const corsOptions = {
@@ -107,7 +122,11 @@ const corsOptions = {
 exports.app = (0, express_1.default)();
 exports.httpServer = http_1.default.createServer(exports.app);
 exports.io = new socket_io_1.Server(exports.httpServer, {
-    cors: { origin: allowedOrigins, credentials: true, methods: ['GET', 'POST'] },
+    cors: {
+        origin: allowedOrigins,
+        credentials: true,
+        methods: ['GET', 'POST'],
+    },
 });
 exports.app.use((0, helmet_1.default)());
 exports.app.set('trust proxy', isProductionRuntime() ? 1 : false);
@@ -120,11 +139,16 @@ exports.app.use(express_1.default.json({
         req.rawBody = Buffer.from(buf);
     },
 }));
-exports.app.use(express_1.default.urlencoded({ extended: true, limit: jsonBodyLimit }));
+exports.app.use(express_1.default.urlencoded({
+    extended: true,
+    limit: jsonBodyLimit,
+}));
 exports.app.use((0, morgan_1.default)(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 exports.app.set('io', exports.io);
 // Versioned umbrella endpoints
 exports.app.use('/api/v1', api_routes_1.default);
+// Pre-launch registration
+exports.app.use('/api/v1/prelaunch-registration', prelaunch_registration_routes_1.default);
 exports.app.get('/api/health', (_req, res) => {
     res.status(200).json({
         status: 'ok',
@@ -136,12 +160,19 @@ exports.app.get('/api/metrics', (req, res) => {
     const metricsToken = process.env.METRICS_TOKEN?.trim();
     if (isProductionRuntime()) {
         if (!metricsToken) {
-            res.status(404).json({ message: 'Not found.' });
+            res.status(404).json({
+                message: 'Not found.',
+            });
             return;
         }
-        const provided = req.header('authorization')?.replace(/^Bearer\s+/i, '').trim();
+        const provided = req
+            .header('authorization')
+            ?.replace(/^Bearer\s+/i, '')
+            .trim();
         if (provided !== metricsToken) {
-            res.status(403).json({ message: 'Metrics access denied.' });
+            res.status(403).json({
+                message: 'Metrics access denied.',
+            });
             return;
         }
     }

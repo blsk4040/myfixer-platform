@@ -19,6 +19,7 @@ const waitlist_controller_1 = require("../controllers/waitlist.controller");
 const managed_collection_controller_1 = require("../controllers/managed-collection.controller");
 const notification_controller_1 = require("../controllers/notification.controller");
 const push_token_controller_1 = require("../controllers/push-token.controller");
+const financial_ledger_controller_1 = require("../controllers/financial-ledger.controller");
 const support_controller_1 = require("../controllers/support.controller");
 const managed_collection_subscription_controller_1 = require("../controllers/managed-collection-subscription.controller");
 const auth_middleware_1 = require("../middleware/auth.middleware");
@@ -120,6 +121,7 @@ apiRouter.patch('/admin/managed-collection-reminders/:id', auth_middleware_1.aut
 apiRouter.get('/admin/quotes', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.BOOKINGS_READ), admin_controller_1.getAdminQuotes);
 apiRouter.get('/admin/invoices', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.FINANCE_READ), admin_controller_1.getAdminInvoices);
 apiRouter.get('/admin/wallet-transactions', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.FINANCE_READ), admin_controller_1.getAdminWalletTransactions);
+apiRouter.get('/admin/financial-ledger', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.FINANCE_READ), financial_ledger_controller_1.getAdminFinancialLedger);
 apiRouter.get('/admin/promotions', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.PROMOTIONS_READ), admin_controller_1.listAdminPromotions);
 apiRouter.get('/admin/promotions/summary', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.PROMOTIONS_PERFORMANCE_READ), admin_controller_1.getAdminPromotionsSummary);
 apiRouter.get('/admin/referral-rewards', auth_middleware_1.authenticateToken, (0, auth_middleware_1.requireRole)([user_model_1.UserRole.ADMIN]), (0, auth_middleware_1.requireAdminPermission)(user_model_1.AdminPermission.PROMOTIONS_PERFORMANCE_READ), admin_controller_1.listAdminReferralRewards);

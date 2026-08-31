@@ -51,6 +51,7 @@ const notification_model_1 = require("../models/notification.model");
 const audit_service_1 = require("./audit.service");
 const market_finance_guard_service_1 = require("./market-finance-guard.service");
 const promotion_campaign_service_1 = require("./promotion-campaign.service");
+const financial_ledger_service_1 = require("./financial-ledger.service");
 class PaymentWorkflowError extends Error {
     code;
     statusCode;
@@ -145,6 +146,21 @@ const promotionSnapshotsFromTransaction = (transaction) => Array.isArray(transac
     : transaction.metadata?.promotion
         ? [transaction.metadata.promotion]
         : [];
+const paymentLedgerContext = (transaction, booking) => ({
+    bookingId: transaction.bookingId,
+    quoteId: transaction.quoteId ?? null,
+    paymentTransactionId: transaction._id,
+    customerId: transaction.customerId,
+    technicianId: transaction.technicianId ?? booking?.technicianId ?? null,
+    countryCode: booking?.countryCode || String(transaction.metadata?.countryCode || ''),
+    currency: transaction.currency,
+    metadata: {
+        reference: maskReference(transaction.reference),
+        provider: transaction.provider,
+        providerStatus: transaction.providerStatus || '',
+        quoteId: transaction.quoteId?.toString() || null,
+    },
+});
 const initializeBookingPayment = async (input, actor, req) => {
     const booking = await loadBookingForPayment(input.bookingId);
     assertClientCanPay(booking, actor);
@@ -179,6 +195,8 @@ const initializeBookingPayment = async (input, actor, req) => {
         bookingId: booking.id,
         quoteId: quote?._id?.toString() || null,
         customerId: booking.customerId.toString(),
+        technicianId: booking.technicianId?.toString() || null,
+        countryCode: booking.countryCode,
         promotion: booking.metadata?.promotion || null,
         promotions: Array.isArray(booking.metadata?.promotions) ? booking.metadata.promotions : [],
         priceBreakdown: quote?.metadata?.priceBreakdown || booking.metadata?.priceBreakdown || null,
@@ -219,6 +237,15 @@ const initializeBookingPayment = async (input, actor, req) => {
         initializedAt: new Date(),
         idempotencyKey,
         metadata,
+    });
+    await (0, financial_ledger_service_1.recordLedgerEntry)({
+        idempotencyKey: `payment:${transaction.id}:initialized`,
+        entryType: quote ? financial_ledger_service_1.ledgerType.REPAIR_BALANCE_CHARGE_CREATED : financial_ledger_service_1.ledgerType.BOOKING_CALLOUT_CHARGE_CREATED,
+        amountMinor,
+        direction: 'DEBIT',
+        component: quote ? 'PAYMENT' : 'CALLOUT',
+        description: quote ? 'Repair balance checkout initialized' : 'Call-out payment checkout initialized',
+        ...paymentLedgerContext(transaction, booking),
     });
     await booking_model_1.default.updateOne({ _id: booking._id, paymentStatus: { $ne: booking_model_1.BookingPaymentStatus.SECURED } }, {
         $set: {
@@ -312,8 +339,18 @@ const verifyAndSecurePayment = async (reference, req) => {
     const amountMatches = Number(data?.amount) === transaction.amountMinor;
     const currencyMatches = String(data?.currency || '').toUpperCase() === transaction.currency;
     const referenceMatches = String(data?.reference || '') === transaction.reference;
+    const booking = await booking_model_1.default.findById(transaction.bookingId);
     if (providerStatus !== 'success') {
         await markTransactionFailure(transaction, payment_transaction_model_1.PaymentTransactionStatus.FAILED, providerStatus || 'failed');
+        await (0, financial_ledger_service_1.recordLedgerEntry)({
+            idempotencyKey: `payment:${transaction.id}:failed:${providerStatus || 'failed'}`,
+            entryType: financial_ledger_service_1.ledgerType.PAYMENT_FAILED,
+            amountMinor: transaction.amountMinor,
+            direction: 'MEMO',
+            component: 'PAYMENT',
+            description: 'Payment failed',
+            ...paymentLedgerContext(transaction, booking),
+        });
         await booking_model_1.default.updateOne({ _id: transaction.bookingId, paymentStatus: { $ne: booking_model_1.BookingPaymentStatus.SECURED } }, { $set: { paymentStatus: booking_model_1.BookingPaymentStatus.FAILED } });
         req?.app.get('io')?.to(`booking:${transaction.bookingId.toString()}`).emit('payment_failed', {
             bookingId: transaction.bookingId.toString(),
@@ -330,6 +367,15 @@ const verifyAndSecurePayment = async (reference, req) => {
             providerAmount: data?.amount,
             providerCurrency: data?.currency,
             providerReference: data?.reference,
+        });
+        await (0, financial_ledger_service_1.recordLedgerEntry)({
+            idempotencyKey: `payment:${transaction.id}:under-review`,
+            entryType: financial_ledger_service_1.ledgerType.PAYMENT_FAILED,
+            amountMinor: transaction.amountMinor,
+            direction: 'MEMO',
+            component: 'PAYMENT',
+            description: 'Payment moved under review',
+            ...paymentLedgerContext(transaction, booking),
         });
         await booking_model_1.default.updateOne({ _id: transaction.bookingId }, {
             $set: {
@@ -368,7 +414,7 @@ const verifyAndSecurePayment = async (reference, req) => {
         const current = await payment_transaction_model_1.default.findById(transaction._id);
         return { transaction: current || transaction, duplicate: true };
     }
-    const booking = await booking_model_1.default.findOneAndUpdate({
+    const securedBooking = await booking_model_1.default.findOneAndUpdate({
         _id: updatedTransaction.bookingId,
         paymentStatus: { $in: [booking_model_1.BookingPaymentStatus.PENDING, booking_model_1.BookingPaymentStatus.FAILED, booking_model_1.BookingPaymentStatus.UNDER_REVIEW] },
     }, {
@@ -385,12 +431,21 @@ const verifyAndSecurePayment = async (reference, req) => {
             },
         },
     }, { new: true });
-    if (booking) {
-        const eligibility = await (0, inspection_workflow_service_1.evaluateWorkStartEligibility)(booking);
-        await (0, inspection_workflow_service_1.persistWorkStartEligibility)(booking, eligibility);
+    if (securedBooking) {
+        await (0, financial_ledger_service_1.recordLedgerEntry)({
+            idempotencyKey: `payment:${updatedTransaction.id}:success`,
+            entryType: financial_ledger_service_1.ledgerType.PAYMENT_SUCCEEDED,
+            amountMinor: updatedTransaction.amountMinor,
+            direction: 'CREDIT',
+            component: 'PAYMENT',
+            description: 'Payment succeeded',
+            ...paymentLedgerContext(updatedTransaction, securedBooking),
+        });
+        const eligibility = await (0, inspection_workflow_service_1.evaluateWorkStartEligibility)(securedBooking);
+        await (0, inspection_workflow_service_1.persistWorkStartEligibility)(securedBooking, eligibility);
         const io = req?.app.get('io');
-        io?.to(`booking:${booking.id}`).emit('payment_secured', {
-            bookingId: booking.id,
+        io?.to(`booking:${securedBooking.id}`).emit('payment_secured', {
+            bookingId: securedBooking.id,
             status: booking_model_1.BookingPaymentStatus.SECURED,
             amountMinor: updatedTransaction.amountMinor,
             currency: updatedTransaction.currency,
@@ -400,25 +455,25 @@ const verifyAndSecurePayment = async (reference, req) => {
         });
         if (mongoose_1.default.connection.readyState === 1)
             void (async () => {
-                if (booking.technicianId) {
+                if (securedBooking.technicianId) {
                     await (0, notification_service_1.createNotifications)({
-                        userId: booking.technicianId,
+                        userId: securedBooking.technicianId,
                         channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
                         type: 'PAYMENT_SECURED',
                         title: 'Payment secured',
                         message: 'Payment is secured in Padi. You may begin work when all other requirements are met.',
-                        metadata: { bookingId: booking.id, transactionId: updatedTransaction.id },
+                        metadata: { bookingId: securedBooking.id, transactionId: updatedTransaction.id },
                     });
                 }
                 await (0, notification_service_1.createNotifications)({
-                    userId: booking.customerId,
-                    email: booking.customerEmail,
-                    name: booking.customerName,
+                    userId: securedBooking.customerId,
+                    email: securedBooking.customerEmail,
+                    name: securedBooking.customerName,
                     channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
                     type: 'PAYMENT_CONFIRMED',
                     title: 'Payment confirmed',
                     message: 'Payment confirmed. The provider can now begin work.',
-                    metadata: { bookingId: booking.id, transactionId: updatedTransaction.id },
+                    metadata: { bookingId: securedBooking.id, transactionId: updatedTransaction.id },
                 });
             })().catch((notificationError) => {
                 console.warn('Payment secured but notification dispatch failed:', notificationError);
@@ -430,7 +485,7 @@ const verifyAndSecurePayment = async (reference, req) => {
                 resourceType: 'PaymentTransaction',
                 resourceId: updatedTransaction.id,
                 metadata: {
-                    bookingId: booking.id,
+                    bookingId: securedBooking.id,
                     maskedReference: maskReference(updatedTransaction.reference),
                     amountMinor: updatedTransaction.amountMinor,
                     currency: updatedTransaction.currency,
@@ -463,10 +518,20 @@ const processPaystackWebhookPayload = async (payload, rawBody, req) => {
         if (['charge.failed', 'charge.abandoned'].includes(eventType)) {
             const transaction = await payment_transaction_model_1.default.findOne({ provider: payment_transaction_model_1.PaymentProvider.PAYSTACK, reference });
             if (transaction && transaction.status !== payment_transaction_model_1.PaymentTransactionStatus.SUCCESS) {
+                const booking = await booking_model_1.default.findById(transaction.bookingId);
                 transaction.status = eventType === 'charge.abandoned' ? payment_transaction_model_1.PaymentTransactionStatus.ABANDONED : payment_transaction_model_1.PaymentTransactionStatus.FAILED;
                 transaction.providerStatus = String(payload?.data?.status || eventType);
                 transaction.failedAt = new Date();
                 await transaction.save();
+                await (0, financial_ledger_service_1.recordLedgerEntry)({
+                    idempotencyKey: `payment:${transaction.id}:${eventType}`,
+                    entryType: financial_ledger_service_1.ledgerType.PAYMENT_FAILED,
+                    amountMinor: transaction.amountMinor,
+                    direction: 'MEMO',
+                    component: 'PAYMENT',
+                    description: eventType === 'charge.abandoned' ? 'Payment abandoned' : 'Payment failed',
+                    ...paymentLedgerContext(transaction, booking),
+                });
                 const releasedPromotions = await (0, promotion_campaign_service_1.releasePromotionReservations)(promotionSnapshotsFromTransaction(transaction), eventType === 'charge.abandoned' ? 'PAYMENT_ABANDONED' : 'PAYMENT_FAILED');
                 await booking_model_1.default.updateOne({ _id: transaction.bookingId, paymentStatus: { $ne: booking_model_1.BookingPaymentStatus.SECURED } }, {
                     $set: {
@@ -490,8 +555,18 @@ const processPaystackWebhookPayload = async (payload, rawBody, req) => {
         if (['refund.processed', 'charge.reversed'].includes(eventType)) {
             const transaction = await payment_transaction_model_1.default.findOne({ provider: payment_transaction_model_1.PaymentProvider.PAYSTACK, reference });
             if (transaction) {
+                const booking = await booking_model_1.default.findById(transaction.bookingId);
                 const status = eventType === 'refund.processed' ? payment_transaction_model_1.PaymentTransactionStatus.REFUNDED : payment_transaction_model_1.PaymentTransactionStatus.REVERSED;
                 await markTransactionFailure(transaction, status, eventType);
+                await (0, financial_ledger_service_1.recordLedgerEntry)({
+                    idempotencyKey: `payment:${transaction.id}:${eventType}`,
+                    entryType: financial_ledger_service_1.ledgerType.PAYMENT_REVERSED,
+                    amountMinor: transaction.amountMinor,
+                    direction: 'DEBIT',
+                    component: 'PAYMENT',
+                    description: eventType === 'refund.processed' ? 'Payment refunded' : 'Payment reversed',
+                    ...paymentLedgerContext(transaction, booking),
+                });
                 const reversedPromotions = await (0, promotion_campaign_service_1.reverseRedeemedPromotions)(promotionSnapshotsFromTransaction(transaction), eventType === 'refund.processed' ? 'PAYMENT_REFUNDED' : 'PAYMENT_REVERSED');
                 await booking_model_1.default.updateOne({ _id: transaction.bookingId, status: { $nin: [booking_model_1.BookingStatus.IN_PROGRESS, booking_model_1.BookingStatus.COMPLETED] } }, {
                     $set: {

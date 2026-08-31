@@ -47,6 +47,7 @@ const notification_service_1 = require("../services/notification.service");
 const audit_service_1 = require("../services/audit.service");
 const quote_workflow_service_1 = require("../services/quote-workflow.service");
 const price_breakdown_service_1 = require("../services/price-breakdown.service");
+const financial_ledger_service_1 = require("../services/financial-ledger.service");
 const getAuthUser = (request) => request.user;
 const getUserId = (request) => String(getAuthUser(request)?.id ?? getAuthUser(request)?._id ?? '').trim();
 const isOwnerOrAdmin = (booking, userId, role) => role === user_model_1.UserRole.ADMIN || String(booking.customerId) === userId;
@@ -102,6 +103,14 @@ const emitQuoteEvent = (request, event, quote) => {
     const io = request.app.get('io');
     io?.to(`booking:${quote.bookingId.toString()}`).emit(event, serializeQuote(quote));
 };
+const quoteLedgerContext = (booking, quote) => ({
+    bookingId: booking._id,
+    quoteId: quote._id,
+    customerId: booking.customerId,
+    technicianId: booking.technicianId,
+    countryCode: booking.countryCode,
+    currency: booking.currency,
+});
 const defaultExpiry = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 const parseExpiry = (value) => {
     if (!value)
@@ -248,6 +257,34 @@ const createJobQuote = async (request, response) => {
         }
         emitQuoteEvent(request, shouldSubmit ? (version > 1 ? 'quote_revised' : 'quote_submitted') : 'quote_draft_saved', quote);
         if (shouldSubmit) {
+            const creditMinor = typeof priceBreakdown.calloutCreditMinor === 'number' ? priceBreakdown.calloutCreditMinor : 0;
+            await (0, financial_ledger_service_1.recordLedgerEntries)([
+                {
+                    idempotencyKey: `quote:${quote.id}:submitted`,
+                    entryType: financial_ledger_service_1.ledgerType.QUOTE_SUBMITTED,
+                    amountMinor: priceBreakdown.totalBeforeCreditMinor,
+                    direction: 'MEMO',
+                    component: 'MEMO',
+                    description: 'Repair quote submitted',
+                    ...quoteLedgerContext(booking, quote),
+                    metadata: {
+                        quoteNumber: quote.quoteNumber,
+                        amountDueMinor: priceBreakdown.amountDueMinor,
+                        platformCommissionBaseMinor: priceBreakdown.platformCommissionBaseMinor,
+                        platformCommissionMinor: priceBreakdown.platformCommissionMinor,
+                    },
+                },
+                ...(creditMinor > 0 ? [{
+                        idempotencyKey: `quote:${quote.id}:callout-credit`,
+                        entryType: financial_ledger_service_1.ledgerType.CALLOUT_CREDIT_APPLIED,
+                        amountMinor: creditMinor,
+                        direction: 'CREDIT',
+                        component: 'CREDIT',
+                        description: 'Call-out fee credit applied to repair quote',
+                        ...quoteLedgerContext(booking, quote),
+                        metadata: { quoteNumber: quote.quoteNumber },
+                    }] : []),
+            ]);
             await (0, notification_service_1.createNotifications)({
                 userId: booking.customerId,
                 channels: [notification_model_1.NotificationChannel.IN_APP, notification_model_1.NotificationChannel.PUSH],
@@ -341,6 +378,37 @@ const submitJobQuote = async (request, response) => {
         booking.set('workAuthorization.reasonCode', 'QUOTE_NOT_APPROVED');
         booking.set('workAuthorization.evaluatedAt', now);
         await booking.save();
+        const priceBreakdown = quote.metadata?.priceBreakdown && typeof quote.metadata.priceBreakdown === 'object'
+            ? quote.metadata.priceBreakdown
+            : null;
+        const creditMinor = typeof priceBreakdown?.calloutCreditMinor === 'number' ? Math.max(0, Math.round(priceBreakdown.calloutCreditMinor)) : 0;
+        await (0, financial_ledger_service_1.recordLedgerEntries)([
+            {
+                idempotencyKey: `quote:${quote.id}:submitted`,
+                entryType: financial_ledger_service_1.ledgerType.QUOTE_SUBMITTED,
+                amountMinor: typeof priceBreakdown?.totalBeforeCreditMinor === 'number' ? Math.max(0, Math.round(priceBreakdown.totalBeforeCreditMinor)) : quote.totalAmountMinor,
+                direction: 'MEMO',
+                component: 'MEMO',
+                description: 'Repair quote submitted',
+                ...quoteLedgerContext(booking, quote),
+                metadata: {
+                    quoteNumber: quote.quoteNumber || buildQuoteNumber(quote._id, Number(quote.version || 1)),
+                    amountDueMinor: typeof priceBreakdown?.amountDueMinor === 'number' ? Math.max(0, Math.round(priceBreakdown.amountDueMinor)) : quote.totalAmountMinor,
+                    platformCommissionBaseMinor: priceBreakdown?.platformCommissionBaseMinor,
+                    platformCommissionMinor: priceBreakdown?.platformCommissionMinor,
+                },
+            },
+            ...(creditMinor > 0 ? [{
+                    idempotencyKey: `quote:${quote.id}:callout-credit`,
+                    entryType: financial_ledger_service_1.ledgerType.CALLOUT_CREDIT_APPLIED,
+                    amountMinor: creditMinor,
+                    direction: 'CREDIT',
+                    component: 'CREDIT',
+                    description: 'Call-out fee credit applied to repair quote',
+                    ...quoteLedgerContext(booking, quote),
+                    metadata: { quoteNumber: quote.quoteNumber || buildQuoteNumber(quote._id, Number(quote.version || 1)) },
+                }] : []),
+        ]);
         emitQuoteEvent(request, quote.version > 1 ? 'quote_revised' : 'quote_submitted', quote);
         await (0, notification_service_1.createNotifications)({
             userId: booking.customerId,
@@ -446,6 +514,22 @@ const decideJobQuote = async (request, response, decision) => {
         booking.set('workAuthorization.evaluatedAt', now);
         await booking.save();
     }
+    await (0, financial_ledger_service_1.recordLedgerEntry)({
+        idempotencyKey: `quote:${updated.id}:${decision.toLowerCase()}`,
+        entryType: decision === quote_model_1.QuoteStatus.APPROVED ? financial_ledger_service_1.ledgerType.QUOTE_APPROVED : financial_ledger_service_1.ledgerType.QUOTE_REJECTED,
+        amountMinor: typeof updated.metadata?.priceBreakdown === 'object' && typeof updated.metadata.priceBreakdown?.amountDueMinor === 'number'
+            ? Math.max(0, Math.round(updated.metadata.priceBreakdown.amountDueMinor))
+            : updated.totalAmountMinor,
+        direction: 'MEMO',
+        component: 'MEMO',
+        description: decision === quote_model_1.QuoteStatus.APPROVED ? 'Repair quote approved' : 'Repair quote rejected',
+        ...quoteLedgerContext(booking, updated),
+        metadata: {
+            quoteNumber: updated.quoteNumber || buildQuoteNumber(updated._id, Number(updated.version || 1)),
+            version: updated.version,
+            decisionNote: note,
+        },
+    });
     const event = decision === quote_model_1.QuoteStatus.APPROVED ? 'quote_approved' : 'quote_rejected';
     emitQuoteEvent(request, event, updated);
     await (0, notification_service_1.createNotifications)({
